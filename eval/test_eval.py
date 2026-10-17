@@ -22,13 +22,12 @@ class FakeClient:
         self.requests = []
         self.chat = SimpleNamespace(completions=SimpleNamespace(create=self._create))
 
-    def _create(self, **kwargs):
+    async def _create(self, **kwargs):
         self.requests.append(kwargs)
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
-        choice = SimpleNamespace(finish_reason="stop")
-        return SimpleNamespace(text=json.dumps(answer), finish_reason=choice.finish_reason,
+        return SimpleNamespace(text=json.dumps(answer), finish_reason="stop", request_id=None,
                                usage=SimpleNamespace(prompt_tokens=2000, completion_tokens=50))
 
 
@@ -54,13 +53,17 @@ def image(tmp):
     return path
 
 
+def adapter_with(client):
+    return vision.adapter.PerceptronVision(client=client, limiter=vision.adapter.CallLimiter(100, 0))
+
+
 def make_guard(tmp, max_calls=10, max_total=100):
     return vision.CallGuard(max_calls=max_calls, cooldown=0, budget_file=tmp / "budget.json", max_total=max_total)
 
 
 def test_request_has_schema_refs_and_no_expected_quantities(tmp, image):
     client = FakeClient([answer(fries=1, ranch_cup=2)])
-    result = vision.check_order(client, make_guard(tmp), image, ["fries", "ranch_cup"], MENU)
+    result = vision.check_order(adapter_with(client), make_guard(tmp), image, ["fries", "ranch_cup"], MENU)
     assert result.ok
     req = client.requests[0]
     assert (req["response_format"]["json_schema"]["schema"]["properties"]["items"]["items"]
@@ -73,7 +76,7 @@ def test_request_has_schema_refs_and_no_expected_quantities(tmp, image):
 
 def test_names_only_sends_just_the_order_photo(tmp, image):
     client = FakeClient([answer(fries=1, ranch_cup=1)])
-    vision.check_order(client, make_guard(tmp), image, ["fries", "ranch_cup"], MENU, use_references=False)
+    vision.check_order(adapter_with(client), make_guard(tmp), image, ["fries", "ranch_cup"], MENU, use_references=False)
     images = [p for p in client.requests[0]["messages"][0]["content"] if p["type"] == "image_url"]
     assert len(images) == 1
 
@@ -100,7 +103,7 @@ def test_invalid_answers_are_rejected():
 
 def test_api_error_is_recorded_not_raised(tmp, image):
     client = FakeClient([RuntimeError("401 bad key")])
-    result = vision.check_order(client, make_guard(tmp), image, ["fries"], MENU)
+    result = vision.check_order(adapter_with(client), make_guard(tmp), image, ["fries"], MENU)
     assert not result.ok
     assert "bad key" in result.error
 

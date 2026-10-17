@@ -1,9 +1,12 @@
-"""Perceptron request layer for the T1-T3 go/no-go tests.
+"""Eval glue for the T1-T3 go/no-go tests.
 
-One call per check: the order photo, plus reference photos for only the items
-on that ticket, with a JSON schema answer. A cooldown and a hard call cap stop
-a bug from burning the credits. Kept small so Roy's backend adapter can copy it.
+The request, prompt and answer parsing live in the app's Perceptron adapter
+(apps/api/fullfill/adapters/vision/perceptron.py), and verdicts come from
+fullfill.domain.compare_order, so the eval measures exactly what the app runs.
+This file adds what only the eval needs: photos from disk, a persistent call
+budget, and plain dict results for scoring.
 """
+import asyncio
 import base64
 import json
 import os
@@ -12,11 +15,22 @@ from dataclasses import dataclass, field
 from pathlib import Path
 
 import cv2
+from fullfill.adapters.vision import perceptron as adapter
+from fullfill.domain.compare_order import compare_order
+from fullfill_contracts.orders import OrderLine, OrderSnapshot
+from fullfill_contracts.vision import (
+    ImageInput,
+    Observations,
+    ReferenceImage,
+    TargetObservation,
+    UnexpectedItem,
+    VerificationTarget,
+    VisionInput,
+)
 
 import config
 
-PROMPT_FILE = Path(__file__).with_name("prompt_v1.txt")
-PROMPT_VERSION = PROMPT_FILE.stem
+PROMPT_VERSION = adapter.PROMPT_VERSION
 BUDGET_FILE = config.LOG_DIR / "eval" / "call_budget.json"
 
 # Mk1.5 list prices, dollars per million tokens.
@@ -74,6 +88,11 @@ class CallGuard:
 
 def encode_image(path, max_side):
     """Downscale to max_side and return a JPEG data URL."""
+    return "data:image/jpeg;base64," + base64.b64encode(jpeg_bytes(path, max_side)).decode()
+
+
+def jpeg_bytes(path, max_side):
+    """Downscale to max_side and return JPEG bytes."""
     img = cv2.imread(str(path))
     if img is None:
         raise FileNotFoundError(f"can't read image {path}")
@@ -84,7 +103,7 @@ def encode_image(path, max_side):
     ok, buf = cv2.imencode(".jpg", img, [cv2.IMWRITE_JPEG_QUALITY, config.JPEG_QUALITY])
     if not ok:
         raise ValueError(f"can't encode image {path}")
-    return "data:image/jpeg;base64," + base64.b64encode(buf.tobytes()).decode()
+    return buf.tobytes()
 
 
 def reference_photos(item_id, limit):
@@ -93,67 +112,39 @@ def reference_photos(item_id, limit):
     return photos[:limit]
 
 
-def response_schema(item_ids):
-    return {
-        "type": "json_schema",
-        "json_schema": {
-            "name": "order_check",
-            "strict": True,
-            "schema": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["items", "unexpected_items"],
-                "properties": {
-                    "items": {
-                        "type": "array",
-                        "items": {
-                            "type": "object",
-                            "additionalProperties": False,
-                            "required": ["item_id", "status", "count", "label_text"],
-                            "properties": {
-                                "item_id": {"type": "string", "enum": list(item_ids)},
-                                "status": {"type": "string", "enum": list(config.ITEM_STATUSES)},
-                                "count": {"type": ["integer", "null"], "minimum": 0},
-                                "label_text": {"type": ["string", "null"]},
-                            },
-                        },
-                    },
-                    "unexpected_items": {"type": "array", "items": {"type": "string"}},
-                },
-            },
-        },
-    }
+def make_target(item_id, menu):
+    """Menu entries may set "label": ["C"] to require a readable label for that item."""
+    item = menu[item_id]
+    labels = item.get("label") or []
+    name = item["name"] + (f" ({item['description']})" if item.get("description") else "")
+    # expected_quantity is required by the contract but never sent to the model.
+    return VerificationTarget(target_id=item_id, line_ids=[item_id], item_id=item_id, name=name,
+                              expected_quantity=1, verification_mode="label" if labels else "visible_item",
+                              label_aliases=list(labels))
 
 
-def build_messages(image_path, item_ids, menu, use_references, refs_per_item):
-    """The order photo comes last; each reference is labeled with its item id.
-
-    Expected quantities are not sent, so the model counts instead of agreeing.
-    """
-    content = []
-    n_refs = 0
+def build_request(image_path, item_ids, menu, use_references, refs_per_item):
+    refs = []
     if use_references:
         for item_id in item_ids:
             for ref in reference_photos(item_id, refs_per_item):
-                content.append({"type": "text", "text": f"Reference photo of {item_id} ({menu[item_id]['name']}):"})
-                content.append({"type": "image_url", "image_url": {"url": encode_image(ref, REFERENCE_MAX_SIDE)}})
-                n_refs += 1
-    lines = []
-    for item_id in item_ids:
-        item = menu[item_id]
-        desc = f" - {item['description']}" if item.get("description") else ""
-        lines.append(f"- {item_id}: {item['name']}{desc}")
-    content.append({"type": "text", "text": "Order photo:"})
-    content.append({"type": "image_url", "image_url": {"url": encode_image(image_path, config.UPLOAD_MAX_SIDE)}})
-    content.append({"type": "text", "text": PROMPT_FILE.read_text().format(items="\n".join(lines))})
-    return [{"role": "user", "content": content}], n_refs
+                image = ImageInput(jpeg_bytes(ref, REFERENCE_MAX_SIDE), "image/jpeg")
+                refs.append(ReferenceImage(item_id=item_id, revision=1, image=image))
+    image = ImageInput(jpeg_bytes(image_path, config.UPLOAD_MAX_SIDE), "image/jpeg")
+    return VisionInput(capture_id=str(image_path), image=image,
+                       targets=tuple(make_target(i, menu) for i in item_ids), references=tuple(refs))
+
+
+def build_messages(image_path, item_ids, menu, use_references, refs_per_item):
+    request = build_request(image_path, item_ids, menu, use_references, refs_per_item)
+    return adapter.build_messages(request), len(request.references)
 
 
 @dataclass
 class CheckResult:
     ok: bool
     latency_s: float
-    items: dict = field(default_factory=dict)        # item_id -> {"status", "count", "label_text"}
+    items: dict = field(default_factory=dict)        # item_id -> {"status", "count", "label_text", "reason"}
     unexpected: list = field(default_factory=list)
     error: str | None = None
     raw: str | None = None
@@ -168,86 +159,70 @@ class CheckResult:
         return (self.prompt_tokens * INPUT_PRICE + self.completion_tokens * OUTPUT_PRICE) / 1e6
 
 
-def parse_answer(text, item_ids):
-    """Validate the model's JSON against the requested items. Raises ValueError."""
-    data = json.loads(text)
-    items = {}
-    for entry in data["items"]:
-        item_id = entry["item_id"]
-        if item_id not in item_ids:
-            raise ValueError(f"unknown item_id {item_id!r}")
-        if item_id in items:
-            raise ValueError(f"duplicate item_id {item_id!r}")
-        if entry["status"] not in config.ITEM_STATUSES:
-            raise ValueError(f"bad status {entry['status']!r}")
-        count = entry["count"]
-        if count is not None and (not isinstance(count, int) or count < 0):
-            raise ValueError(f"bad count {count!r} for {item_id}")
-        items[item_id] = {"status": entry["status"], "count": count, "label_text": entry.get("label_text")}
-    missing = set(item_ids) - set(items)
-    if missing:
-        raise ValueError(f"answer left out {sorted(missing)}")
-    return items, list(data.get("unexpected_items") or [])
+def to_items(observations):
+    return {o.target_id: {"status": o.status, "count": o.observed_quantity, "label_text": o.label_text,
+                          "reason": o.reason} for o in observations.targets}
 
 
-def make_client():
-    from perceptron import Client
+def parse_answer(text, item_ids, menu=None):
+    """The adapter's answer validation, returning plain dicts. Raises ValueError."""
+    menu = menu or {i: {"name": i} for i in item_ids}
+    request = VisionInput(capture_id="parse", image=ImageInput(b"", "image/jpeg"),
+                          targets=tuple(make_target(i, menu) for i in item_ids), references=())
+    try:
+        targets, unexpected = adapter.parse_answer(text, request)
+    except adapter.VisionProviderError as exc:
+        raise ValueError(str(exc)) from exc
+    return to_items(Observations(capture_id="parse", targets=targets)), unexpected
 
+
+def make_client(model=None):
     if not config.PERCEPTRON_API_KEY:
         raise SystemExit("Set PERCEPTRON_API_KEY in your environment or the untracked .env file.")
-    return Client(api_key=config.PERCEPTRON_API_KEY, timeout=config.REQUEST_TIMEOUT_SECONDS)
+    # The eval's CallGuard does the cooldown and caps; the adapter's own limiter just mustn't interfere.
+    return adapter.PerceptronVision(
+        config.PERCEPTRON_API_KEY, model=model or config.PERCEPTRON_MODEL or None,
+        max_output_tokens=config.MAX_OUTPUT_TOKENS, timeout_s=config.REQUEST_TIMEOUT_SECONDS,
+        limiter=adapter.CallLimiter(max_calls=10_000, cooldown_s=0))
 
 
-def check_order(client, guard, image_path, item_ids, menu, use_references=True, refs_per_item=1,
-                model=None):
-    """Run one Perceptron check. Never raises for API or parse failures; those come back as ok=False."""
-    messages, n_refs = build_messages(image_path, item_ids, menu, use_references, refs_per_item)
+def check_order(vision, guard, image_path, item_ids, menu, use_references=True, refs_per_item=1, model=None):
+    """Run one check through the app's adapter. API and parse failures come back as ok=False."""
+    request = build_request(image_path, item_ids, menu, use_references, refs_per_item)
+    n_refs = len(request.references)
+    if model:
+        vision.model = model
     guard.acquire()
     start = time.perf_counter()
     try:
-        completion = client.chat.completions.create(
-            model=model or config.PERCEPTRON_MODEL or "perceptron-mk1.5",
-            messages=messages,
-            response_format=response_schema(item_ids),
-            max_completion_tokens=config.MAX_OUTPUT_TOKENS,
-            temperature=0,
-            reasoning_effort=None if config.USE_REASONING else "none",
-        )
-    except Exception as exc:  # the SDK raises SDKError subclasses; record and move on
-        return CheckResult(ok=False, latency_s=time.perf_counter() - start, n_references=n_refs,
-                           error=f"{type(exc).__name__}: {exc}")
+        observations = asyncio.run(vision.inspect(request))
+    except adapter.VisionProviderError as exc:
+        return CheckResult(ok=False, latency_s=time.perf_counter() - start, n_references=n_refs, error=str(exc))
     latency = time.perf_counter() - start
-    usage = completion.usage
-    result = CheckResult(ok=False, latency_s=latency, raw=completion.text, n_references=n_refs,
-                         prompt_tokens=usage.prompt_tokens if usage else None,
-                         completion_tokens=usage.completion_tokens if usage else None)
-    if completion.finish_reason != "stop":
-        result.error = f"finish_reason={completion.finish_reason}"
-        return result
-    try:
-        result.items, result.unexpected = parse_answer(completion.text or "", item_ids)
-    except (ValueError, KeyError, TypeError) as exc:
-        result.error = f"invalid answer: {exc}"
-        return result
-    result.ok = True
-    return result
+    provider = observations.provider
+    return CheckResult(ok=True, latency_s=latency, items=to_items(observations),
+                       unexpected=[u.name for u in observations.unexpected_items],
+                       raw=observations.model_dump_json(), n_references=n_refs,
+                       prompt_tokens=provider.prompt_tokens if provider else None,
+                       completion_tokens=provider.completion_tokens if provider else None)
+
+
+COLORS = {"pass": "green", "fail": "red", "unsure": "amber"}
 
 
 def verdict(order, result):
-    """green / amber / red for an order {item_id: quantity}, the way the station screen would show it.
+    """green / red / amber from the app's own decision rules; "error" if the call failed.
 
-    A definite count mismatch is red. Anything unsure, unreadable, or unexpected is amber.
-    A failed call is "error": it never counts as a pass.
+    order is {item_id: quantity}.
     """
     if not result.ok:
         return "error"
-    red = amber = False
-    for item_id, expected in order.items():
-        seen = result.items[item_id]
-        if seen["status"] == "unsure" or seen["count"] is None:
-            amber = True
-        elif seen["count"] != expected:
-            red = True
+    snapshot = OrderSnapshot(order_id="eval", revision=1, lines=[
+        OrderLine(line_id=i, item_id=i, name=i, quantity=q) for i, q in order.items()])
+    observations = Observations(capture_id="eval", targets=[
+        TargetObservation(target_id=i, status=seen["status"], observed_quantity=seen["count"],
+                          reason=seen.get("reason"), label_text=seen.get("label_text"))
+        for i, seen in result.items.items() if i in order])
     if result.unexpected:
-        amber = True
-    return "red" if red else "amber" if amber else "green"
+        observations.unexpected_items.extend(UnexpectedItem(name=n) for n in result.unexpected)
+    return COLORS[compare_order(snapshot, observations).verdict]

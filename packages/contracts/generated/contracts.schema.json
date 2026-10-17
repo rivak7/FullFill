@@ -595,6 +595,17 @@
           "title": "Capture Id",
           "type": "string"
         },
+        "provider": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/ProviderMetadata"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "scene_uncertainty": {
           "anyOf": [
             {
@@ -832,6 +843,72 @@
       "title": "OverrideRequest",
       "type": "object"
     },
+    "ProviderMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "completion_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completion Tokens"
+        },
+        "latency_ms": {
+          "minimum": 0,
+          "title": "Latency Ms",
+          "type": "integer"
+        },
+        "model": {
+          "title": "Model",
+          "type": "string"
+        },
+        "prompt_tokens": {
+          "anyOf": [
+            {
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Prompt Tokens"
+        },
+        "prompt_version": {
+          "title": "Prompt Version",
+          "type": "string"
+        },
+        "provider": {
+          "title": "Provider",
+          "type": "string"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        }
+      },
+      "required": [
+        "provider",
+        "model",
+        "prompt_version",
+        "latency_ms"
+      ],
+      "title": "ProviderMetadata",
+      "type": "object"
+    },
     "ReferenceSet": {
       "additionalProperties": false,
       "properties": {
@@ -962,6 +1039,18 @@
     "TargetObservation": {
       "additionalProperties": false,
       "properties": {
+        "label_text": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Label Text"
+        },
         "observed_quantity": {
           "anyOf": [
             {
@@ -1048,6 +1137,13 @@
           "minLength": 1,
           "title": "Item Id",
           "type": "string"
+        },
+        "label_aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Label Aliases",
+          "type": "array"
         },
         "line_ids": {
           "items": {

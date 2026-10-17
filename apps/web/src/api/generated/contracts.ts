@@ -59,12 +59,20 @@ export type Kind1 = "error" | "override" | "shift_summary";
 export type Message1 = string;
 export type NotificationId = string;
 export type CaptureId3 = string;
+export type CompletionTokens = number | null;
+export type LatencyMs = number;
+export type Model = string;
+export type PromptTokens = number | null;
+export type PromptVersion = string;
+export type Provider = string;
+export type RequestId2 = string | null;
 export type SceneUncertainty = string | null;
 export type SchemaVersion3 = 1;
 /**
  * @minItems 1
  */
 export type Targets = [TargetObservation, ...TargetObservation[]];
+export type LabelText = string | null;
 export type ObservedQuantity1 = number | null;
 export type Reason = string | null;
 export type Status1 = "present" | "missing" | "unsure";
@@ -109,6 +117,7 @@ export type SchemaVersion6 = 1;
 export type StationId4 = string;
 export type ExpectedQuantity1 = number;
 export type ItemId3 = string;
+export type LabelAliases1 = string[];
 /**
  * @minItems 1
  */
@@ -229,12 +238,23 @@ export interface Notification {
 }
 export interface Observations {
   capture_id: CaptureId3;
+  provider?: ProviderMetadata | null;
   scene_uncertainty?: SceneUncertainty;
   schema_version?: SchemaVersion3;
   targets: Targets;
   unexpected_items?: UnexpectedItems;
 }
+export interface ProviderMetadata {
+  completion_tokens?: CompletionTokens;
+  latency_ms: LatencyMs;
+  model: Model;
+  prompt_tokens?: PromptTokens;
+  prompt_version: PromptVersion;
+  provider: Provider;
+  request_id?: RequestId2;
+}
 export interface TargetObservation {
+  label_text?: LabelText;
   observed_quantity?: ObservedQuantity1;
   reason?: Reason;
   status: Status1;
@@ -293,6 +313,7 @@ export interface StationSnapshot {
 export interface VerificationTarget {
   expected_quantity: ExpectedQuantity1;
   item_id: ItemId3;
+  label_aliases?: LabelAliases1;
   line_ids: LineIds1;
   name: Name3;
   target_id: TargetId2;

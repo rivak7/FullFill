@@ -10,12 +10,14 @@ import sys
 import time
 from pathlib import Path
 
+from perceptron import Client
+
 import config
 from eval import vision
 
 MENU = {
-    "chicken_burrito": {"name": "Chicken burrito", "description": "red checkered paper wrap, marked C in marker"},
-    "steak_burrito": {"name": "Steak burrito", "description": "red checkered paper wrap, marked S in marker"},
+    "chicken_burrito": {"name": "Chicken burrito", "description": "red checkered paper wrap", "label": ["C"]},
+    "steak_burrito": {"name": "Steak burrito", "description": "red checkered paper wrap", "label": ["S"]},
 }
 OPEN_QUESTION = ("List each food item you can see on the brown cardboard, and read out exactly any handwritten "
                  "letters or words on it. Ignore the chair and the table.")
@@ -40,13 +42,14 @@ def main():
         sys.exit(__doc__)
     image = Path(sys.argv[1])
     client = vision.make_client()
+    raw = Client(api_key=config.PERCEPTRON_API_KEY, timeout=config.REQUEST_TIMEOUT_SECONDS)
     guard = vision.CallGuard(max_calls=3)
     model = config.PERCEPTRON_MODEL or "perceptron-mk1.5"
 
     guard.acquire()
     start = time.perf_counter()
     try:
-        completion = client.chat.completions.create(
+        completion = raw.chat.completions.create(
             model=model,
             messages=[{"role": "user", "content": [
                 {"type": "image_url", "image_url": {"url": vision.encode_image(image, config.UPLOAD_MAX_SIDE)}},

@@ -17,9 +17,10 @@ contracts:
 	npm --prefix apps/web run generate:contracts
 
 check:
-	$(UV) run --no-sync ruff check apps/api apps/capture packages/contracts scripts
-	$(UV) run --no-sync ruff format --check apps/api apps/capture packages/contracts scripts
+	$(UV) run --no-sync ruff check apps/api apps/capture packages/contracts scripts tests
+	$(UV) run --no-sync ruff format --check apps/api apps/capture packages/contracts scripts tests
 	$(UV) run --no-sync python -m compileall -q apps/api/fullfill apps/capture/fullfill_capture packages/contracts/fullfill_contracts scripts
+	$(UV) run --no-sync pytest -q tests
 	$(MAKE) contracts
 	git diff --exit-code -- packages/contracts/generated apps/web/src/api/generated
 	npm --prefix apps/web run build

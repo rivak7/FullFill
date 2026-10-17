@@ -6,8 +6,8 @@
     "bbq_cup": {"name": "BBQ cup", "description": "2 oz clear lidded cup, dark brown sauce"},
     "coke": {"name": "Coke can", "description": "red 12 oz can"},
     "sprite": {"name": "Sprite can", "description": "green 12 oz can"},
-    "cheeseburger_box": {"name": "Cheeseburger", "description": "white clamshell marked CB"},
-    "veggie_box": {"name": "Veggie burger", "description": "white clamshell marked VB"}
+    "cheeseburger_box": {"name": "Cheeseburger", "description": "white clamshell", "label": ["CB"]},
+    "veggie_box": {"name": "Veggie burger", "description": "white clamshell", "label": ["VB"]}
   },
   "cases": [
     {"id": "t1_01", "test": "t1", "image": "eval/photos/t1_01.jpg",
