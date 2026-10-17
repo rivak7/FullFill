@@ -174,34 +174,50 @@ Bind local components to localhost initially and keep API credentials server-sid
 
 ## Repository structure and independent work
 
+For three people, split ownership by component so each person mostly edits separate files. A, B, and C are proposed work areas the team can assign according to interest.
+
+| Person | Owns | First deliverable |
+| --- | --- | --- |
+| A — Frontend | Station screen, order checklist, setup/reference-photo screens, API client | A working screen using fake orders and results |
+| B — Backend | API routes, orders/menu storage, check workflow, decision rules, result events | A complete check using a fake vision provider |
+| C — Camera and vision | Camera capture, QR decoding, image preparation, vision adapter, accuracy evaluation | A saved photo producing validated observations, followed by live capture |
+
 ```text
 apps/
-  web/                       # React UI and generated API client
+  web/                       # A: React UI and generated API client
   api/fullfill/
-    http/                    # Routes, SSE, error translation
-    application/             # Check orchestration and use cases
-    domain/                  # Decision rules and state transitions
-    ports/                   # Vision, repositories, assets, notifier interfaces
+    http/                    # B: Routes, SSE, error translation
+    application/             # B: Check orchestration and use cases
+    domain/                  # B: Decision rules and state transitions
+    ports/                   # B maintains; agree interfaces with consumers
     adapters/
-      vision/                # fake.py, perceptron.py, later providers
-      orders/                # mock.py, later POS/webhook translation
-      notifications/         # console.py, photon.py
-      persistence/           # SQLite repositories and local assets
-    bootstrap.py             # Adapter selection and dependency wiring
-  capture/                   # OpenCV camera and image replay implementations
-  photon_bridge/             # Optional, only if a TypeScript runtime is needed
+      vision/                # C: Fake and real vision providers
+      orders/                # B: Mock orders and later POS translation
+      notifications/         # B: Add real delivery after the core flow
+      persistence/           # B: SQLite repositories and local assets
+    bootstrap.py             # B: Adapter selection and dependency wiring
+  capture/                   # C: OpenCV camera and image replay
+  photon_bridge/             # B: Optional TypeScript bridge
 packages/
-  contracts/                 # Python wire models and generated schemas
-fixtures/                    # Sanitized orders, images, observations, events
-eval/                        # Dataset manifest and comparison runner
-tests/                       # Contracts, decision rules, full workflow
+  contracts/                 # Agree together; B maintains schemas
+fixtures/                    # Everyone: Sanitized examples for their component
+eval/                        # C: Dataset manifest and comparison runner
+tests/                       # Each person tests their component and contracts
 docs/
   system-design.md
 ```
 
-These are proposed folders, not an implemented scaffold. The group can choose ownership by component without carrying over the plan's named assignments. Useful independent work packages are UI/setup, camera/replay, core API/workflow, vision/evaluation, and optional notifications. For three people, combine adjacent packages according to interest; do not create a separate service merely to assign it to someone.
+These are proposed folders, not an implemented scaffold. With a fourth person, split camera capture from vision/evaluation into separate work areas. Component ownership does not require a separate server for each person.
 
-Each package should ship its contract examples and a runnable demonstration using fakes. The UI can consume fixture events, the workflow can use fake vision, and the vision/evaluation package can operate on saved captures. Integrations should require changes only to their adapter, configuration, and adapter-specific tests unless their capabilities change the product contract.
+Before splitting up, agree on four contracts together: the camera upload, the order with quantities, the vision observations, and the result sent to the UI. Save example payloads alongside their schemas. B maintains the shared definitions; changes affecting another component are discussed with its owner before merging.
+
+Each work area should ship a runnable demonstration using fakes. A uses sample API responses and events without waiting for the backend. B uses fake observations without waiting for the real vision provider. C uses saved images without waiting for the UI or live camera. All three validate against the same contracts.
+
+Use one component branch per work area and small pull requests into `main`. Component owners review changes touching their areas; shared contract changes also need review from the affected consumers. Include matching schema, fixture, and client updates when a contract changes. Each contributor adds meaningful tests for their component, while B coordinates the initial complete workflow and shared checks.
+
+Integrate early with image replay, fake vision, the backend, and the UI. Replace replay and fake vision with real capture and inference independently, keeping the complete flow working after each merge. B coordinates the initial integration, and each owner remains responsible for their component working through the agreed interface.
+
+Integrations should require changes only to their adapter, configuration, and adapter-specific tests unless their capabilities change the product contract.
 
 | Replacement | Expected change |
 | --- | --- |
