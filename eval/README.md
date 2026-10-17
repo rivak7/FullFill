@@ -11,7 +11,7 @@ The key is read from `PERCEPTRON_API_KEY`, either exported in the shell or in th
 ```sh
 export PERCEPTRON_API_KEY=ak....
 pip install -r requirements.txt
-python -m unittest eval.test_eval     # offline, spends nothing
+python -m pytest eval/test_eval.py # offline, spends nothing
 ```
 
 ## Quick smoke test (3 calls)
