@@ -14,6 +14,16 @@ pip install -r requirements.txt
 python -m unittest eval.test_eval     # offline, spends nothing
 ```
 
+## Quick smoke test (3 calls)
+
+Before T1, check that Perceptron sees one item and reads its marker label:
+
+```sh
+python -m eval.smoke path/to/burrito.png
+```
+
+It asks an open question with no hints, then runs the real order-check request for one chicken burrito marked C, then checks it against a lookalike steak burrito marked S. No reference photos or manifest needed.
+
 ## 2. Photos
 
 ```sh
