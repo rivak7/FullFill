@@ -4,27 +4,74 @@
 
 FullFill helps restaurant staff check that an order has the right items before it leaves. A phone points at a packing mat, and a web page on a MacBook shows the result. **Perceptron is the AI that looks at the photos.** FullFill manages the orders and decides whether what Perceptron sees matches what was ordered.
 
+During setup, the restaurant photographs its menu items using the station camera and gives each one a name. These become the **reference photos**: examples showing what that restaurant's ranch cup, fries, or drink looks like. We send the relevant examples with each check; we are not training a new model. Adding a menu item means adding its name and photos to this library.
+
+FullFill also needs a digital list of what each order contains. We start with sample orders for the demo; later, an order-system connection can supply real ones. The ticket's QR code identifies which saved order to use, so Perceptron does not have to read the whole receipt to discover what was ordered.
+
 Here is what happens during a check:
 
-1. A worker places the items and order ticket on the mat.
-2. The camera takes a photo when the scene is still and reads the ticket's QR code to find the order.
-3. FullFill sends the photo and example photos of the relevant menu items to Perceptron. The restaurant adds those example photos during setup.
-4. Perceptron reports the visible items, their quantities, and anything it cannot confidently identify.
-5. FullFill compares that information with the order. The screen shows green when everything required is confirmed, red for a definite mismatch, or amber when a person needs to check something. A connection or processing failure is shown separately.
+1. A worker places one order's items and ticket on the mat, with the items spread out so they can be seen.
+2. The camera waits for the scene to settle, takes a photo, and reads the QR code. If it cannot identify the ticket, the worker selects the order on screen.
+3. The backend finds the saved order and sends Perceptron the captured image plus reference photos for the relevant items. The live camera preview stays local; we send individual check photos to Perceptron.
+4. Perceptron reports the visible items, their quantities, and anything it cannot confidently identify. The backend compares these observations with the required quantities.
+5. The screen updates: **green** means the required visible or labeled items match, **red** means a definite mismatch, and **amber** means a person needs to check something. A connection or processing failure is shown separately and cannot count as a successful check.
 
-For example, an order needs two ranch cups, but the photo clearly shows only one. The screen says “Missing: one ranch cup.” The worker adds the cup and presses Recheck. If a cup is hidden or the photo is unclear, the system asks for a clearer view instead of assuming it is missing. It checks visible items and labels; it cannot confirm what is inside a closed container.
+For example, an order needs two ranch cups, but the photo clearly shows only one. Perceptron supplies the observation “one ranch cup”; FullFill calculates that one is missing. The worker adds the cup, lays the order out again if needed, and presses Recheck. If a cup might be hidden or the image is unclear, the system asks for a clearer view instead of assuming it is missing. It checks visible items and labels; it cannot confirm what is inside a closed container.
+
+Each result belongs to a particular order and photo. The screen keeps that photo beside the result, even if the worker has started bagging. An unresolved red warning stays attached to the order when the mat clears. An old response cannot replace a newer check, and a worker's manual acceptance is recorded separately from an AI-assisted pass.
 
 The code has three main parts:
 
 | Part | In everyday terms |
 | --- | --- |
-| Camera program | Takes usable photos and identifies the ticket. |
-| Backend | The coordinator: stores orders and example photos, talks to Perceptron, compares quantities, and saves results. |
-| Web screen | Shows the worker what is happening and provides setup, recheck, and manual confirmation controls. |
+| Camera program | Handles the phone feed, decides when to take a photo, prepares the image, and identifies the ticket. |
+| Backend | The coordinator: stores orders and reference photos, asks Perceptron to inspect an image, compares quantities, and keeps check history. |
+| Web screen | Shows the queue, live preview, captured evidence, and results. It also provides menu setup, recheck, and manual acceptance controls. |
 
-All three run on the MacBook; Perceptron runs in the cloud. Optional manager messages are sent separately, so a messaging problem does not hold up the check.
+All three run on the MacBook, with the screen opened in a browser. Perceptron runs in the cloud, so real image checks need an internet connection. Orders, reference photos, and results are stored locally; check photos are kept for a limited period. Optional manager messages are sent separately, so a messaging problem does not hold up the check.
 
-This separation also lets the team work independently: one person builds the screens, one builds the backend, and one builds camera capture and the Perceptron connection. They agree on the information passed between their parts and use example data while the other parts are being built. Connections to Perceptron, restaurant order systems, and messaging services each live in a small module called an **adapter**, which keeps changes to one integration contained.
+This separation lets the team work independently: one person builds the screens, one builds the backend, and one builds camera capture and the Perceptron connection. They agree on the information passed between their parts. For example, the screen developer can use a sample “missing ranch cup” result while the camera developer works with saved photos.
+
+Connections to Perceptron, restaurant order systems, and messaging services each live in a small module called an **adapter**. An adapter translates a service's inputs and outputs into FullFill's agreed format. If a provider changes its API, its adapter handles that change while the screen and order-comparison logic keep using the same format.
+
+## Project architecture in plain language
+
+The project lives in one repository and runs as a camera program, a backend program, and a browser screen. The backend is the central connection point: the camera sends it photos, the screen sends it worker actions, and it coordinates storage and Perceptron requests.
+
+```mermaid
+flowchart LR
+    Phone[Phone camera] --> Camera
+    subgraph Mac[MacBook]
+        Camera[Camera program] -->|Photo and ticket ID| Backend[Backend program]
+        Screen[Browser screen] -->|Check and setup requests| Backend
+        Backend -->|Progress and results| Screen
+        Backend <--> Storage[(Orders, references, and history)]
+        Backend <--> Adapter[Perceptron adapter inside backend]
+    end
+    Adapter -->|Photo and reference images| Perceptron[Perceptron cloud]
+    Perceptron -->|Items, quantities, and uncertainty| Adapter
+```
+
+The Perceptron adapter is a module inside the backend, so it starts with the backend. Optional manager alerts also start from the backend after a result is saved. The local camera feed and stored orders stay available when the internet drops. New Perceptron checks are unavailable until connectivity returns; workers can record manual acceptance separately.
+
+The proposed code areas follow those boundaries:
+
+| Code area | What belongs there | Main owner |
+| --- | --- | --- |
+| `apps/web/` | Everything the worker sees and clicks: station screen, order queue, and menu setup | Frontend person |
+| `apps/capture/` | Camera access, stillness detection, QR reading, image preparation, and preview | Camera/vision person |
+| `apps/api/fullfill/` | Orders, check coordination, comparison rules, saved results, and API routes | Backend person |
+| `apps/api/fullfill/adapters/vision/` | Perceptron prompts, requests, and response validation | Camera/vision person |
+| `packages/contracts/` | Shared definitions of an order, capture, observation, and result | Agreed together; backend person maintains |
+| `fixtures/` and `eval/` | Example data for independent development and labeled photos for measuring accuracy | Everyone contributes; camera/vision person owns evaluation |
+
+Inside the backend, separate code by its job. **Routes** receive requests, **application services** coordinate the steps of a check, **decision rules** compare expected and observed items, and **adapters** handle Perceptron, storage, and messaging. This lets someone change a prompt without editing the comparison rules, or redesign the screen without editing camera code.
+
+The connections are equally explicit. The camera and screen use the backend's **API**, an agreed set of requests and responses. The screen also receives a stream of progress updates. Backend modules call each other through small functions with agreed inputs and outputs. Only backend storage code accesses the database; the screen receives results through the API.
+
+For example, the camera sends “here is capture 17 for order 4127.” The backend retrieves that order, asks Perceptron to inspect the image, and saves the comparison. The screen receives “check 23 found one missing ranch cup.” Each part knows only the information needed for its job, which is what allows teammates to build and test their parts separately.
+
+The [detailed repository scaffold](#repository-structure-and-independent-work) below maps these areas to individual files and development commands.
 
 ## Technical approach
 
