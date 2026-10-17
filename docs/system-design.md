@@ -1,6 +1,8 @@
 # FullFill system design proposal
 
-**Main document: [order-checker.md](../order-checker.md).** It owns the product requirements, scope, workflow, team assignments, and acceptance targets. This document explains how to implement that plan with separate code modules and replaceable integrations. If the documents disagree, follow `order-checker.md` and update this design. Python **3.13** remains the agreed runtime for all Python components. The scaffold below is a proposal, not a claim that these components are already implemented.
+**Main document: [order-checker.md](../order-checker.md).** It owns the product requirements, scope, workflow, team assignments, and acceptance targets. This document explains how to implement that plan with separate code modules and replaceable integrations. If the documents disagree, follow `order-checker.md` and update this design. Python **3.13** remains the agreed runtime for all Python components. The architecture below is the target, not a claim that the product is implemented.
+
+**Current implementation:** the repository contains minimal app entry points, shared models/interfaces, generated TypeScript, and placeholder modules. Product behavior is intentionally left for the team. See [team-development.md](team-development.md) for the actual scaffold and available commands; the larger tree and workflow below remain implementation targets.
 
 ## Plain language overview
 
@@ -554,7 +556,7 @@ docs/
   system-design.md
 ```
 
-These are proposed folders, not an implemented scaffold. A fourth contributor could take either the existing capture module or vision adapter without changing the shared contracts. Component ownership does not require a separate server for each person.
+This is the target folder layout. The current scaffold implements only its entry points, shared contracts/interfaces, and module placeholders; see the team development guide for what exists. A fourth contributor could take either the capture module or vision adapter without changing the shared contracts. Component ownership does not require a separate server for each person.
 
 Before splitting up, agree on four contracts together: the camera upload, the order with quantities, the vision observations, and the result sent to the UI. Save example payloads alongside their schemas. B maintains the shared definitions; changes affecting another component are discussed with its owner before merging.
 
@@ -577,9 +579,9 @@ Integrations should require changes only to their adapter, configuration, and ad
 
 When Photon is enabled, reference enrollment by text invokes the same catalog use case as the setup screen. It must not create a separate menu database or bypass station-view requirements and image validation.
 
-### Scaffold commands and configuration
+### Target runtime commands and configuration
 
-The application scaffold and commands in this section are implementation targets. The repository's `.python-version` already specifies `3.13`. Use Python 3.13 for local development, CI, and the station deployment. When creating the Python packages, set `requires-python = ">=3.13,<3.14"` in their `pyproject.toml` files so dependency resolution targets the agreed minor version.
+The integrated runtime commands in this section are future implementation targets. The current minimal scaffold commands are documented in [team-development.md](team-development.md). The repository's `.python-version` and package manifests specify Python 3.13. Use that runtime for local development, CI, and the eventual station deployment.
 
 Use a root Python workspace with separate API, capture, and contracts packages; API and capture depend on contracts, while contracts depends on no application package. Lock Python dependencies in `uv.lock` and frontend dependencies in `package-lock.json`. The capture environment should not need the Perceptron integration to run.
 
@@ -618,9 +620,9 @@ The launcher waits for backend readiness before starting capture, forwards shutd
 
 These values are application defaults to test, not provider guarantees. Keep normal model answers short; the token cap is a limit, not a desired output length. Restarting the app does not reset its persisted call counter; increasing/resetting a budget is an explicit operator action. Configure image limits, reference budgets, cooldown, and transient-image lifetime in the same settings module. No setting may enable archiving real check photos under the current plan. Keep real `.env` files, runtime data, and credentials out of Git; share only `.env.example` and sanitized fixtures.
 
-### Scaffold completion criteria
+### First integrated workflow acceptance (after scaffolding)
 
-The first scaffold is complete when a fresh checkout can start in fake/demo mode, show a seeded order, accept a replay capture, display a persisted result, reconnect the UI without losing it, and stop all processes cleanly. The same workflow must accept the real Perceptron adapter through configuration without changing route or UI code. Enrolling an item must create a new reference revision that the next check can use without restarting the backend. Scaffold completion is separate from meeting the main plan's live product acceptance targets below.
+After scaffolding, the team's first integrated workflow should start in fake/demo mode, show a seeded order, accept a replay capture, display a persisted result, reconnect the UI without losing it, and stop all processes cleanly. The same workflow must accept the real Perceptron adapter through configuration without changing route or UI code. Enrolling an item must create a new reference revision that the next check can use without restarting the backend. These are future implementation criteria, separate from the minimal scaffold and from the main plan's live product acceptance targets below.
 
 CI should use Python 3.13, regenerate contracts and fail on drift, and run Python formatting/linting, domain/API/persistence/capture/vision tests, frontend type checks and component tests, and a frontend build. Use recorded HTTP responses to test provider parsing without spending credits. Live accuracy evaluation is an explicit separate task with a fixed manifest, prompt/reference versions, and call budget.
 
