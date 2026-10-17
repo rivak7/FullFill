@@ -37,7 +37,7 @@ The boxes inside the backend are Python modules, not separate network services. 
 | Orders and catalog | Order revisions, item IDs, quantities, reference sets, external item mapping | `OrderSnapshot`, `ReferenceSet`, catalog commands | Seed menu and mock orders |
 | Check workflow | Queuing, pinned inputs, timeouts, retries, durable results | `CheckRequest` to `CheckResult` | Fake vision and in-memory repositories |
 | Decision rules | Quantity comparison, ambiguity handling, discrepancy classification | Pure function from order and observations to verdict | JSON fixtures |
-| Vision adapter | Provider SDK, prompt, response parsing, image encoding, usage metadata | `VisionPort.inspect(input) -> Observations` | Deterministic fake provider |
+| Vision adapter | Provider SDK, prompt, response parsing, image encoding, usage metadata | `VisionProvider.inspect(input) -> Observations` | Deterministic fake provider |
 | Notifications | Alert formatting, delivery attempts, delivery deduplication | `Notifier.send(notification)` | Recording or console notifier |
 | Evaluation | Labeled cases, accuracy, latency, cost comparison | Same vision interface and decision function as the app | Saved responses |
 
@@ -64,6 +64,38 @@ For example, an order for two ranch cups must carry `expected_quantity: 2`; a pr
 The vision interface accepts a prepared image, candidate item descriptions, reference images, and verification scope. It returns evidence, never a final green/red UI state. The backend compares the evidence with the order. Optional grounding uses coordinates normalized to the stored, cropped image; adapters translate vendor coordinates. If grounding is unsupported, the checklist still works.
 
 Perceptron is the initial adapter suggested by the plan. Its current quickstart documents image inputs, multiple assets, and JSON Schema output. Keep the exact model ID, request format, prompt, and parsing in that adapter and validate it with real order photos before treating accuracy or latency as established. [Perceptron quickstart](https://docs.perceptron.inc/perceptron-mk1.5/index)
+
+## Interface implementations
+
+Separate interfaces at two levels: HTTP between running apps, and typed Python calls inside the backend. An interface defines the accepted inputs and outputs; an adapter implements that agreement for a particular provider. The backend owns these interfaces so replacing a vendor does not redefine the application's data model.
+
+| Backend interface | Input and output | Implementation examples |
+| --- | --- | --- |
+| `OrderRepository.get(order_id)` | Order ID to an order snapshot or not-found result | SQLite, in-memory fixture store |
+| `Catalog.get_references(item_ids)` | Item IDs to descriptions and immutable reference sets | Local catalog with seeded or enrolled items |
+| `VisionProvider.inspect(request)` | Prepared image, candidates, and references to observations | Perceptron, another model, deterministic fake |
+| `CheckRepository.save(result)` | Check result to persisted history | SQLite, in-memory fixture store |
+| `Notifier.send(notification)` | Normalized alert to delivery result | Photon, another messenger, recording notifier |
+
+Repository writes participate in the workflow's transaction; saving a result, updating eligible order state, and inserting events/outbox entries follow the atomic completion rule below. POS integrations normalize incoming orders through the order application service; storage repositories do not call POS APIs.
+
+For example, the Python vision interface would be:
+
+```python
+from __future__ import annotations
+from typing import Protocol
+
+
+class VisionProvider(Protocol):
+    async def inspect(self, request: VisionInput) -> Observations:
+        ...
+```
+
+`VisionInput` and `Observations` are FullFill-owned types. `PerceptronVision`, `AnotherProviderVision`, and `FakeVision` implement the same method. The startup module selects an implementation and passes it into the check workflow. The workflow calls `vision.inspect(request)`, then passes the returned observations to `compare_order(order, observations)`; provider SDK calls and response parsing remain inside the adapter. The notification worker separately receives a `Notifier` implementation.
+
+Define the interfaces in `ports/`, shared boundary schemas in `packages/contracts/`, and concrete implementations in `adapters/`. Decision rules depend only on domain data. Application code depends on the interfaces; only `bootstrap.py` wires concrete adapters into the application. This keeps vendor-specific imports out of routes, decision rules, and UI code.
+
+For independent development, each interface needs a fake implementation or example payloads covering success, uncertainty, and failure. The UI developer can replay result events while the vision developer runs saved images through the real adapter. Both validate their outputs against the same schemas.
 
 ## One check from capture to result
 
@@ -107,6 +139,8 @@ Unknown quantities are not zero. A partly occluded image does not prove an item 
 For closed packaging, verify only visible container counts or label agreement. A matching label does not establish the contents or prove that a modifier was actually followed. The UI should name the scope, for example “labels and container counts matched.”
 
 ## API and local camera control
+
+The UI and camera process use HTTP commands with JSON metadata; capture uploads use multipart requests containing the image file and metadata. Commands return IDs or normalized FullFill responses. Server-sent events carry JSON state updates to the UI. Vendor payloads never cross these boundaries.
 
 | Endpoint | Purpose |
 | --- | --- |
