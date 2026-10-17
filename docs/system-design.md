@@ -75,13 +75,13 @@ The [detailed repository scaffold](#repository-structure-and-independent-work) b
 
 ## Technical approach
 
-Build FullFill as a modular Python backend, a separate camera process, and a React station UI in one repository. **Perceptron Mk1.5 is the selected vision provider for the MVP.** Keep its integration behind a small interface owned by FullFill. This gives the group independent pieces to develop while keeping the first deployment small enough to run on one MacBook.
+Build FullFill as a modular Python 3.13 backend, a separate Python 3.13 camera process, and a React station UI in one repository. **Perceptron Mk1.5 is the selected vision provider for the MVP.** Keep its integration behind a small interface owned by FullFill. This gives the group independent pieces to develop while keeping the first deployment small enough to run on one MacBook.
 
 The product boundary is one order on a mat, one captured image, a comparison against a digital order and restaurant reference photos, and a recorded outcome. The useful requirements come from the [capture workflow, station states, and setup flow](../order-checker.md#4-design-set-out--snapshot--bag). The old assignments, event schedule, and sponsor choices do not determine component boundaries.
 
 ## Deployment and dependencies
 
-Use React with TypeScript for the UI, FastAPI for the API and workflow, Python with OpenCV for capture, and SQLite plus a local image directory for persistence. Run one backend process with one managed check worker initially. Serve the built UI from the backend; a separate frontend development server is useful during development.
+Use React with TypeScript for the UI, FastAPI on Python 3.13 for the API and workflow, Python 3.13 with OpenCV for capture, and SQLite plus a local image directory for persistence. The Perceptron integration, shared contracts, and evaluation tools also use Python 3.13. Run one backend process with one managed check worker initially. Serve the built UI from the backend; a separate frontend development server is useful during development.
 
 FastAPI supports composing routers from separate modules in one application, which fits these boundaries. The workflow and decision rules should remain callable without HTTP. [FastAPI application structure](https://fastapi.tiangolo.com/tutorial/bigger-applications/)
 
@@ -414,6 +414,7 @@ For three people, split ownership by component so each person mostly edits separ
 | C — Camera and vision | Camera capture, QR decoding, image preparation, vision adapter, accuracy evaluation | A saved photo producing validated observations, followed by live capture |
 
 ```text
+.python-version              # Shared Python 3.13 runtime pin
 pyproject.toml               # B: Python workspace and shared tool settings
 uv.lock                      # B: Locked Python workspace dependencies
 Makefile                     # B: Shared setup, dev, test, build, serve tasks
@@ -549,11 +550,13 @@ Adding reference images through messaging, if retained, should invoke the same c
 
 ### Scaffold commands and configuration
 
-The tree and commands in this section are implementation targets, not files or commands already created by this documentation change. Use a root Python workspace with separate API, capture, and contracts packages; API and capture depend on contracts, while contracts depends on no application package. Lock Python dependencies in `uv.lock` and frontend dependencies in `package-lock.json`. The capture environment should not need the Perceptron integration to run.
+The application scaffold and commands in this section are implementation targets. The repository's `.python-version` already specifies `3.13`. Use Python 3.13 for local development, CI, and the station deployment. When creating the Python packages, set `requires-python = ">=3.13,<3.14"` in their `pyproject.toml` files so dependency resolution targets the agreed minor version.
+
+Use a root Python workspace with separate API, capture, and contracts packages; API and capture depend on contracts, while contracts depends on no application package. Lock Python dependencies in `uv.lock` and frontend dependencies in `package-lock.json`. The capture environment should not need the Perceptron integration to run.
 
 | Proposed command | Behavior once implemented |
 | --- | --- |
-| `make setup` | Install locked dependencies, create local data directories, and apply migrations |
+| `make setup` | Create the Python 3.13 environment, install locked dependencies, create local data directories, and apply migrations |
 | `make contracts` | Export OpenAPI/event schemas and regenerate the TypeScript client/types |
 | `make dev` | Start Vite, API with `FakeVision`, replay capture, and recording notifier; label the mode clearly |
 | `make dev-live` | Start the same flow with the real camera and Perceptron; fail configuration checks if the key is missing |
@@ -586,7 +589,7 @@ These values are application defaults to test, not provider guarantees. Restarti
 
 The first scaffold is complete when a fresh checkout can start in fake mode, show a seeded order, accept a replay capture, display a persisted result, reconnect the UI without losing it, and stop all processes cleanly. The same workflow must accept the real Perceptron adapter through configuration without changing route or UI code. Enrolling an item must create a new reference revision that the next check can use without restarting the backend.
 
-CI should regenerate contracts and fail on drift; run Python formatting/linting, domain/API/persistence/capture/vision tests, frontend type checks and component tests, and a frontend build. Use recorded HTTP responses to test provider parsing without spending credits. Live accuracy evaluation is an explicit separate task with a fixed manifest, prompt/reference versions, and call budget.
+CI should use Python 3.13, regenerate contracts and fail on drift, and run Python formatting/linting, domain/API/persistence/capture/vision tests, frontend type checks and component tests, and a frontend build. Use recorded HTTP responses to test provider parsing without spending credits. Live accuracy evaluation is an explicit separate task with a fixed manifest, prompt/reference versions, and call budget.
 
 | Acceptance case | Behavior to verify |
 | --- | --- |
