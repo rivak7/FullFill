@@ -3,3 +3,12 @@
 logs/
 __pycache__/
 *.jpg
+.env.*
+!.env.example
+node_modules/
+dist/
+data/
+*.egg-info/
+.ruff_cache/
+.pytest_cache/
+.DS_Store

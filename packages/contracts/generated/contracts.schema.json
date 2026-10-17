@@ -1,0 +1,1172 @@
+{
+  "$defs": {
+    "CaptureMetadata": {
+      "additionalProperties": false,
+      "properties": {
+        "camera_profile_id": {
+          "minLength": 1,
+          "title": "Camera Profile Id",
+          "type": "string"
+        },
+        "captured_at": {
+          "format": "date-time",
+          "title": "Captured At",
+          "type": "string"
+        },
+        "purpose": {
+          "enum": [
+            "check",
+            "reference"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "qr_candidate": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Qr Candidate"
+        },
+        "request_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Request Id"
+        },
+        "scene_sequence": {
+          "minimum": 0,
+          "title": "Scene Sequence",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "session_id": {
+          "minLength": 1,
+          "title": "Session Id",
+          "type": "string"
+        },
+        "station_id": {
+          "minLength": 1,
+          "title": "Station Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "station_id",
+        "session_id",
+        "scene_sequence",
+        "captured_at",
+        "camera_profile_id",
+        "purpose"
+      ],
+      "title": "CaptureMetadata",
+      "type": "object"
+    },
+    "CaptureReceipt": {
+      "additionalProperties": false,
+      "properties": {
+        "capture_id": {
+          "minLength": 1,
+          "title": "Capture Id",
+          "type": "string"
+        },
+        "order_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrderContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        }
+      },
+      "required": [
+        "capture_id"
+      ],
+      "title": "CaptureReceipt",
+      "type": "object"
+    },
+    "CaptureRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "order_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrderContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "purpose": {
+          "enum": [
+            "check",
+            "reference"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        },
+        "request_id": {
+          "minLength": 1,
+          "title": "Request Id",
+          "type": "string"
+        },
+        "station_id": {
+          "minLength": 1,
+          "title": "Station Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "request_id",
+        "station_id",
+        "purpose"
+      ],
+      "title": "CaptureRequest",
+      "type": "object"
+    },
+    "CheckAccepted": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "minLength": 1,
+          "title": "Check Id",
+          "type": "string"
+        },
+        "disposition_revision": {
+          "minimum": 1,
+          "title": "Disposition Revision",
+          "type": "integer"
+        },
+        "execution_status": {
+          "const": "queued",
+          "default": "queued",
+          "title": "Execution Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "disposition_revision"
+      ],
+      "title": "CheckAccepted",
+      "type": "object"
+    },
+    "CheckResult": {
+      "additionalProperties": false,
+      "properties": {
+        "capture_id": {
+          "minLength": 1,
+          "title": "Capture Id",
+          "type": "string"
+        },
+        "check_id": {
+          "minLength": 1,
+          "title": "Check Id",
+          "type": "string"
+        },
+        "completed_at": {
+          "anyOf": [
+            {
+              "format": "date-time",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Completed At"
+        },
+        "discrepancies": {
+          "items": {
+            "$ref": "#/$defs/Discrepancy"
+          },
+          "title": "Discrepancies",
+          "type": "array"
+        },
+        "disposition": {
+          "enum": [
+            "pending",
+            "verified",
+            "needs_review",
+            "overridden"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "disposition_revision": {
+          "minimum": 1,
+          "title": "Disposition Revision",
+          "type": "integer"
+        },
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "execution_status": {
+          "enum": [
+            "queued",
+            "running",
+            "completed",
+            "failed",
+            "superseded"
+          ],
+          "title": "Execution Status",
+          "type": "string"
+        },
+        "order_id": {
+          "minLength": 1,
+          "title": "Order Id",
+          "type": "string"
+        },
+        "order_revision": {
+          "minimum": 1,
+          "title": "Order Revision",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "verdict": {
+          "anyOf": [
+            {
+              "enum": [
+                "pass",
+                "fail",
+                "unsure"
+              ],
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Verdict"
+        }
+      },
+      "required": [
+        "check_id",
+        "capture_id",
+        "order_id",
+        "order_revision",
+        "execution_status",
+        "disposition",
+        "disposition_revision"
+      ],
+      "title": "CheckResult",
+      "type": "object"
+    },
+    "Comparison": {
+      "additionalProperties": false,
+      "properties": {
+        "discrepancies": {
+          "items": {
+            "$ref": "#/$defs/Discrepancy"
+          },
+          "title": "Discrepancies",
+          "type": "array"
+        },
+        "verdict": {
+          "enum": [
+            "pass",
+            "fail",
+            "unsure"
+          ],
+          "title": "Verdict",
+          "type": "string"
+        }
+      },
+      "required": [
+        "verdict"
+      ],
+      "title": "Comparison",
+      "type": "object"
+    },
+    "CreateCaptureRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "order_context": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrderContext"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "purpose": {
+          "enum": [
+            "check",
+            "reference"
+          ],
+          "title": "Purpose",
+          "type": "string"
+        }
+      },
+      "required": [
+        "purpose"
+      ],
+      "title": "CreateCaptureRequest",
+      "type": "object"
+    },
+    "CreateCheckRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "capture_id": {
+          "minLength": 1,
+          "title": "Capture Id",
+          "type": "string"
+        },
+        "expected_disposition_revision": {
+          "minimum": 1,
+          "title": "Expected Disposition Revision",
+          "type": "integer"
+        },
+        "order_id": {
+          "minLength": 1,
+          "title": "Order Id",
+          "type": "string"
+        },
+        "order_revision": {
+          "minimum": 1,
+          "title": "Order Revision",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "station_id": {
+          "minLength": 1,
+          "title": "Station Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "station_id",
+        "order_id",
+        "order_revision",
+        "expected_disposition_revision",
+        "capture_id"
+      ],
+      "title": "CreateCheckRequest",
+      "type": "object"
+    },
+    "DeliveryResult": {
+      "additionalProperties": false,
+      "properties": {
+        "error_code": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Error Code"
+        },
+        "provider_receipt": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Provider Receipt"
+        },
+        "status": {
+          "enum": [
+            "sent",
+            "failed"
+          ],
+          "title": "Status",
+          "type": "string"
+        }
+      },
+      "required": [
+        "status"
+      ],
+      "title": "DeliveryResult",
+      "type": "object"
+    },
+    "Discrepancy": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_quantity": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Expected Quantity"
+        },
+        "kind": {
+          "enum": [
+            "missing",
+            "unexpected",
+            "unsure"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "line_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Line Ids",
+          "type": "array"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "missing_quantity": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Missing Quantity"
+        },
+        "observed_quantity": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Quantity"
+        },
+        "target_id": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Target Id"
+        }
+      },
+      "required": [
+        "kind",
+        "message"
+      ],
+      "title": "Discrepancy",
+      "type": "object"
+    },
+    "MenuItem": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "label_aliases": {
+          "items": {
+            "type": "string"
+          },
+          "title": "Label Aliases",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "verification_mode": {
+          "default": "visible_item",
+          "enum": [
+            "visible_item",
+            "label",
+            "container_count"
+          ],
+          "title": "Verification Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "item_id",
+        "name"
+      ],
+      "title": "MenuItem",
+      "type": "object"
+    },
+    "Notification": {
+      "additionalProperties": false,
+      "properties": {
+        "deduplication_key": {
+          "minLength": 1,
+          "title": "Deduplication Key",
+          "type": "string"
+        },
+        "kind": {
+          "enum": [
+            "error",
+            "override",
+            "shift_summary"
+          ],
+          "title": "Kind",
+          "type": "string"
+        },
+        "message": {
+          "title": "Message",
+          "type": "string"
+        },
+        "notification_id": {
+          "minLength": 1,
+          "title": "Notification Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "notification_id",
+        "deduplication_key",
+        "kind",
+        "message"
+      ],
+      "title": "Notification",
+      "type": "object"
+    },
+    "Observations": {
+      "additionalProperties": false,
+      "properties": {
+        "capture_id": {
+          "minLength": 1,
+          "title": "Capture Id",
+          "type": "string"
+        },
+        "scene_uncertainty": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Scene Uncertainty"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "targets": {
+          "items": {
+            "$ref": "#/$defs/TargetObservation"
+          },
+          "minItems": 1,
+          "title": "Targets",
+          "type": "array"
+        },
+        "unexpected_items": {
+          "items": {
+            "$ref": "#/$defs/UnexpectedItem"
+          },
+          "title": "Unexpected Items",
+          "type": "array"
+        }
+      },
+      "required": [
+        "capture_id",
+        "targets"
+      ],
+      "title": "Observations",
+      "type": "object"
+    },
+    "OrderContext": {
+      "additionalProperties": false,
+      "properties": {
+        "disposition_revision": {
+          "minimum": 1,
+          "title": "Disposition Revision",
+          "type": "integer"
+        },
+        "order_id": {
+          "minLength": 1,
+          "title": "Order Id",
+          "type": "string"
+        },
+        "order_revision": {
+          "minimum": 1,
+          "title": "Order Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "order_id",
+        "order_revision",
+        "disposition_revision"
+      ],
+      "title": "OrderContext",
+      "type": "object"
+    },
+    "OrderLine": {
+      "additionalProperties": false,
+      "properties": {
+        "item_id": {
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "line_id": {
+          "minLength": 1,
+          "title": "Line Id",
+          "type": "string"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Quantity",
+          "type": "integer"
+        },
+        "verification_mode": {
+          "default": "visible_item",
+          "enum": [
+            "visible_item",
+            "label",
+            "container_count"
+          ],
+          "title": "Verification Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line_id",
+        "item_id",
+        "name",
+        "quantity"
+      ],
+      "title": "OrderLine",
+      "type": "object"
+    },
+    "OrderSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "lines": {
+          "items": {
+            "$ref": "#/$defs/OrderLine"
+          },
+          "minItems": 1,
+          "title": "Lines",
+          "type": "array"
+        },
+        "order_id": {
+          "minLength": 1,
+          "title": "Order Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "order_id",
+        "revision",
+        "lines"
+      ],
+      "title": "OrderSnapshot",
+      "type": "object"
+    },
+    "OrderState": {
+      "additionalProperties": false,
+      "properties": {
+        "current_check": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/CheckResult"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "disposition": {
+          "enum": [
+            "pending",
+            "verified",
+            "needs_review",
+            "overridden"
+          ],
+          "title": "Disposition",
+          "type": "string"
+        },
+        "disposition_revision": {
+          "minimum": 1,
+          "title": "Disposition Revision",
+          "type": "integer"
+        },
+        "order": {
+          "$ref": "#/$defs/OrderSnapshot"
+        }
+      },
+      "required": [
+        "order",
+        "disposition",
+        "disposition_revision"
+      ],
+      "title": "OrderState",
+      "type": "object"
+    },
+    "OverrideRequest": {
+      "additionalProperties": false,
+      "properties": {
+        "check_id": {
+          "minLength": 1,
+          "title": "Check Id",
+          "type": "string"
+        },
+        "confirmed_target_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "title": "Confirmed Target Ids",
+          "type": "array"
+        },
+        "expected_disposition_revision": {
+          "minimum": 1,
+          "title": "Expected Disposition Revision",
+          "type": "integer"
+        },
+        "operator_reference": {
+          "minLength": 1,
+          "title": "Operator Reference",
+          "type": "string"
+        },
+        "order_revision": {
+          "minimum": 1,
+          "title": "Order Revision",
+          "type": "integer"
+        },
+        "reason_code": {
+          "enum": [
+            "worker_confirmed_present",
+            "manual_order_acceptance"
+          ],
+          "title": "Reason Code",
+          "type": "string"
+        }
+      },
+      "required": [
+        "check_id",
+        "order_revision",
+        "expected_disposition_revision",
+        "operator_reference",
+        "reason_code"
+      ],
+      "title": "OverrideRequest",
+      "type": "object"
+    },
+    "ReferenceSet": {
+      "additionalProperties": false,
+      "properties": {
+        "camera_profile_id": {
+          "minLength": 1,
+          "title": "Camera Profile Id",
+          "type": "string"
+        },
+        "image_asset_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Image Asset Ids",
+          "type": "array"
+        },
+        "item_id": {
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "revision": {
+          "minimum": 1,
+          "title": "Revision",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "item_id",
+        "revision",
+        "camera_profile_id",
+        "image_asset_ids"
+      ],
+      "title": "ReferenceSet",
+      "type": "object"
+    },
+    "StationEvent": {
+      "additionalProperties": false,
+      "properties": {
+        "event_id": {
+          "minLength": 1,
+          "title": "Event Id",
+          "type": "string"
+        },
+        "event_type": {
+          "enum": [
+            "check.queued",
+            "check.completed",
+            "check.failed",
+            "order.updated",
+            "resync_required"
+          ],
+          "title": "Event Type",
+          "type": "string"
+        },
+        "order_state": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrderState"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "station_id": {
+          "minLength": 1,
+          "title": "Station Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "event_id",
+        "station_id",
+        "event_type"
+      ],
+      "title": "StationEvent",
+      "type": "object"
+    },
+    "StationSnapshot": {
+      "additionalProperties": false,
+      "properties": {
+        "event_cursor": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Event Cursor"
+        },
+        "orders": {
+          "items": {
+            "$ref": "#/$defs/OrderState"
+          },
+          "title": "Orders",
+          "type": "array"
+        },
+        "schema_version": {
+          "const": 1,
+          "default": 1,
+          "title": "Schema Version",
+          "type": "integer"
+        },
+        "station_id": {
+          "minLength": 1,
+          "title": "Station Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "station_id"
+      ],
+      "title": "StationSnapshot",
+      "type": "object"
+    },
+    "TargetObservation": {
+      "additionalProperties": false,
+      "properties": {
+        "observed_quantity": {
+          "anyOf": [
+            {
+              "minimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Observed Quantity"
+        },
+        "reason": {
+          "anyOf": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Reason"
+        },
+        "status": {
+          "enum": [
+            "present",
+            "missing",
+            "unsure"
+          ],
+          "title": "Status",
+          "type": "string"
+        },
+        "target_id": {
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_id",
+        "status"
+      ],
+      "title": "TargetObservation",
+      "type": "object"
+    },
+    "UnexpectedItem": {
+      "additionalProperties": false,
+      "properties": {
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "quantity": {
+          "anyOf": [
+            {
+              "exclusiveMinimum": 0,
+              "type": "integer"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Quantity"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "title": "UnexpectedItem",
+      "type": "object"
+    },
+    "VerificationTarget": {
+      "additionalProperties": false,
+      "properties": {
+        "expected_quantity": {
+          "exclusiveMinimum": 0,
+          "title": "Expected Quantity",
+          "type": "integer"
+        },
+        "item_id": {
+          "minLength": 1,
+          "title": "Item Id",
+          "type": "string"
+        },
+        "line_ids": {
+          "items": {
+            "minLength": 1,
+            "type": "string"
+          },
+          "minItems": 1,
+          "title": "Line Ids",
+          "type": "array"
+        },
+        "name": {
+          "title": "Name",
+          "type": "string"
+        },
+        "target_id": {
+          "minLength": 1,
+          "title": "Target Id",
+          "type": "string"
+        },
+        "verification_mode": {
+          "default": "visible_item",
+          "enum": [
+            "visible_item",
+            "label",
+            "container_count"
+          ],
+          "title": "Verification Mode",
+          "type": "string"
+        }
+      },
+      "required": [
+        "target_id",
+        "line_ids",
+        "item_id",
+        "name",
+        "expected_quantity"
+      ],
+      "title": "VerificationTarget",
+      "type": "object"
+    }
+  },
+  "additionalProperties": false,
+  "description": "Schema bundle only, not an API request.",
+  "properties": {
+    "capture_metadata": {
+      "$ref": "#/$defs/CaptureMetadata"
+    },
+    "capture_receipt": {
+      "$ref": "#/$defs/CaptureReceipt"
+    },
+    "capture_request": {
+      "$ref": "#/$defs/CaptureRequest"
+    },
+    "check_accepted": {
+      "$ref": "#/$defs/CheckAccepted"
+    },
+    "check_request": {
+      "$ref": "#/$defs/CreateCheckRequest"
+    },
+    "check_result": {
+      "$ref": "#/$defs/CheckResult"
+    },
+    "comparison": {
+      "$ref": "#/$defs/Comparison"
+    },
+    "create_capture_request": {
+      "$ref": "#/$defs/CreateCaptureRequest"
+    },
+    "delivery_result": {
+      "$ref": "#/$defs/DeliveryResult"
+    },
+    "menu_item": {
+      "$ref": "#/$defs/MenuItem"
+    },
+    "notification": {
+      "$ref": "#/$defs/Notification"
+    },
+    "observations": {
+      "$ref": "#/$defs/Observations"
+    },
+    "order": {
+      "$ref": "#/$defs/OrderSnapshot"
+    },
+    "override": {
+      "$ref": "#/$defs/OverrideRequest"
+    },
+    "references": {
+      "$ref": "#/$defs/ReferenceSet"
+    },
+    "station_event": {
+      "$ref": "#/$defs/StationEvent"
+    },
+    "station_snapshot": {
+      "$ref": "#/$defs/StationSnapshot"
+    },
+    "vision_target": {
+      "$ref": "#/$defs/VerificationTarget"
+    }
+  },
+  "required": [
+    "order",
+    "menu_item",
+    "references",
+    "capture_metadata",
+    "capture_receipt",
+    "capture_request",
+    "create_capture_request",
+    "check_request",
+    "check_accepted",
+    "check_result",
+    "comparison",
+    "override",
+    "observations",
+    "vision_target",
+    "station_event",
+    "station_snapshot",
+    "notification",
+    "delivery_result"
+  ],
+  "title": "FullFillContracts",
+  "type": "object"
+}

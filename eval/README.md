@@ -51,3 +51,7 @@ Each run prints PASS/FAIL per test, cost per check, input tokens per check, and 
 A T2 error counts as caught when the screen would not show green (red, or amber for a human look). A false alarm is a correct order that isn't green. The red-only numbers are printed alongside.
 
 The expected quantities are not sent to the model, so it counts instead of agreeing with the ticket. The prompt is in `prompt_v1.txt`; if you change it, save it as `prompt_v2.txt` and point `PROMPT_FILE` in `vision.py` at it, so logged results stay comparable.
+
+## Next step
+
+Once the go/no-go passes, move the request code in `vision.py` behind `PerceptronVision.inspect(VisionInput)` in `apps/api/fullfill/adapters/vision/perceptron.py`, and have this runner call that adapter, so the eval and the app share one request path and the same `Observations`/`Comparison` types.

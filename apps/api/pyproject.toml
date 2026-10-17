@@ -1,0 +1,15 @@
+[project]
+name = "fullfill-api"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = ["fullfill-contracts", "fastapi>=0.115,<1", "uvicorn[standard]>=0.34,<1"]
+
+[tool.uv.sources]
+fullfill-contracts = { workspace = true }
+
+[build-system]
+requires = ["hatchling>=1.27,<2"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["fullfill"]

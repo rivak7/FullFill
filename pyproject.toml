@@ -1,0 +1,26 @@
+[project]
+name = "fullfill-workspace"
+version = "0.1.0"
+requires-python = ">=3.13,<3.14"
+dependencies = ["fullfill-api", "fullfill-capture"]
+
+[tool.uv]
+package = false
+
+[tool.uv.workspace]
+members = ["apps/api", "apps/capture", "packages/contracts"]
+
+[tool.uv.sources]
+fullfill-api = { workspace = true }
+fullfill-capture = { workspace = true }
+
+[dependency-groups]
+dev = ["ruff>=0.11,<1"]
+
+[tool.ruff]
+target-version = "py313"
+line-length = 100
+exclude = ["config.py", "camera_input_number.py"]
+
+[tool.ruff.lint]
+select = ["E4", "E7", "E9", "F", "I"]
