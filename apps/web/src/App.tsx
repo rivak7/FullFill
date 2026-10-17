@@ -4,7 +4,7 @@ import { StationScreen } from "./features/station/StationScreen";
 import { scenarios } from "./features/station/fakeOrders";
 
 // Runs on fake results until StationApi is implemented. Swap `state` for the
-// order from StationApi.getStation/subscribe, and send onConfirm to StationApi.confirm.
+// order from StationApi.getStation/subscribe.
 export function App() {
   const [key, setKey] = useState("amber");
   const [state, setState] = useState<OrderState>(scenarios.amber.state);
@@ -16,7 +16,7 @@ export function App() {
 
   return (
     <>
-      <StationScreen state={state} onConfirm={() => setState({ ...state, disposition: "overridden" })} />
+      <StationScreen state={state} />
       <nav className="demo-bar" aria-label="Demo scenarios">
         {Object.entries(scenarios).map(([k, s]) => (
           <button key={k} aria-pressed={k === key} onClick={() => pick(k)}>
