@@ -16,6 +16,7 @@ class VerificationTarget(Contract):
     name: str
     expected_quantity: PositiveQuantity
     verification_mode: VerificationMode = "visible_item"
+    label_aliases: list[str] = Field(default_factory=list)
 
 
 class TargetObservation(Contract):
@@ -23,11 +24,22 @@ class TargetObservation(Contract):
     status: Literal["present", "missing", "unsure"]
     observed_quantity: Quantity | None = None
     reason: str | None = None
+    label_text: str | None = None
 
 
 class UnexpectedItem(Contract):
     name: str
     quantity: PositiveQuantity | None = None
+
+
+class ProviderMetadata(Contract):
+    provider: str
+    model: str
+    prompt_version: str
+    latency_ms: int = Field(ge=0, strict=True)
+    request_id: str | None = None
+    prompt_tokens: int | None = None
+    completion_tokens: int | None = None
 
 
 class Observations(Contract):
@@ -36,6 +48,7 @@ class Observations(Contract):
     targets: list[TargetObservation] = Field(min_length=1)
     unexpected_items: list[UnexpectedItem] = Field(default_factory=list)
     scene_uncertainty: str | None = None
+    provider: ProviderMetadata | None = None
 
 
 @dataclass(frozen=True)

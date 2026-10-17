@@ -4,3 +4,4 @@ perceptron
 python-dotenv
 fastapi
 uvicorn
+pytest
