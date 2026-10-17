@@ -34,6 +34,45 @@ This separation lets the team work independently: one person builds the screens,
 
 Connections to Perceptron, restaurant order systems, and messaging services each live in a small module called an **adapter**. An adapter translates a service's inputs and outputs into FullFill's agreed format. If a provider changes its API, its adapter handles that change while the screen and order-comparison logic keep using the same format.
 
+## Project architecture in plain language
+
+The project lives in one repository and runs as a camera program, a backend program, and a browser screen. The backend is the central connection point: the camera sends it photos, the screen sends it worker actions, and it coordinates storage and Perceptron requests.
+
+```mermaid
+flowchart LR
+    Phone[Phone camera] --> Camera
+    subgraph Mac[MacBook]
+        Camera[Camera program] -->|Photo and ticket ID| Backend[Backend program]
+        Screen[Browser screen] -->|Check and setup requests| Backend
+        Backend -->|Progress and results| Screen
+        Backend <--> Storage[(Orders, references, and history)]
+        Backend <--> Adapter[Perceptron adapter inside backend]
+    end
+    Adapter -->|Photo and reference images| Perceptron[Perceptron cloud]
+    Perceptron -->|Items, quantities, and uncertainty| Adapter
+```
+
+The Perceptron adapter is a module inside the backend, so it starts with the backend. Optional manager alerts also start from the backend after a result is saved. The local camera feed and stored orders stay available when the internet drops. New Perceptron checks are unavailable until connectivity returns; workers can record manual acceptance separately.
+
+The proposed code areas follow those boundaries:
+
+| Code area | What belongs there | Main owner |
+| --- | --- | --- |
+| `apps/web/` | Everything the worker sees and clicks: station screen, order queue, and menu setup | Frontend person |
+| `apps/capture/` | Camera access, stillness detection, QR reading, image preparation, and preview | Camera/vision person |
+| `apps/api/fullfill/` | Orders, check coordination, comparison rules, saved results, and API routes | Backend person |
+| `apps/api/fullfill/adapters/vision/` | Perceptron prompts, requests, and response validation | Camera/vision person |
+| `packages/contracts/` | Shared definitions of an order, capture, observation, and result | Agreed together; backend person maintains |
+| `fixtures/` and `eval/` | Example data for independent development and labeled photos for measuring accuracy | Everyone contributes; camera/vision person owns evaluation |
+
+Inside the backend, separate code by its job. **Routes** receive requests, **application services** coordinate the steps of a check, **decision rules** compare expected and observed items, and **adapters** handle Perceptron, storage, and messaging. This lets someone change a prompt without editing the comparison rules, or redesign the screen without editing camera code.
+
+The connections are equally explicit. The camera and screen use the backend's **API**, an agreed set of requests and responses. The screen also receives a stream of progress updates. Backend modules call each other through small functions with agreed inputs and outputs. Only backend storage code accesses the database; the screen receives results through the API.
+
+For example, the camera sends “here is capture 17 for order 4127.” The backend retrieves that order, asks Perceptron to inspect the image, and saves the comparison. The screen receives “check 23 found one missing ranch cup.” Each part knows only the information needed for its job, which is what allows teammates to build and test their parts separately.
+
+The [detailed repository scaffold](#repository-structure-and-independent-work) below maps these areas to individual files and development commands.
+
 ## Technical approach
 
 Build FullFill as a modular Python backend, a separate camera process, and a React station UI in one repository. **Perceptron Mk1.5 is the selected vision provider for the MVP.** Keep its integration behind a small interface owned by FullFill. This gives the group independent pieces to develop while keeping the first deployment small enough to run on one MacBook.
