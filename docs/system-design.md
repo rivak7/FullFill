@@ -1,5 +1,33 @@
 # FullFill system design proposal
 
+## Plain language overview
+
+FullFill helps restaurant staff check that an order has the right items before it leaves. A phone points at a packing mat, and a web page on a MacBook shows the result. **Perceptron is the AI that looks at the photos.** FullFill manages the orders and decides whether what Perceptron sees matches what was ordered.
+
+Here is what happens during a check:
+
+1. A worker places the items and order ticket on the mat.
+2. The camera takes a photo when the scene is still and reads the ticket's QR code to find the order.
+3. FullFill sends the photo and example photos of the relevant menu items to Perceptron. The restaurant adds those example photos during setup.
+4. Perceptron reports the visible items, their quantities, and anything it cannot confidently identify.
+5. FullFill compares that information with the order. The screen shows green when everything required is confirmed, red for a definite mismatch, or amber when a person needs to check something. A connection or processing failure is shown separately.
+
+For example, an order needs two ranch cups, but the photo clearly shows only one. The screen says “Missing: one ranch cup.” The worker adds the cup and presses Recheck. If a cup is hidden or the photo is unclear, the system asks for a clearer view instead of assuming it is missing. It checks visible items and labels; it cannot confirm what is inside a closed container.
+
+The code has three main parts:
+
+| Part | In everyday terms |
+| --- | --- |
+| Camera program | Takes usable photos and identifies the ticket. |
+| Backend | The coordinator: stores orders and example photos, talks to Perceptron, compares quantities, and saves results. |
+| Web screen | Shows the worker what is happening and provides setup, recheck, and manual confirmation controls. |
+
+All three run on the MacBook; Perceptron runs in the cloud. Optional manager messages are sent separately, so a messaging problem does not hold up the check.
+
+This separation also lets the team work independently: one person builds the screens, one builds the backend, and one builds camera capture and the Perceptron connection. They agree on the information passed between their parts and use example data while the other parts are being built. Connections to Perceptron, restaurant order systems, and messaging services each live in a small module called an **adapter**, which keeps changes to one integration contained.
+
+## Technical approach
+
 Build FullFill as a modular Python backend, a separate camera process, and a React station UI in one repository. **Perceptron Mk1.5 is the selected vision provider for the MVP.** Keep its integration behind a small interface owned by FullFill. This gives the group independent pieces to develop while keeping the first deployment small enough to run on one MacBook.
 
 The product boundary is one order on a mat, one captured image, a comparison against a digital order and restaurant reference photos, and a recorded outcome. The useful requirements come from the [capture workflow, station states, and setup flow](../order-checker.md#4-design-set-out--snapshot--bag). The old assignments, event schedule, and sponsor choices do not determine component boundaries.
