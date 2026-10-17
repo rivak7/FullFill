@@ -1,0 +1,167 @@
+/* Sized to be read from an arm's length away in a busy kitchen. */
+:root {
+  --green: #1f9d55;
+  --red: #d64545;
+  --amber: #f0a500;
+  --grey: #4a5160;
+  --ink: #111418;
+  --paper: #fbfaf6;
+}
+
+body {
+  margin: 0;
+  font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
+  background: var(--ink);
+}
+
+.station {
+  display: grid;
+  grid-template-columns: minmax(320px, 2fr) 3fr;
+  min-height: 100vh;
+}
+
+/* Ticket: always light so it reads like the paper ticket it replaces. */
+.ticket {
+  background: var(--paper);
+  color: var(--ink);
+  padding: 32px 32px 80px;
+  overflow-y: auto;
+}
+.ticket-header {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  border-bottom: 3px dashed #c9c4b5;
+  padding-bottom: 16px;
+  margin-bottom: 8px;
+}
+.ticket-label {
+  font-size: 20px;
+  text-transform: uppercase;
+  letter-spacing: 0.08em;
+  color: #6b675c;
+}
+.ticket-id {
+  font-size: 40px;
+  font-weight: 800;
+}
+.ticket-lines {
+  list-style: none;
+  margin: 0;
+  padding: 0;
+}
+.ticket-line {
+  display: grid;
+  grid-template-columns: 64px 1fr 48px;
+  align-items: center;
+  gap: 12px;
+  padding: 16px 8px;
+  font-size: 30px;
+  border-bottom: 1px solid #e6e2d6;
+}
+.line-qty {
+  font-weight: 800;
+}
+.line-name {
+  display: flex;
+  flex-direction: column;
+}
+.line-note {
+  font-size: 18px;
+  color: #6b675c;
+  margin-top: 4px;
+}
+.line-mark {
+  font-size: 34px;
+  font-weight: 800;
+  text-align: center;
+}
+.line-ok .line-mark,
+.line-accepted .line-mark { color: var(--green); }
+.line-missing { background: #fde8e8; }
+.line-missing .line-mark { color: var(--red); }
+.line-unsure { background: #fff4d6; }
+.line-unsure .line-mark { color: #b07900; }
+
+/* Status: the whole panel is the color, so it reads at a glance. */
+.status {
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+  padding: 48px;
+  color: #fff;
+  background: var(--grey);
+}
+.tone-green .status { background: var(--green); }
+.tone-red .status { background: var(--red); }
+.tone-amber .status { background: var(--amber); color: var(--ink); }
+.tone-error .status { background: #2b2f38; }
+
+.status-headline {
+  margin: 0;
+  font-size: clamp(48px, 7vw, 96px);
+  line-height: 1.05;
+  font-weight: 900;
+  text-transform: uppercase;
+}
+.status-detail {
+  font-size: 28px;
+  margin: 16px 0 0;
+}
+.status-problems {
+  margin: 24px 0 0;
+  padding-left: 28px;
+  font-size: 32px;
+  font-weight: 600;
+}
+.status-problems li + li { margin-top: 8px; }
+.status-confirm {
+  margin-top: 32px;
+  align-self: flex-start;
+  font: inherit;
+  font-size: 28px;
+  font-weight: 800;
+  padding: 18px 32px;
+  border: 0;
+  border-radius: 12px;
+  background: var(--ink);
+  color: #fff;
+  cursor: pointer;
+}
+
+@media (max-width: 800px) {
+  .station { grid-template-columns: 1fr; }
+  .status { order: -1; min-height: 40vh; padding: 24px 16px; }
+  .ticket { padding: 16px 16px 80px; }
+  .ticket-line { font-size: 22px; grid-template-columns: 48px 1fr 36px; }
+}
+
+/* Demo-only scenario switcher (see App.tsx). */
+.demo-bar {
+  position: fixed;
+  bottom: 12px;
+  left: 50%;
+  transform: translateX(-50%);
+  display: flex;
+  max-width: calc(100vw - 24px);
+  overflow-x: auto;
+  gap: 6px;
+  padding: 6px;
+  background: rgba(17, 20, 24, 0.85);
+  border-radius: 10px;
+}
+.demo-bar button {
+  font: inherit;
+  font-size: 14px;
+  padding: 6px 10px;
+  border: 1px solid #555;
+  border-radius: 6px;
+  background: #222;
+  color: #eee;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.demo-bar button[aria-pressed="true"] {
+  background: #eee;
+  color: #111;
+}
