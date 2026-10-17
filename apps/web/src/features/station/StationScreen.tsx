@@ -4,16 +4,15 @@ import "./station.css";
 
 interface Props {
   state: OrderState;
-  // Called when the worker accepts the amber items. Wire to StationApi.confirm later.
-  onConfirm: (targetIds: string[]) => void;
 }
 
-export function StationScreen({ state, onConfirm }: Props) {
+// Display only: the worker never taps anything here.
+export function StationScreen({ state }: Props) {
   const screen = toScreenState(state);
   return (
     <main className={`station tone-${screen.tone}`}>
       <Ticket orderId={state.order.order_id} lines={screen.lines} />
-      <Status screen={screen} onConfirm={onConfirm} />
+      <Status screen={screen} />
     </main>
   );
 }
@@ -51,8 +50,7 @@ function Ticket({ orderId, lines }: { orderId: string; lines: ScreenLine[] }) {
   );
 }
 
-function Status({ screen, onConfirm }: { screen: ScreenState; onConfirm: Props["onConfirm"] }) {
-  const unsureTargets = screen.problems.flatMap((p) => (p.target_id ? [p.target_id] : []));
+function Status({ screen }: { screen: ScreenState }) {
   return (
     <section className="status" aria-live="polite">
       <h1 className="status-headline">{screen.headline}</h1>
@@ -63,11 +61,6 @@ function Status({ screen, onConfirm }: { screen: ScreenState; onConfirm: Props["
             <li key={p.target_id ?? i}>{p.message}</li>
           ))}
         </ul>
-      )}
-      {screen.tone === "amber" && (
-        <button className="status-confirm" onClick={() => onConfirm(unsureTargets)}>
-          Looks right, send it
-        </button>
       )}
     </section>
   );

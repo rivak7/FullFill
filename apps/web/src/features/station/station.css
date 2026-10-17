@@ -115,19 +115,6 @@ body {
   font-weight: 600;
 }
 .status-problems li + li { margin-top: 8px; }
-.status-confirm {
-  margin-top: 32px;
-  align-self: flex-start;
-  font: inherit;
-  font-size: 28px;
-  font-weight: 800;
-  padding: 18px 32px;
-  border: 0;
-  border-radius: 12px;
-  background: var(--ink);
-  color: #fff;
-  cursor: pointer;
-}
 
 @media (max-width: 800px) {
   .station { grid-template-columns: 1fr; }
