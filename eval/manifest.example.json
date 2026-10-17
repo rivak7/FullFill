@@ -1,0 +1,36 @@
+{
+  "menu": {
+    "burger": {"name": "Burger", "description": "foil-wrapped burger"},
+    "fries": {"name": "Fries", "description": "red paper fry boat"},
+    "ranch_cup": {"name": "Ranch cup", "description": "2 oz clear lidded cup, white sauce"},
+    "bbq_cup": {"name": "BBQ cup", "description": "2 oz clear lidded cup, dark brown sauce"},
+    "coke": {"name": "Coke can", "description": "red 12 oz can"},
+    "sprite": {"name": "Sprite can", "description": "green 12 oz can"},
+    "cheeseburger_box": {"name": "Cheeseburger", "description": "white clamshell marked CB"},
+    "veggie_box": {"name": "Veggie burger", "description": "white clamshell marked VB"}
+  },
+  "cases": [
+    {"id": "t1_01", "test": "t1", "image": "eval/photos/t1_01.jpg",
+     "order": {"burger": 1, "fries": 1, "ranch_cup": 1, "bbq_cup": 1, "coke": 1}},
+
+    {"id": "t2_01", "test": "t2", "image": "eval/photos/t2_01.jpg",
+     "order": {"burger": 1, "fries": 1, "ranch_cup": 2},
+     "actual": {"burger": 1, "fries": 1, "ranch_cup": 1},
+     "note": "missing sauce"},
+    {"id": "t2_02", "test": "t2", "image": "eval/photos/t2_02.jpg",
+     "order": {"burger": 1, "coke": 1},
+     "actual": {"burger": 1, "coke": 0}, "extras": ["sprite"],
+     "note": "swapped drink"},
+    {"id": "t2_03", "test": "t2", "image": "eval/photos/t2_03.jpg",
+     "order": {"burger": 1, "fries": 1, "coke": 1},
+     "note": "correct order"},
+
+    {"id": "t3_01", "test": "t3", "kind": "lookalike", "image": "eval/photos/t3_01.jpg",
+     "order": {"ranch_cup": 1, "bbq_cup": 1},
+     "actual": {"ranch_cup": 0, "bbq_cup": 2},
+     "note": "two BBQ cups, no ranch"},
+    {"id": "t3_02", "test": "t3", "kind": "label", "image": "eval/photos/t3_02.jpg",
+     "order": {"cheeseburger_box": 1, "veggie_box": 1},
+     "labels": {"cheeseburger_box": "CB", "veggie_box": "VB"}}
+  ]
+}
