@@ -78,7 +78,7 @@ Each kitchen screen reserves its selected unresolved order for two minutes,
 renewing while it works. Other screens skip that ticket and show “Working on
 another screen.” Switching releases unfinished work; closing or losing a screen
 lets the reservation expire. This coordinates software screens, not physical
-staff activity; the kitchen code is the staff access boundary.
+staff activity; both sites use the same shared demo access code.
 
 ### Camera decisions and corrections
 
@@ -214,8 +214,7 @@ development proxy forwards `/v1` requests to port 8000.
 | --- | --- |
 | `SQUARE_ENVIRONMENT` | Set to `sandbox`; the current adapter rejects production configuration. |
 | `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID` | Backend credentials/location for shared orders and catalog. |
-| `FULLFILL_ACCESS_KEY` | Ordering access code; at least 32 characters. Required with the kitchen code on Vercel or whenever either code is configured locally. |
-| `FULLFILL_KITCHEN_KEY` | Separate staff access code; at least 32 characters and different from the ordering code. |
+| `FULLFILL_ACCESS_KEY` | Shared ordering and kitchen access code; at least 32 characters. Required on Vercel and optional locally. |
 | `FULLFILL_WEB_ORIGINS` | Comma-separated exact frontend origins for API CORS when hosting sites separately. |
 | `VITE_API_BASE_URL` | Public API origin, configured before frontend builds. Separate-site builds require an HTTPS URL. Local development uses the proxy by default. |
 | `PERCEPTRON_API_KEY` | Required only for real vision/evaluation calls. |
@@ -224,10 +223,9 @@ development proxy forwards `/v1` requests to port 8000.
 
 Keep Square credentials, the Perceptron key, and the demo access code on the
 backend. Never prefix secrets with `VITE_`, which exposes values in browser builds.
-The hosted demo uses separate ordering and kitchen bearer codes stored per browser
-tab. Ordering access allows menu reads and checkout; kitchen access also allows
-queue reads, menu edits, claims, status changes, and camera checks. These are
-shared role codes, not individual user accounts.
+The hosted demo uses one shared bearer code stored per browser tab. The same code
+opens ordering and kitchen screens, including menu editing and camera checks.
+There are no separate role codes or individual user accounts.
 
 The repository supports three Vercel projects: one FastAPI backend plus separate
 order and kitchen sites. Separate builds use `build:order` and `build:fulfill`,
@@ -262,8 +260,7 @@ their version-checked reservations and results are shared through Square metadat
 
 All routes below use the `/v1` prefix. With an access code configured, API reads
 and writes require `Authorization: Bearer <demo-code>`; `/session` reports access
-state and role without requiring authentication. `/session?scope=kitchen` checks
-staff access. Ordering credentials are denied all kitchen operations.
+state without requiring authentication. Both session scopes accept the same code.
 
 | Method and path | Behavior |
 | --- | --- |

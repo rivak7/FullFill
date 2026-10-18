@@ -100,9 +100,8 @@ set `VITE_API_BASE_URL` to its HTTPS origin before building the frontend and set
 for multiple origins). The local Vite proxy is development-only. The deployment
 must route `/v1` to the backend and `/order` and `/fulfill` to the frontend.
 
-The hosted demo uses HTTPS and separate ordering (`FULLFILL_ACCESS_KEY`) and staff
-(`FULLFILL_KITCHEN_KEY`) codes. Only staff can read the queue, edit the menu,
-change statuses, and run camera checks.
+The hosted demo uses HTTPS and one shared `FULLFILL_ACCESS_KEY` for ordering,
+queue access, menu edits, status changes, and camera checks.
 Each browser asks for that shared demo code. CORS restricts browser origins but
 is not authentication. The local servers do not need to be exposed publicly.
 

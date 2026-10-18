@@ -15,19 +15,17 @@ beforeEach(() => {
 afterEach(async () => {
   await act(async () => root.unmount()); container.remove(); vi.resetAllMocks(); vi.unstubAllGlobals();
 });
-it("checks kitchen scope and keeps kitchen content hidden from ordering credentials", async () => {
-  vi.mocked(orderApi.session).mockResolvedValue({ required: true, authenticated: false, role: "order" });
-  await act(async () => root.render(<AccessGate scope="kitchen"><p>Private kitchen</p></AccessGate>));
-  expect(orderApi.session).toHaveBeenCalledWith("kitchen", expect.any(AbortSignal));
-  expect(container.textContent).toContain("Kitchen access");
-  expect(container.textContent).not.toContain("Private kitchen");
+it.each(["order", "kitchen"] as const)("uses the same access prompt on the %s screen", async scope => {
+  vi.mocked(orderApi.session).mockResolvedValue({ required: true, authenticated: false, role: null });
+  await act(async () => root.render(<AccessGate scope={scope}><p>Screen content</p></AccessGate>));
+  expect(container.textContent).toContain("FullFill access");
+  expect(container.textContent).not.toContain("Screen content");
+  expect(container.textContent).not.toContain("Kitchen access");
 });
-it("renders ordering for its credential and rechecks if the screen scope changes", async () => {
-  vi.mocked(orderApi.session).mockResolvedValue({ required: true, authenticated: true, role: "order" });
+it("accepts the shared authenticated session on both screens", async () => {
+  vi.mocked(orderApi.session).mockResolvedValue({ required: true, authenticated: true, role: "kitchen" });
   await act(async () => root.render(<AccessGate scope="order"><p>Order menu</p></AccessGate>));
   expect(container.textContent).toBe("Order menu");
-  vi.mocked(orderApi.session).mockResolvedValue({ required: true, authenticated: false, role: "order" });
-  await act(async () => root.render(<AccessGate scope="kitchen"><p>Private kitchen</p></AccessGate>));
-  expect(container.textContent).not.toContain("Private kitchen");
-  expect(container.textContent).toContain("Kitchen access");
+  await act(async () => root.render(<AccessGate scope="kitchen"><p>Kitchen queue</p></AccessGate>));
+  expect(container.textContent).toBe("Kitchen queue");
 });

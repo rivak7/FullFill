@@ -131,8 +131,7 @@ def client_for(square):
 
 @pytest.fixture(autouse=True)
 def environment(monkeypatch):
-    monkeypatch.setenv("FULLFILL_ACCESS_KEY", "ordering-test-code-at-least-32-characters")
-    monkeypatch.setenv("FULLFILL_KITCHEN_KEY", ACCESS)
+    monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS)
     monkeypatch.setenv("FULLFILL_WEB_ORIGINS", "https://kitchen.example.com")
 
 

@@ -36,7 +36,7 @@ export function AccessGate({ children, scope }: { children: ReactNode; scope: "o
       const session = await orderApi.session(scope);
       if (!session.authenticated) {
         setAccessKey("");
-        setError(session.role === "order" && scope === "kitchen" ? "Use the kitchen access code. The ordering code cannot access this screen." : "That code didn’t match.");
+        setError("That code didn’t match.");
       } else {
         setCode("");
         setReady(true);
@@ -50,7 +50,7 @@ export function AccessGate({ children, scope }: { children: ReactNode; scope: "o
   if (ready) return children;
   return <main className="access-page">
     <form className="access-card" onSubmit={signIn}>
-      <h1>{required ? scope === "kitchen" ? "Kitchen access" : "Ordering access" : loading ? "Connecting…" : "Unable to connect"}</h1>
+      <h1>{required ? "FullFill access" : loading ? "Connecting…" : "Unable to connect"}</h1>
       {required && <>
         <label htmlFor="access-code">Access code</label>
         <input id="access-code" type="password" autoComplete="current-password" value={code} onChange={event => setCode(event.target.value)} required disabled={loading} />
