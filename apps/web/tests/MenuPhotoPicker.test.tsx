@@ -16,9 +16,12 @@ beforeEach(() => {
   container = document.createElement("div"); document.body.append(container);
   root = createRoot(container);
   stop = vi.fn(); onChange = vi.fn();
-  fakeStream = { getTracks: () => [{ stop }] } as unknown as MediaStream;
+  fakeStream = { getTracks: () => [{ stop }], getVideoTracks: () => [{ getSettings: () => ({ deviceId: "built-in" }) }] } as unknown as MediaStream;
   getUserMedia = vi.fn().mockResolvedValue(fakeStream);
-  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia } });
+  Object.defineProperty(navigator, "mediaDevices", { configurable: true, value: { getUserMedia, enumerateDevices: vi.fn().mockResolvedValue([
+    { kind: "videoinput", deviceId: "built-in", label: "Built-in camera" },
+    { kind: "videoinput", deviceId: "phone", label: "iPhone Camera" },
+  ]) } });
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
 });
 
@@ -74,4 +77,19 @@ it("keeps upload available if camera permission is denied", async () => {
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Camera access was denied");
   expect([...container.querySelectorAll("button")].find(button => button.textContent === "Upload photo")?.disabled).toBe(false);
   expect(onChange).not.toHaveBeenCalled();
+});
+
+it("switches to the selected phone camera and releases the previous stream", async () => {
+  await render(); await click("Take photo");
+  const phoneStop = vi.fn();
+  const phone = { getTracks: () => [{ stop: phoneStop }], getVideoTracks: () => [{ getSettings: () => ({ deviceId: "phone" }) }] } as unknown as MediaStream;
+  getUserMedia.mockResolvedValueOnce(phone);
+  const select = container.querySelector('select')!;
+  expect(select.textContent).toContain("iPhone Camera");
+  await act(async () => { select.value = "phone"; select.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(stop).toHaveBeenCalledTimes(1);
+  expect(getUserMedia).toHaveBeenLastCalledWith({ audio: false, video: { deviceId: { exact: "phone" }, width: { ideal: 1920 } } });
+  expect(container.querySelector('video')!.srcObject).toBe(phone);
+  await click("Close camera");
+  expect(phoneStop).toHaveBeenCalledTimes(1);
 });

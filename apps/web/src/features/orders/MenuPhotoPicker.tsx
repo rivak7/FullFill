@@ -29,6 +29,8 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
   const [cameraOpen, setCameraOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [preparing, setPreparing] = useState(false);
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
+  const [deviceId, setDeviceId] = useState("");
   const [error, setError] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -50,18 +52,27 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
     stream.current?.getTracks().forEach(track => track.stop());
   }, []);
 
-  async function openCamera() {
+  async function openCamera(id = deviceId) {
     setError(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("Camera access needs HTTPS and a supported browser. You can upload a photo instead."); return;
     }
     const current = ++generation.current;
+    stream.current?.getTracks().forEach(track => track.stop());
+    stream.current = null;
+    if (video.current) video.current.srcObject = null;
     setCameraOpen(true); setReady(false);
     try {
-      const next = await navigator.mediaDevices.getUserMedia({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1920 } } });
+      const next = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...(id ? { deviceId: { exact: id } } : { facingMode: { ideal: "environment" } }), width: { ideal: 1920 } } });
       if (generation.current !== current) { next.getTracks().forEach(track => track.stop()); return; }
       stream.current = next;
+      setDeviceId(next.getVideoTracks()[0]?.getSettings().deviceId ?? id);
       if (video.current) { video.current.srcObject = next; await video.current.play(); }
+      // Listing cameras is optional; a working preview should survive a listing failure.
+      try {
+        const available = await navigator.mediaDevices.enumerateDevices();
+        if (generation.current === current) setDevices(available.filter(device => device.kind === "videoinput"));
+      } catch { /* Keep the active camera available for capture. */ }
     } catch (error) {
       if (generation.current !== current) return;
       stopCamera();
@@ -98,6 +109,7 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
   return <div className="menu-photo-picker">
     <div className="photo-label"><span>Photo</span><span>{preview ? "" : "Required for new items"}</span></div>
     {cameraOpen ? <div className="camera-panel">
+      {devices.length > 1 && <label>Camera<select aria-label="Menu photo camera" value={deviceId} disabled={disabled} onChange={event => { setDeviceId(event.target.value); void openCamera(event.target.value); }}>{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>}
       <video ref={video} autoPlay playsInline muted onLoadedData={() => setReady(true)} aria-label="Menu item camera preview" />
       {!ready && <p role="status">Opening camera…</p>}
       <div className="photo-actions"><button type="button" className="secondary-button" onClick={stopCamera}>Close camera</button><button type="button" className="primary-button" disabled={!ready || disabled} onClick={capture}>Capture photo</button></div>
@@ -106,7 +118,7 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
         {preview ? <img src={preview} alt="Menu item photo preview" /> : <span>Add a photo of this item</span>}
       </div>
       <div className="photo-actions">
-        <button type="button" className="secondary-button" disabled={disabled || preparing} onClick={openCamera}>Take photo</button>
+        <button type="button" className="secondary-button" disabled={disabled || preparing} onClick={() => void openCamera()}>Take photo</button>
         <button type="button" className="secondary-button" disabled={disabled || preparing} onClick={() => fileInput.current?.click()}>{preview ? "Replace photo" : "Upload photo"}</button>
       </div>
       <input ref={fileInput} className="photo-file-input" type="file" aria-label="Upload menu item photo" accept="image/jpeg,image/png,image/webp" disabled={disabled || preparing} onChange={event => { const file = event.target.files?.[0]; event.target.value = ""; void upload(file); }} />
