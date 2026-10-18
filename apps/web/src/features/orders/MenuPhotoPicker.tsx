@@ -1,6 +1,7 @@
+import { preferredCamera } from "./preferredCamera";
 import { useEffect, useRef, useState } from "react";
 import type { MenuPhoto } from "../../api/client";
-import { cameraConstraints, cameraPhoto } from "./cameraFraming";
+import { cameraPhoto } from "./cameraFraming";
 
 function photoFrom(source: CanvasImageSource, width: number, height: number): MenuPhoto {
   if (!width || !height) throw new Error("The photo isn't ready yet. Try again.");
@@ -32,6 +33,7 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
   const [preparing, setPreparing] = useState(false);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("");
+  const chosenDevice = useRef("");
   const [error, setError] = useState<string | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const fileInput = useRef<HTMLInputElement>(null);
@@ -53,7 +55,7 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
     stream.current?.getTracks().forEach(track => track.stop());
   }, []);
 
-  async function openCamera(id = deviceId) {
+  async function openCamera(id = chosenDevice.current) {
     setError(null);
     if (!navigator.mediaDevices?.getUserMedia) {
       setError("Camera access needs HTTPS and a supported browser. You can upload a photo instead."); return;
@@ -64,7 +66,8 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
     if (video.current) video.current.srcObject = null;
     setCameraOpen(true); setReady(false);
     try {
-      const next = await navigator.mediaDevices.getUserMedia(cameraConstraints(id));
+      const next = await preferredCamera(id, () => generation.current === current);
+      if (!next) return;
       if (generation.current !== current) { next.getTracks().forEach(track => track.stop()); return; }
       stream.current = next;
       setDeviceId(next.getVideoTracks()[0]?.getSettings().deviceId ?? id);
@@ -110,7 +113,7 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
   return <div className="menu-photo-picker">
     <div className="photo-label"><span>Photo</span><span>{preview ? "" : "Required for new items"}</span></div>
     {cameraOpen ? <div className="camera-panel">
-      {devices.length > 1 && <label>Camera<select aria-label="Menu photo camera" value={deviceId} disabled={disabled} onChange={event => { setDeviceId(event.target.value); void openCamera(event.target.value); }}>{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>}
+      {devices.length > 1 && <label>Camera<select aria-label="Menu photo camera" value={deviceId} disabled={disabled} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void openCamera(event.target.value); }}>{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>}
       <video className="camera-preview" ref={video} autoPlay playsInline muted onLoadedData={() => setReady(true)} aria-label="Menu item camera preview" />
       {!ready && <p role="status">Opening camera…</p>}
       <div className="photo-actions"><button type="button" className="secondary-button" onClick={stopCamera}>Close camera</button><button type="button" className="primary-button" disabled={!ready || disabled} onClick={capture}>Capture photo</button></div>

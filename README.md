@@ -75,6 +75,10 @@ refreshes and menu visits and includes other tabs on this browser/site. It inclu
 failed requests, so it is not a provider billing total or an all-devices counter.
 Older timestamps are discarded when history is read; clearing browser data resets it.
 Camera images stay in memory; only compact observations and hashes persist in Square.
+Both camera views prefer a detected iPhone camera by default, excluding Desk View.
+If the iPhone is unavailable, the browser camera is used. A manual dropdown choice
+is respected while that view remains mounted. Camera permission is still required.
+
 Open the **CV logs** tab for a scrollable per-check timeline, order/attempt IDs,
 trigger, elapsed time, and final decision. Each new check includes the exact normalized
 order image and selected reference images sent to Perceptron, plus its structured
