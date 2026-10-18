@@ -45,7 +45,11 @@ Rules:
 even if items from the list are absent; otherwise "obscured", "blurry", "out_of_frame" \
 (an object is cut off at the image edge), or "mixed_orders". Absent items are not a \
 scene problem: report them as missing. Empty, well-lit packing areas are clear. A closed \
-bag hiding the order is obscured, not empty.
+bag hiding the order is obscured, not empty. "mixed_orders" only when food or drink \
+items from more than one order are on the mat.
+- The packing area is a mat (cardboard or paper, maybe stained) with floor, cables or \
+straps around it. The mat, its stains and edges, and anything off the mat are never \
+items, unknown items, or a scene problem.
 - Report every listed menu item exactly once, using its id.
 - status "present": you can identify at least one; "count" is a positive number.
 - status "missing": you are confident none are there; "count" is 0.
