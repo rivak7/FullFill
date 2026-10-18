@@ -100,6 +100,24 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .managed-menu-item > div { flex: 1; min-width: 0; }
 .managed-menu-item h2 { margin: 0 0 6px; font-size: 17px; overflow-wrap: anywhere; }
 .managed-menu-item > div > span { color: #65705e; font-size: 14px; }
+.menu-item-thumbnail { width: 68px; height: 68px; flex: 0 0 68px; border-radius: 8px; object-fit: cover; background: #eceee5; }
+.missing-photo { display: grid; place-items: center; color: #737c69; font-size: 11px; }
+.menu-photo-picker { margin-bottom: 24px; }
+.photo-label { display: flex; align-items: center; justify-content: space-between; gap: 8px; font-size: 13px; font-weight: 600; margin-bottom: 9px; }
+.photo-label > span + span { font-size: 11px; font-weight: 400; color: #69745f; }
+.photo-preview { display: grid; place-items: center; aspect-ratio: 4 / 3; border: 1px dashed #c5cebc; border-radius: 8px; overflow: hidden; background: #f1f3eb; color: #75816b; font-size: 13px; }
+.photo-preview.has-photo { border-style: solid; }
+.photo-preview img { width: 100%; height: 100%; object-fit: contain; min-height: 0; }
+.photo-actions { display: flex; gap: 8px; margin-top: 10px; }
+.photo-actions > button { flex: 1; padding: 10px; font-size: 12px; }
+.photo-reset, .delete-link { border: 0; background: transparent; padding: 10px 0 0; text-decoration: underline; color: #5d6b50; font-size: 12px; }
+.menu-edit-card .photo-file-input { display: none; }
+.camera-panel video { width: 100%; aspect-ratio: 4 / 3; object-fit: contain; background: #1d2518; border-radius: 8px; }
+.camera-panel p, .menu-photo-picker > p { font-size: 12px; color: #67735d; }
+.delete-item { border-top: 1px solid #e3e6dc; margin-top: 20px; padding-top: 8px; }
+.delete-item p { font-size: 13px; line-height: 1.5; }
+.delete-link { color: #9f342e; }
+.danger-button { background: #9c332c; color: white; border: 1px solid #9c332c; border-radius: 7px; font-weight: 600; }
 .availability { display: inline-flex; white-space: nowrap; padding: 5px 9px; border-radius: 5px; font-size: 11px; font-weight: 650; }
 .availability.available { color: #315335; background: #edf3e5; }
 .availability.sold-out { color: #855c25; background: #fbefda; }

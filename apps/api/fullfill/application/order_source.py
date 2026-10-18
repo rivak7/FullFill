@@ -6,6 +6,8 @@ from fullfill_contracts.common import Contract
 from fullfill_contracts.orders import OrderSnapshot, VerificationMode
 from pydantic import Field, model_validator
 
+from .menu_photo import MenuPhoto
+
 
 class MenuEntry(Contract):
     item_id: str
@@ -17,6 +19,8 @@ class MenuEntry(Contract):
     available: bool = True
     archived: bool = False
     version: int = 0
+    photo_id: str | None = None
+    photo_url: str | None = None
 
 
 class MenuSnapshot(Contract):
@@ -31,6 +35,7 @@ class MenuEdit(Contract):
     available: bool = True
     archived: bool = False
     version: int = Field(ge=0, strict=True)
+    photo: MenuPhoto | None = None
 
     @model_validator(mode="after")
     def clean_name(self):
