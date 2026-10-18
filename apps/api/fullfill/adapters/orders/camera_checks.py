@@ -5,6 +5,7 @@ attempt. A reservation is consumed even if the provider fails or the response is
 lost. Retrying a paid call is always an explicit new attempt.
 """
 
+import asyncio
 import hashlib
 import json
 import time
@@ -221,7 +222,24 @@ class SquareCameraChecks:
 
     async def confirm_camera_check(self, order_id, check_id, revision, worker_id, scene_unchanged):
         path = f"/v2/orders/{quote(order_id, safe='')}"
-        order = (await self._request("GET", path)).get("order", {})
+        # The reference check below needs the menu; load it alongside the order.
+        menu_task = asyncio.create_task(self.menu()) if scene_unchanged else None
+        try:
+            order = (await self._request("GET", path)).get("order", {})
+        except BaseException:
+            if menu_task:
+                menu_task.cancel()
+            raise
+        try:
+            return await self._confirm(order, path, check_id, revision, worker_id, menu_task)
+        finally:
+            if menu_task and not menu_task.done():
+                menu_task.cancel()
+            elif menu_task and not menu_task.cancelled():
+                menu_task.exception()  # Retrieved, so an unused failure isn't logged.
+
+    async def _confirm(self, order, path, check_id, revision, worker_id, menu_task):
+        scene_unchanged = menu_task is not None
         state = self._order_state(order)
         require_worker(order, worker_id)
         metadata = dict(order.get("metadata") or {})
@@ -243,7 +261,7 @@ class SquareCameraChecks:
         if scene_unchanged:
             try:
                 payload = unpack_result(metadata, order.get("line_items", []), record.get("r", 2))
-                references_match = payload.get("f") == reference_fingerprint(await self.menu())
+                references_match = payload.get("f") == reference_fingerprint(await menu_task)
             except (ValueError, KeyError, TypeError, zlib.error):
                 references_match = False
             if not references_match:

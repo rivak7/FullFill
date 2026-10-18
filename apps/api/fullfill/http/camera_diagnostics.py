@@ -11,9 +11,10 @@ class CameraResponse(OrderState):
     diagnostics: dict | None = Field(default=None, exclude_if=lambda value: value is None)
 
 
-def input_diagnostics(request: VisionInput):
-    # Bound response size; never shrink or recrop a displayed model input.
-    remaining = 3_000_000
+def input_diagnostics(request: VisionInput, images=True):
+    # Bound response size; never shrink or recrop a displayed model input. Without
+    # images this is a few kilobytes, so every check returns it.
+    remaining = 3_000_000 if images else 0
 
     def image_url(image):
         nonlocal remaining

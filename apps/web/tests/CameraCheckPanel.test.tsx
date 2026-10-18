@@ -4,10 +4,11 @@ import { createRoot, type Root } from "react-dom/client";
 import { orderNumber } from "../src/orderNumber";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
-import { orderApi } from "../src/api/client";
+import { ApiError, orderApi } from "../src/api/client";
 import type { OrderState } from "../src/api/generated/contracts";
 import { CameraCheckPanel } from "../src/features/orders/CameraCheckPanel";
-import { SceneGuard, SceneTrigger } from "../src/features/orders/sceneTrigger";
+import { SceneGuard, SceneTrigger, isEmptyMat } from "../src/features/orders/sceneTrigger";
+import { changeSetting } from "../src/settings";
 import { amberReason, toScreenState } from "../src/features/station/screenState";
 import { readCheckActivity, recordCheckAttempt } from "../src/features/orders/CheckActivity";
 import { readCvLogs } from "../src/features/orders/CvLogs";
@@ -46,9 +47,18 @@ afterEach(async () => {
   await act(async () => root.unmount()); container.remove();
   vi.restoreAllMocks(); vi.resetAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
+let shown: { order: OrderState | null; disabled: boolean; pauseToken: number } = { order: null, disabled: false, pauseToken: 0 };
+let checkToken = 0;
 async function render(order: OrderState | null = ticket(), disabled = false, pauseToken = 0) {
-  await act(async () => root.render(<CameraCheckPanel workerId="worker" order={order ?? undefined} disabled={disabled} pauseToken={pauseToken} onResult={onResult} onBusyChange={onBusyChange} />));
+  shown = { order, disabled, pauseToken };
+  await act(async () => root.render(<CameraCheckPanel workerId="worker" order={order ?? undefined} disabled={disabled} pauseToken={pauseToken} checkToken={checkToken} onResult={onResult} onBusyChange={onBusyChange} />));
 }
+// The kitchen's "Check now" button lives in the override row and bumps checkToken.
+async function checkNow() {
+  checkToken++;
+  await render(shown.order, shown.disabled, shown.pauseToken);
+}
+const automatic = () => container.querySelector("[data-auto]")?.getAttribute("data-auto") === "on";
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(button => button.textContent === label);
   expect(button).toBeDefined(); await act(async () => button!.click());
@@ -62,7 +72,7 @@ it("takes one look when automatic checks start, then leaves a red or green view 
   await render(); await camera();
   await act(async () => vi.advanceTimersByTimeAsync(60000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(automatic()).toBe(true);
   await click("Turn off camera");
   expect(stopTrack).toHaveBeenCalledTimes(1);
 });
@@ -94,20 +104,20 @@ it("does not periodically check fulfilled orders, unclaimed orders, or an empty 
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
 });
 
-it("asks for photos, boxes and timings only in dev mode", async () => {
+it("asks for boxes and model input only when they are turned on in settings", async () => {
   vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: { provider_called: true, image: null, targets: [], references: [], observations: null, timings_ms: { square_order: 400, perceptron: 2100 } } });
-  localStorage.setItem("fullfill.dev.v1", "1");
-  await render(); await camera(); await click("Check order");
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0].diagnostics).toBe(true);
-  expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain("Server steps: square order 0.4 s, perceptron 2.1 s.");
+  changeSetting("boxes", true);
+  await render(); await camera(); await checkNow();
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toMatchObject({ boxes: true, photos: false });
+  expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain("Server steps: square order 0.4 s, perceptron 2.1 s, network 0.0 s.");
 });
 
 it("binds one snapshot to the captured ticket and never relabels a late result", async () => {
   let resolve!: (state: OrderState) => void;
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-  await render(); await camera(); await click("Check order");
+  await render(); await camera(); await checkNow();
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, diagnostics: false });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, boxes: false, photos: false });
   await render(ticket("second"), true);
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -121,28 +131,42 @@ it("captures the whole frame at the same JPEG resolution as menu photos", async 
   vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(1080);
   const drawImage = vi.fn();
   vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage, getImageData: () => ({ data: new Uint8ClampedArray(4096) }) } as unknown as CanvasRenderingContext2D);
-  await render(); await camera(); await click("Check order");
+  await render(); await camera(); await checkNow();
   expect(drawImage).toHaveBeenCalledWith(container.querySelector("video"), 0, 0, 1920, 1080, 0, 0, 1024, 576);
   expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith("image/jpeg", 0.8);
   expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 } } });
 });
 
-it("does not automatically retry failures and stops auto checking on error", async () => {
-  vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new Error("Provider unavailable"));
+it("retries a failed check once with a new photo, then stops auto checking", async () => {
+  vi.mocked(orderApi.checkCamera).mockRejectedValue(new ApiError("Camera check failed during vision provider.", 502, { provider_called: true, image: null, targets: [], references: [], observations: null, raw_answer: "{\"items\": []}" }));
   await render(); await camera();
-  await click("Check order");
-  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Provider unavailable");
-  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
+  await checkNow();
+  expect(automatic()).toBe(true);
+  expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain('Perceptron answered: {"items": []}');
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  expect(readCvLogs()[0].trigger).toBe("retry after error");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("vision provider");
+  expect(automatic()).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(60000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  expect(readCvLogs()[0].result).toBe("Request failed");
+});
+
+it("does not retry a request the server rejected", async () => {
+  vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new ApiError("This order changed. Refresh before checking it.", 409));
+  await render(); await camera();
+  await checkNow();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("This order changed");
+  expect(automatic()).toBe(true);
   await act(async () => vi.advanceTimersByTimeAsync(60000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(readCvLogs()[0].result).toBe("Request failed");
-  expect(readCvLogs()[0].events.at(-1)?.message).toContain("Provider unavailable");
 });
 
 it("records and copies a diagnostic timeline without saving camera images", async () => {
   const writeText = vi.fn().mockResolvedValue(undefined);
   Object.assign(navigator, { clipboard: { writeText } });
-  await render(); await camera(); await click("Check order");
+  await render(); await camera(); await checkNow();
   const log = readCvLogs()[0];
   expect(log.orderId).toBe("first");
   expect(log.trigger).toBe("manual");
@@ -164,18 +188,17 @@ it("records and copies a diagnostic timeline without saving camera images", asyn
 
 it("allows checks beyond the old caps without a forced wait and records attempts", async () => {
   await render(); await camera();
-  for (let i = 0; i < 25; i++) await click("Check order");
+  for (let i = 0; i < 25; i++) await checkNow();
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(25);
   expect(readCheckActivity()).toHaveLength(25);
   expect(container.textContent).not.toContain("Session limit reached");
 });
 
 it("keeps usage across remounts, includes failed attempts, and expires time windows", async () => {
-  await render(); await camera(); await click("Check order");
-  await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
+  await render(); await camera(); await checkNow();
   await act(async () => vi.advanceTimersByTimeAsync(10 * 60000));
   vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new Error("Unavailable"));
-  await click("Check order");
+  await checkNow();
   await act(async () => root.unmount());
   root = createRoot(container); await render();
   const details = container.querySelector<HTMLDetailsElement>(".check-activity")!;
@@ -209,11 +232,11 @@ it("keeps automatic mode enabled across tab switches and waits for visible settl
   vi.spyOn(document, "hidden", "get").mockReturnValue(true);
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
   await observe(80, 10000);
-  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(automatic()).toBe(true);
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-  await observe(80, 750);
+  await observe(80, 375);
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   await observe(80, 250);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -221,7 +244,7 @@ it("keeps automatic mode enabled across tab switches and waits for visible settl
 
 it("disables paid checks when the backend is not configured while allowing preview", async () => {
   vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: false });
-  await render(); await camera(); await click("Check order");
+  await render(); await camera(); await checkNow();
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   expect(container.textContent).toContain("AI checks unavailable");
 });
@@ -236,8 +259,8 @@ it("requires movement and settling, ignores hand waves, and suppresses unchanged
   const scene = new SceneTrigger();
   const frame = (value: number) => new Uint8Array(1024).fill(value);
   expect(sampled(scene, frame(0), 0, 3000)).toBe(false);
-  expect(sampled(scene, frame(80), 3250, 3750)).toBe(false);
-  expect(scene.sample(frame(80), 4000)).toBe(true);
+  expect(sampled(scene, frame(80), 3250, 3500)).toBe(false);
+  expect(scene.sample(frame(80), 3750)).toBe(true);
   scene.submitted(frame(80));
   expect(sampled(scene, frame(80), 5000, 9000)).toBe(false);
   scene.sample(frame(200), 9250);
@@ -259,8 +282,8 @@ it("waits for a stable intermediate scene before checking an identical next meal
   expect(scene.handoff).toBe("remove");
   expect(sampled(scene, empty, 5750, 9000)).toBe(false);
   expect(scene.handoff).toBe("place");
-  expect(sampled(scene, meal, 9250, 9750)).toBe(false);
-  expect(scene.sample(meal, 10000)).toBe(true);
+  expect(sampled(scene, meal, 9250, 9500)).toBe(false);
+  expect(scene.sample(meal, 9750)).toBe(true);
 });
 
 it("does not treat time away from the camera as handoff evidence", () => {
@@ -328,8 +351,48 @@ it("detects a small added packet while ignoring an isolated noisy pixel", () => 
   expect(sampled(scene, noise, 250, 2000)).toBe(false);
   const packet = baseline.slice();
   for (let row = 0; row < 4; row++) for (let col = 0; col < 8; col++) packet[row * 32 + col] = 200;
-  expect(sampled(scene, packet, 2250, 2750)).toBe(false);
-  expect(scene.sample(packet, 3000)).toBe(true);
+  expect(sampled(scene, packet, 2250, 2500)).toBe(false);
+  expect(scene.sample(packet, 2750)).toBe(true);
+});
+
+// Two sauce packets cover only a few pixels of the 32-px preview and barely move
+// the averages, so clearing them used to leave "Bag it and clear the mat" up.
+function withPackets(bare: Uint8Array) {
+  const frame = bare.slice();
+  for (const [row, col] of [[10, 10], [10, 11], [11, 10], [20, 22], [21, 22]]) frame[row * 32 + col] = 150;
+  return frame;
+}
+
+it("sees the mat cleared when only two small packets are taken off", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(210);
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  const packets = withPackets(bare);
+  scene.submitted(packets); scene.nextOrder();
+  sampled(scene, packets, 1250, 3000);
+  expect(scene.handoff).toBe("remove");
+  sampled(scene, bare, 3250, 4500);
+  expect(scene.handoff).toBe("place");
+  // And two packets placed on the bare mat start a check.
+  expect(sampled(scene, packets, 4750, 6000)).toBe(true);
+});
+
+it("sees a mustard packet on cardboard even though both are equally bright", () => {
+  const cardboard = new Uint8Array(32 * 32 * 3);
+  for (let p = 0; p < 1024; p++) cardboard.set([190, 150, 110], p * 3); // grey ≈ 150
+  const packet = cardboard.slice();
+  for (const p of [330, 331, 362]) packet.set([230, 185, 35], p * 3); // mustard, grey ≈ 150
+  expect(isEmptyMat(cardboard, cardboard)).toBe(true);
+  expect(isEmptyMat(packet, cardboard)).toBe(false);
+});
+
+it("still sees the bare mat after the phone shifts by a pixel", () => {
+  const bare = new Uint8Array(1024).fill(210);
+  for (let row = 0; row < 32; row++) for (let col = 0; col < 6; col++) bare[row * 32 + col] = 60; // carpet edge
+  const shifted = bare.map((_, i) => bare[Math.floor(i / 32) * 32 + Math.max(0, (i % 32) - 1)]);
+  expect(isEmptyMat(shifted, bare)).toBe(true);
+  expect(isEmptyMat(withPackets(shifted), bare)).toBe(false);
 });
 
 it("shows an unexpected unidentified item as orange, matching the comparison verdict", () => {
@@ -341,7 +404,7 @@ it("shows an unexpected unidentified item as orange, matching the comparison ver
 });
 
 it("keeps the exact submitted photo labeled with its ticket after selection changes", async () => {
-  await render(); await camera(); await click("Check order");
+  await render(); await camera(); await checkNow();
   await render(ticket("second"));
   expect(container.querySelector(".camera-last-photo summary")?.textContent).toContain(orderNumber("first"));
   expect(container.querySelector(".camera-last-photo img")?.getAttribute("src")).toBe("data:image/jpeg;base64,cGhvdG8=");
@@ -351,14 +414,15 @@ it("rechecks uncertain results but respects manual corrections", async () => {
   const state = checked(); state.current_check!.verdict = "unsure";
   vi.mocked(orderApi.checkCamera).mockResolvedValueOnce(state);
   await render(); await camera();
-  const automatic = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-  expect(automatic.checked).toBe(true);
-  await click("Check order");
-  expect(automatic.checked).toBe(true);
+  expect(automatic()).toBe(true);
+  await checkNow();
+  expect(automatic()).toBe(true);
   await act(async () => vi.advanceTimersByTimeAsync(5000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  // A manual override stands: auto-check stays on but waits for the mat to change.
   await render(ticket(), false, 1);
-  expect(automatic.checked).toBe(false);
+  await act(async () => vi.advanceTimersByTimeAsync(60000));
+  expect(automatic()).toBe(true);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
 });
 
@@ -403,7 +467,7 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
     state.disposition = body.scene_unchanged ? "verified" : "needs_review";
     return state;
   });
-  await render(); await camera(); await click("Check order");
+  await render(); await camera(); await checkNow();
   await act(async () => vi.advanceTimersByTimeAsync(1500));
   if (kind === "motion") {
     vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(4096).fill(200) }) } as unknown as CanvasRenderingContext2D);
@@ -424,7 +488,7 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
   if (kind === "hidden") expect(events).toContain("tab_hidden");
   if (kind === "closed") expect(events).toContain("camera_stopped");
   if (kind === "hidden") {
-    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+    expect(automatic()).toBe(true);
     await observe(0, 10000);
     expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
@@ -441,7 +505,7 @@ it("never revokes a green result after it is confirmed", async () => {
   vi.mocked(orderApi.checkCamera).mockResolvedValue(pending);
   let resolve!: (state: OrderState) => void;
   vi.mocked(orderApi.confirmCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
-  await render(); await camera(); await click("Check order");
+  await render(); await camera(); await checkNow();
   await click("Turn off camera");
   const accepted = checked(); accepted.current_check!.verdict = "pass";
   await act(async () => resolve(accepted));
@@ -461,7 +525,7 @@ async function observe(value: number, milliseconds = 2000) {
 it("automatically checks consecutive identical meals without a handoff button or empty-scene calls", async () => {
   await render(); await camera();
   expect(container.textContent).not.toContain("New order placed");
-  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(automatic()).toBe(true);
   await observe(0); // First baseline is local only.
   await observe(80);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -492,17 +556,21 @@ it("keeps handoff evidence while waiting for the new ticket claim", async () => 
   expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0].expected_revision).toBe(4);
 });
 
-it("keeps manual checks available without an extra confirmation and respects opting out of automatic checks", async () => {
-  await render(); await camera(); await click("Check order");
+it("keeps auto-check always on and checks right away on Check now", async () => {
+  await render(); await camera(); await checkNow();
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  const automatic = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-  await act(async () => automatic.click());
+  expect(container.querySelector('input[type="checkbox"]')).toBeNull();
   await render(ticket("second"));
-  await observe(0); await observe(80);
-  expect(automatic.checked).toBe(false);
-  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  await click("Check order");
+  await checkNow();
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0].order_id).toBe("second");
+  expect(automatic()).toBe(true);
+});
+
+it("asks for the camera when Check now is pressed with it off", async () => {
+  await render(); await checkNow();
+  expect(orderApi.checkCamera).not.toHaveBeenCalled();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Turn on the camera");
 });
 
 it("invalidates a snapshot when the ticket contents change without turning automatic mode off", async () => {
@@ -513,7 +581,7 @@ it("invalidates a snapshot when the ticket contents change without turning autom
   const changed = ticket(); changed.order.lines[0].quantity = 2;
   await render(changed); await observe(80);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(automatic()).toBe(true);
   expect(container.textContent).not.toContain("New order placed");
 });
 

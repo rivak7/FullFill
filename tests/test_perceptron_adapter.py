@@ -114,10 +114,37 @@ def test_unlabeled_lookalike_becomes_unsure():
     assert "unlabeled" in burrito.reason
 
 
-def test_answer_missing_a_target_is_rejected():
+def test_ordered_item_left_out_of_the_answer_is_unsure_not_a_failed_check():
     client = FakeClient({"items": [entry("mayo")], "unexpected_items": []})
-    with pytest.raises(VisionProviderError, match="left out"):
+    obs = run(vision(client).inspect(REQUEST))
+    assert [(t.status, t.observed_quantity) for t in obs.targets] == [
+        ("unsure", None),
+        ("present", 1),
+    ]
+
+
+@pytest.mark.parametrize(
+    ("first", "second", "expected"),
+    [
+        (entry("mayo", "missing", None), None, ("missing", 0)),
+        (entry("mayo", count=0), None, ("unsure", None)),
+        (entry("mayo", "missing", 1), None, ("unsure", 1)),
+        (entry("mayo"), entry("mayo", "missing", 0), ("unsure", 1)),
+    ],
+)
+def test_self_contradicting_answers_become_unsure(first, second, expected):
+    items = [entry("chicken_burrito", label="C"), first, *([second] if second else [])]
+    observations, _ = parse_answer(json.dumps({"items": items, "unknown_items": []}), REQUEST)
+    mayo = observations[1]
+    assert (mayo.status, mayo.observed_quantity) == expected
+
+
+def test_rejected_answer_keeps_the_model_text_and_a_reason_for_the_kitchen():
+    client = FakeClient({"items": [None], "unknown_items": []})
+    with pytest.raises(VisionProviderError) as caught:
         run(vision(client).inspect(REQUEST))
+    assert '"items": [null]' in caught.value.raw_answer
+    assert "requested JSON" in caught.value.public_reason
 
 
 def test_api_error_is_wrapped():
@@ -195,15 +222,10 @@ def test_poor_scene_is_reported_once_without_rewriting_counts(scene):
         {"items": [None], "unexpected_items": []},
         {"items": [], "unexpected_items": [{}]},
         {"items": [entry("chicken_burrito", count=True), entry("mayo")], "unexpected_items": []},
-        {"items": [entry("chicken_burrito", count=0), entry("mayo")], "unexpected_items": []},
-        {
-            "items": [entry("chicken_burrito", status="missing", count=1), entry("mayo")],
-            "unexpected_items": [],
-        },
         {"items": [entry("chicken_burrito", unlabeled="1"), entry("mayo")], "unexpected_items": []},
     ],
 )
-def test_malformed_or_contradictory_observations_are_rejected(bad):
+def test_malformed_observations_are_rejected(bad):
     with pytest.raises(VisionProviderError):
         parse_answer(json.dumps(bad), REQUEST)
 

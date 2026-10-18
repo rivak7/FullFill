@@ -44,6 +44,7 @@ export interface CameraDiagnostics {
   references: { item_id: string; name: string; revision: number; role: "expected" | "alternative"; image: string | null }[];
   observations: Observations | null;
   timings_ms?: Record<string, number>;
+  raw_answer?: string;
 }
 export type CameraResponse = OrderState & { diagnostics?: CameraDiagnostics | null };
 
@@ -105,7 +106,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const orderApi = {
   cameraConfig: (signal?: AbortSignal) => request<{ configured: boolean }>("/checks/camera/config", { signal }),
-  checkCamera: (body: { worker_id: string; order_id: string; expected_revision: number; photo: MenuPhoto; diagnostics?: boolean }, key: string) => request<CameraResponse>("/checks/camera", {
+  checkCamera: (body: { worker_id: string; order_id: string; expected_revision: number; photo: MenuPhoto; boxes?: boolean; photos?: boolean }, key: string) => request<CameraResponse>("/checks/camera", {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
   }),
   confirmCamera: (body: { worker_id: string; order_id: string; check_id: string; expected_revision: number; scene_unchanged: boolean }) => request<OrderState>("/checks/camera/confirm", {

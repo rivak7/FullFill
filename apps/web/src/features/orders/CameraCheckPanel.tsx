@@ -1,10 +1,10 @@
 import { orderNumber } from "../../orderNumber";
 import { preferredCamera } from "./preferredCamera";
-import { isDevMode } from "../../devMode";
+import { readSettings } from "../../settings";
 import { useEffect, useRef, useState } from "react";
 import { orderApi, ApiError, type MenuPhoto } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
-import { SceneGuard, SceneTrigger } from "./sceneTrigger";
+import { SAMPLE_MS, SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
 import { cameraPhoto, cameraThumbnail } from "./cameraFraming";
@@ -15,6 +15,8 @@ interface Props {
   workerId: string;
   disabled: boolean;
   pauseToken?: number;
+  // Bumped by the kitchen's "Check now" button: take a photo of the mat right away.
+  checkToken?: number;
   // `bagging` is true when the camera will watch this passed order get cleared off the mat.
   onResult: (state: OrderState, bagging: boolean) => void;
   onMatCleared?: (orderId: string) => void;
@@ -24,9 +26,10 @@ interface Props {
 function sample(video: HTMLVideoElement): Uint8Array {
   const canvas = cameraThumbnail(video, 32);
   const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
-  const gray = new Uint8Array(data.length / 4);
-  for (let i = 0; i < gray.length; i++) gray[i] = (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2]) / 3;
-  return gray;
+  // RGB, dropping alpha: colour changes count, not just brightness.
+  const rgb = new Uint8Array(data.length / 4 * 3);
+  for (let i = 0; i < data.length / 4; i++) for (let c = 0; c < 3; c++) rgb[i * 3 + c] = data[i * 4 + c];
+  return rgb;
 }
 
 export function CameraCheckPanel(props: Props) {
@@ -100,7 +103,17 @@ export function CameraCheckPanel(props: Props) {
     if (ticketKey) lastTicket.current = ticketKey;
     setHandoff(trigger.current.handoff);
   }, [ticketKey]);
-  useEffect(() => { setAuto(false); }, [props.pauseToken]);
+  // A worker's override stands: drop any pending look or bagging watch. Auto-check
+  // stays on, and only a changed mat starts the next check.
+  useEffect(() => {
+    if (bagging.current) { const held = bagging.current; bagging.current = null; latest.current.onMatCleared?.(held); }
+    extraCheck.current = null; trigger.current.reset();
+  }, [props.pauseToken]);
+  useEffect(() => {
+    if (!props.checkToken) return;
+    if (!ready) setError("Turn on the camera to check this order.");
+    else void checkRef.current("manual");
+  }, [props.checkToken]);
 
   async function start(id = chosenDevice.current) {
     stop(); setError(""); setOpen(true); setAuto(true); trigger.current.learnEmptyMat();
@@ -132,6 +145,7 @@ export function CameraCheckPanel(props: Props) {
     startCvLog(attemptId, boundOrder.id, boundOrder.revision, source);
     let photo: MenuPhoto;
     let recheck = false;
+    let retry = false;
     extraCheck.current = null;
     try {
       const frame = sample(video.current);
@@ -148,10 +162,14 @@ export function CameraCheckPanel(props: Props) {
     recordCheckAttempt(attemptId);
     updateCvLog(attemptId, `Snapshot sent. Expected: ${order.order.lines.map(line => `${line.quantity}× ${line.name}`).join(", ")}.`, "Analyzing");
     try {
-      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, diagnostics: isDevMode() }, attemptId);
+      const { boxes, photos } = readSettings();
+      const sentAt = performance.now();
+      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos }, attemptId);
+      const roundTrip = performance.now() - sentAt;
       if (response.diagnostics) attachCvVisuals(attemptId, { diagnostics: response.diagnostics });
       const steps = response.diagnostics?.timings_ms;
-      if (steps) updateCvLog(attemptId, `Server steps: ${Object.entries(steps).map(([step, ms]) => `${step.replace("_", " ")} ${(ms / 1000).toFixed(1)} s`).join(", ")}.`);
+      // Whatever the server didn't spend is upload, download and function start-up.
+      if (steps) updateCvLog(attemptId, `Server steps: ${[...Object.entries(steps), ["network", roundTrip - Object.values(steps).reduce((a, b) => a + b, 0)] as const].map(([step, ms]) => `${step.replace("_", " ")} ${(Math.max(0, ms) / 1000).toFixed(1)} s`).join(", ")}.`);
       let state: OrderState = response;
       updateCvLog(attemptId, `Server response: ${checkResultDetails(state)}. Check ID: ${state.current_check?.check_id ?? "none"}.`);
       const validateScene = () => {
@@ -164,7 +182,9 @@ export function CameraCheckPanel(props: Props) {
         const confirm = (unchanged: boolean) => orderApi.confirmCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, check_id: state.current_check!.check_id, expected_revision: state.order.revision, scene_unchanged: unchanged });
         const unchanged = validateScene();
         updateCvLog(attemptId, unchanged ? "Confirming result." : `Result invalidated by browser: ${sceneDiagnostic(guard.current?.reason)}.`, "Confirming");
+        const confirmAt = performance.now();
         state = await confirm(unchanged);
+        updateCvLog(attemptId, `Confirmed in ${((performance.now() - confirmAt) / 1000).toFixed(1)} s.`);
       }
       recheck = source !== "recheck after amber" && state.current_check?.execution_status === "completed" && state.current_check.verdict === "unsure";
       updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
@@ -179,17 +199,23 @@ export function CameraCheckPanel(props: Props) {
             && latest.current.order?.order.order_id === boundOrder.id;
           if (resume) { trigger.current.retryInterrupted(); setError(""); }
           else {
-            setAuto(false); setError(state.current_check?.error_code === "reference_changed" ? "Menu reference photos changed. Take a new photo." : state.current_check?.execution_status === "superseded" ? "The view changed during the check. Keep the order still and take a new photo." : "The check has not completed. Check manually before starting another.");
+            setError(state.current_check?.error_code === "reference_changed" ? "Menu reference photos changed. Press Check now." : state.current_check?.execution_status === "superseded" ? "The view changed during the check. Keep the order still and press Check now." : "The check has not completed. Press Check now to try again.");
           }
         }
       }
     } catch (cause) {
       if (cause instanceof ApiError && cause.diagnostics) attachCvVisuals(attemptId, { diagnostics: cause.diagnostics });
       const status = cause && typeof cause === "object" && "status" in cause && typeof cause.status === "number" ? `HTTP ${cause.status}: ` : "";
-      updateCvLog(attemptId, status + (cause instanceof Error ? cause.message : "Request failed"), "Request failed", true);
-      if (mounted.current) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
+      if (cause instanceof ApiError && cause.diagnostics?.raw_answer) updateCvLog(attemptId, `Perceptron answered: ${cause.diagnostics.raw_answer}`);
+      // One fresh photo after a failed call (server or network trouble, an answer we
+      // couldn't read). A rejected request (4xx) would only fail the same way again.
+      retry = automaticRef.current && source !== "retry after error" && !(cause instanceof ApiError && cause.status < 500);
+      updateCvLog(attemptId, status + (cause instanceof Error ? cause.message : "Request failed") + (retry ? " Retrying once with a new photo." : ""), "Request failed", true);
+      // Auto-check stays on; the next change on the mat (or Check now) starts a new check.
+      if (mounted.current && !retry) setError(cause instanceof Error ? cause.message : "Check failed. Press Check now to try again.");
     } finally {
       if (recheck) extraCheck.current = { at: Date.now() + 5000, reason: "recheck after amber" };
+      if (retry) extraCheck.current = { at: Date.now() + 1500, reason: "retry after error" };
       guard.current = null;
       inFlight.current = false;
       if (mounted.current) { setBusy(false); latest.current.onBusyChange(false); }
@@ -219,13 +245,12 @@ export function CameraCheckPanel(props: Props) {
         }
         if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current(trigger.current.handoff ? "next order" : extra ?? "scene change");
       } catch { setAuto(false); trigger.current.interrupt(); setError("Camera processing stopped. Reopen the camera to continue."); }
-    }, 250);
+    }, SAMPLE_MS);
     return () => window.clearInterval(timer);
   }, [open, ready]);
 
-  const canCheck = ready && configured && !!props.order && !isFulfilled(props.order) && !props.disabled && !busy;
-  const status = busy ? "Checking… hold still" : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Bag it and clear the mat" : automatic && handoff === "place" ? "Place the next order" : automatic ? null : "Auto-check is off";
-  return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check">
+  const status = busy ? "Checking… hold still" : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Bag it and clear the mat" : automatic && handoff === "place" ? "Place the next order" : automatic ? null : "Paused · reopen the camera";
+  return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check" data-auto={automatic ? "on" : "off"}>
     <div className="dock-bar">
       <div className="cv-tabs" role="tablist" aria-label="Camera and diagnostics">
         <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
@@ -240,8 +265,6 @@ export function CameraCheckPanel(props: Props) {
         <span className={`camera-state${busy ? " camera-state-busy" : ""}`} role="status" hidden={!status}>{status}</span>
       </div>
       <div className="camera-check-controls">
-        <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
-        <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto-check</label>
         {devices.length > 1 && <select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select>}
         {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{orderNumber(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${orderNumber(lastPhoto.orderId)}`} /></details>}
       </div>

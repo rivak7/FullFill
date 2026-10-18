@@ -5,7 +5,6 @@ import { StationScreen } from "../station/StationScreen";
 import { amberReason, toScreenState } from "../station/screenState";
 import { advancePastHeld, heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
-import { forgetLocalHistory, isDevMode } from "../../devMode";
 
 type StatusAttempt = { id: string; body: OrderStatusEdit; key: string; restoreSelection?: boolean };
 type Undo = { id: string; revision: number; expires: number };
@@ -26,6 +25,7 @@ export function FulfillmentScreen() {
   const [refresh, setRefresh] = useState(0);
   const [undo, setUndo] = useState<Undo | null>(null);
   const [cameraPause, setCameraPause] = useState(0);
+  const [checkNow, setCheckNow] = useState(0);
   // The order the camera just passed stays on screen while it is bagged.
   const bagging = useRef<string | null>(null);
   const epoch = useRef(0);
@@ -158,15 +158,6 @@ export function FulfillmentScreen() {
     void submit({ id: undo.id, body: { worker_id: workerId, status: "unfulfilled", expected_revision: undo.revision }, key: crypto.randomUUID(), restoreSelection: true });
   }
 
-  // Dev mode: hide every ticket (archived in Square, not cancelled), forget this
-  // browser's logs and counters, and reload for a clean session.
-  async function startFresh() {
-    if (!window.confirm("Clear the kitchen queue and this browser's logs?")) return;
-    try { await orderApi.clearStation(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : "Could not clear the queue."); return; }
-    forgetLocalHistory();
-    window.location.reload();
-  }
-
   learnOrderNumbers(orders.map(state => state.order));
   // Oldest on the left, like tickets on a rail; the API sends newest first.
   // Fulfilled orders leave the rail; the one on screen stays until the mat is cleared.
@@ -186,7 +177,6 @@ export function FulfillmentScreen() {
           })}
         </nav>
         <span className="queue-status"><span className={`connection-dot ${error ? "offline" : loading ? "loading" : ""}`} />{error ? "Reconnecting…" : loading ? "Connecting…" : waiting ? `${waiting} to check` : "All caught up"}</span>
-        {isDevMode() && <button className="secondary-button" disabled={busy} onClick={() => void startFresh()}>Start fresh</button>}
         <button className="icon-button" disabled={busy} onClick={() => setRefresh(value => value + 1)} aria-label="Refresh" title="Refresh">↻</button>
       </div>
       {error && <div className="connection-error" role="alert">{error}</div>}
@@ -201,6 +191,7 @@ export function FulfillmentScreen() {
               <StationScreen state={current} />
               <div className="fulfillment-actions" aria-label="Manual override">
                 <span>Override</span>
+                {currentTone !== "green" && <button className="text-button" disabled={locked} onClick={() => setCheckNow(value => value + 1)}>Check now</button>}
                 {currentTone !== "red" && <button className="text-button" disabled={locked} onClick={() => updateStatus("unfulfilled")}>Reopen</button>}
                 {currentTone !== "amber" && <button className="text-button" disabled={locked} onClick={() => updateStatus("unsure")}>Needs review</button>}
                 {currentTone !== "green" && <button className="text-button" disabled={locked} onClick={() => updateStatus("fulfilled")}>{busy ? "Saving…" : "Fulfill order"}</button>}
@@ -208,7 +199,7 @@ export function FulfillmentScreen() {
             </>
             : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1><p>{waiting ? "Pick an order above." : "New orders show up here on their own."}</p></div>}
         </div>
-          <CameraCheckPanel workerId={workerId} order={current} disabled={locked || !current || !ownedBy(current, workerId)} pauseToken={cameraPause} onBusyChange={value => {
+          <CameraCheckPanel workerId={workerId} order={current} disabled={locked || !current || !ownedBy(current, workerId)} pauseToken={cameraPause} checkToken={checkNow} onBusyChange={value => {
             saving.current = value; setBusy(value);
             if (value) epoch.current++;
             else setRefresh(count => count + 1);

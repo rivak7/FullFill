@@ -4,7 +4,7 @@ import { AnnotatedPhoto } from "./AnnotatedPhoto";
 import type { CameraDiagnostics } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
 
-export type CheckTrigger = "manual" | "scene change" | "first look" | "recheck after amber" | "next order";
+export type CheckTrigger = "manual" | "scene change" | "first look" | "recheck after amber" | "retry after error" | "next order";
 interface LogEvent { at: number; message: string }
 export interface CvLog {
   id: string;
@@ -146,7 +146,7 @@ function VisualDetails({ log }: { log: CvLog }) {
   const diagnostic = visual?.diagnostics ?? log.diagnostics;
   const observation = diagnostic?.observations;
   const image = visual?.diagnostics?.image ?? visual?.capture;
-  // Normal mode sends no diagnostics back; the steps below say what happened.
+  // Older logs and failed requests may have no diagnostics; the steps below say what happened.
   if (!diagnostic && !image) return null;
   return <div className="cv-visuals">
     <h4>What Perceptron saw</h4>

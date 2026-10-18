@@ -44,6 +44,10 @@ class CameraCheck(Contract):
     expected_revision: int = Field(gt=0, strict=True)
     worker_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     photo: MenuPhoto
+    # Kitchen settings; each makes the check slower. `diagnostics` is the older
+    # dev-mode flag and turns both on.
+    boxes: bool = False
+    photos: bool = False
     diagnostics: bool = False
 
 
@@ -60,11 +64,14 @@ def normalized_image(data, edge=1024):
 
 
 _reference_cache = OrderedDict()
+# Keyed by the item's catalog version, which changes with its photo, so a warm
+# function can keep photos for as long as it lives.
+REFERENCE_CACHE_SECONDS = 3600
 
 
 async def reference_image(url, revision=0):
     cached = _reference_cache.get((url, revision))
-    if cached and time.monotonic() - cached[0] < 300:
+    if cached and time.monotonic() - cached[0] < REFERENCE_CACHE_SECONDS:
         _reference_cache.move_to_end((url, revision))
         return cached[1]
     parsed = urlsplit(url)
@@ -144,24 +151,36 @@ async def check_camera(
             422, "Send a valid order, revision, and JPEG or PNG photo up to 1.5 MB."
         ) from None
 
-    order = await source.get_order(body.order_id)
-    targets = targets_for(order)
-    if not 1 <= len(targets) <= 20:
-        raise HTTPException(
-            422, "Camera checks support 1–20 different items. Check this order manually."
+    # The menu is read-only, so it loads while the order is fetched and reserved.
+    menu_task = asyncio.create_task(source.menu())
+    try:
+        order = await source.get_order(body.order_id)
+        targets = targets_for(order)
+        if not 1 <= len(targets) <= 20:
+            raise HTTPException(
+                422, "Camera checks support 1–20 different items. Check this order manually."
+            )
+        reserved, state = await source.reserve_camera_check(
+            body.order_id,
+            body.expected_revision,
+            body.photo.digest,
+            idempotency_key,
+            body.worker_id,
         )
-    reserved, state = await source.reserve_camera_check(
-        body.order_id, body.expected_revision, body.photo.digest, idempotency_key, body.worker_id
-    )
-    lap("square_order")
+        lap("square_order")
+    except BaseException:
+        menu_task.cancel()
+        raise
     if reserved is None:
+        menu_task.cancel()
         return state
 
+    boxes = body.boxes or body.diagnostics
     diagnostics = None
     phase = "reference_photos"
     try:
         targets = targets_for(state.order)
-        menu = await source.menu()
+        menu = await menu_task
         lap("square_menu")
         wanted = {target.item_id for target in targets}
         available = {item.item_id for item in menu.items if item.photo_url}
@@ -170,7 +189,7 @@ async def check_camera(
             raise OrderSourceError(
                 "Add a menu reference photo before checking: " + ", ".join(missing), 422
             )
-        slots = asyncio.Semaphore(4)
+        slots = asyncio.Semaphore(8)
 
         async def load_reference(item):
             async with slots:
@@ -205,9 +224,8 @@ async def check_camera(
             targets=targets,
             references=references,
         )
-        if body.diagnostics:
-            diagnostics = input_diagnostics(vision_input)
-            diagnostics["provider_called"] = True
+        diagnostics = input_diagnostics(vision_input, images=body.photos or body.diagnostics)
+        diagnostics["provider_called"] = True
         phase = "vision_provider"
         if provider is not None:
             observations = await provider.inspect(vision_input)
@@ -222,18 +240,16 @@ async def check_camera(
                     client=client,
                     limiter=PERCEPTRON_RATE,
                     max_output_tokens=min(6000, 1600 + 200 * (len(targets) + len(alternatives))),
-                    boxes=body.diagnostics,
+                    boxes=boxes,
                 ).inspect(vision_input)
         lap("perceptron")
-        if diagnostics is not None:
-            diagnostics["observations"] = observations.model_dump(mode="json")
+        diagnostics["observations"] = observations.model_dump(mode="json")
         phase = "saving_result"
         result = await source.finish_camera_check(
             reserved, observations, reference_fingerprint(menu)
         )
         lap("saving_result")
-        if diagnostics is not None:
-            diagnostics["timings_ms"] = timings
+        diagnostics["timings_ms"] = timings
         return CameraResponse(**result.model_dump(), diagnostics=diagnostics)
     except OrderSourceError as error:
         # A revision conflict preserves the worker's newer decision.
@@ -280,10 +296,15 @@ async def check_camera(
             "camera_check_failed phase=%s category=%s attempt=%s", phase, category, idempotency_key
         )
         await source.finish_camera_check(reserved)
-        detail = (
-            f"Camera check failed during {phase.replace('_', ' ')} ({phase}.{category}). "
-            "No automatic retry was sent. Check manually or try again."
-        )
+        if diagnostics is not None:
+            lap(phase)
+            diagnostics["timings_ms"] = timings
+        detail = f"Camera check failed during {phase.replace('_', ' ')} ({phase}.{category})."
+        if getattr(error, "public_reason", None):
+            # Set only on our own checks of the model's answer, never on SDK errors.
+            detail += f" {error.public_reason}."
+            if diagnostics is not None and getattr(error, "raw_answer", None):
+                diagnostics["raw_answer"] = error.raw_answer
         return JSONResponse(status_code=502, content={"detail": detail, "diagnostics": diagnostics})
 
 

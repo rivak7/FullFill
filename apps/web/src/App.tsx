@@ -6,7 +6,7 @@ import { scenarios } from "./features/station/fakeOrders";
 import { AccessGate } from "./features/access/AccessGate";
 import { MenuEditor } from "./features/orders/MenuEditor";
 import { homePath, siteScreen } from "./site";
-import { isDevMode } from "./devMode";
+import { SettingsMenu } from "./features/orders/SettingsMenu";
 import "./app.css";
 
 export function App() {
@@ -29,7 +29,7 @@ export function App() {
           <a href={kitchenPath} aria-current={!ordering && valid && !menu ? "page" : undefined}>Kitchen</a>
           <a href={`${kitchenPath}#menu`} aria-current={!ordering && valid && menu ? "page" : undefined}>Menu</a>
         </nav>}
-        <span className="environment-label">{isDevMode() ? "Dev mode" : "Test mode"}</span>
+        {!ordering && valid && <SettingsMenu />}
       </header>
       {!valid ? (
         <main className="empty-state"><h1>Page not found</h1><a href={homePath}>Go back</a></main>

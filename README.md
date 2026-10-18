@@ -48,16 +48,16 @@ can only assess visible items or readable labels, not hidden fillings or modifie
 such as “no onion.” A saved menu photo is a visual reference, not model training.
 
 Camera checks require `PERCEPTRON_API_KEY` on the backend. Keep it out of `VITE_`
-variables. Open the kitchen page and enable the camera once. **Automatic checks**
-start enabled and stay enabled as fulfilled tickets advance through the queue.
-Place the first order in view after the preview starts; a changed view that stays
-still for 750 ms triggers a check. Turning automatic checks on also takes one look
-after five seconds, and an amber result gets one recheck. **Check order** remains an optional manual
-capture with no separate handoff confirmation.
+variables. Open the kitchen page and enable the camera once. Checks are always
+automatic while the camera is on. Place the first order in view after the preview
+starts; a changed view that stays still for 0.5 s triggers a check. Turning the
+camera on also takes one look after five seconds, an amber result gets one recheck,
+and a failed check gets one retry with a new photo. **Check now** in the override
+row takes a photo right away.
 
 For subsequent tickets, the browser observes two transitions: the previous view
-changes and stays stable for at least 750 ms, then a replacement view changes
-again and settles for 750 ms. The intermediate view makes no model call, and
+changes and stays stable for at least 0.5 s, then a replacement view changes
+again and settles for 0.5 s. The intermediate view makes no model call, and
 automatic rechecks cannot bypass this handoff guard.
 Clear the packing area briefly between orders. This allows identical meals to be
 checked separately while suppressing untouched food and brief hand waves. It is
@@ -82,16 +82,17 @@ is respected while that view remains mounted. Camera permission is still require
 Open the **CV logs** tab for a scrollable per-check timeline, order/attempt IDs,
 trigger, elapsed time, and final decision.
 
-**Dev mode** (open the kitchen with `?dev=1`; `?dev=0` turns it off) adds the heavy
-debugging data below and a **Start fresh** button. Start fresh archives every ticket in
-the queue (Square metadata only; nothing is cancelled), clears this browser's logs and
-check counter, and reloads. Normal mode skips the photos, boxes and timings so each
-check returns faster. In dev mode each check includes the exact normalized
-order image and selected reference images sent to Perceptron, plus its structured
-item counts, uncertainty, readable labels, unexpected items, and how long each server
-step took (Square, reference photos, Perceptron, saving). Dev-mode checks request
-normalized object boxes in the same model call and draw valid locations on the
-exact order image, with a toggle to hide them. Boxes label present/unsure/unexpected
+Every check's log shows what Perceptron reported (item counts, uncertainty, readable
+labels, unexpected items) and how long each step took (Square, reference photos,
+Perceptron, saving, network), plus how long the confirmation took. **Settings** in the
+kitchen header holds the slower debugging options, all off by default and remembered
+per browser: **Boxes and labels in CV logs** asks Perceptron for normalized object
+boxes in the same call and draws them on the log photo (never on the live feed);
+**Model input in CV logs** returns the exact normalized order image and reference
+images sent to Perceptron. **Start fresh** archives every ticket in the queue (Square
+metadata only; nothing is cancelled), clears this browser's logs and check counter,
+and reloads. Boxes are drawn on the log photo
+with a toggle to hide them. Boxes label present/unsure/unexpected
 objects; they do not decide fulfillment. Invalid or absent geometry is omitted
 without invalidating a usable recognition result. Logs also show reported input and
 output tokens, model time, and the model name; no confidence percentages are invented. These model reports
