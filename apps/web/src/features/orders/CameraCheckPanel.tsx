@@ -37,8 +37,8 @@ function sample(video: HTMLVideoElement): Uint8Array {
 export function CameraCheckPanel(props: Props) {
   const latest = useRef(props); latest.current = props;
   const ticketKey = props.order ? JSON.stringify([props.order.order.order_id, props.order.order.lines]) : "";
-  const [preparedTicket, setPreparedTicket] = useState("");
-  const prepared = !!ticketKey && preparedTicket === ticketKey;
+  const lastTicket = useRef("");
+  const [handoff, setHandoff] = useState<"remove" | "place" | null>(null);
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -66,7 +66,8 @@ export function CameraCheckPanel(props: Props) {
     generation.current++;
     stream.current?.getTracks().forEach(track => track.stop()); stream.current = null;
     if (video.current) video.current.srcObject = null;
-    setOpen(false); setReady(false); setPreparedTicket(""); setAuto(false);
+    trigger.current.interrupt();
+    setOpen(false); setReady(false); setAuto(false);
   }
 
   useEffect(() => {
@@ -75,7 +76,7 @@ export function CameraCheckPanel(props: Props) {
     void orderApi.cameraConfig(controller.signal).then(value => {
       if (!controller.signal.aborted) setConfigured(value.configured);
     }).catch(() => { if (!controller.signal.aborted) setConfigured(false); });
-    const hidden = () => { if (document.hidden) { guard.current?.invalidate(); setAuto(false); trigger.current.reset(); } };
+    const hidden = () => { if (document.hidden) { guard.current?.invalidate(); setAuto(false); trigger.current.interrupt(); } };
     document.addEventListener("visibilitychange", hidden);
     return () => {
       guard.current?.invalidate();
@@ -85,11 +86,16 @@ export function CameraCheckPanel(props: Props) {
     };
   }, []);
 
-  useEffect(() => { guard.current?.invalidate(); trigger.current.nextOrder(); setPreparedTicket(""); setAuto(false); }, [ticketKey]);
+  useEffect(() => {
+    guard.current?.invalidate();
+    if (lastTicket.current && lastTicket.current !== ticketKey) trigger.current.nextOrder();
+    if (ticketKey) lastTicket.current = ticketKey;
+    setHandoff(trigger.current.handoff);
+  }, [ticketKey]);
   useEffect(() => { setAuto(false); }, [props.pauseToken]);
 
   async function start(id = deviceId) {
-    stop(); setError(""); setOpen(true);
+    stop(); setError(""); setOpen(true); setAuto(true);
     const current = generation.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera access requires HTTPS and a supported browser.");
@@ -111,14 +117,14 @@ export function CameraCheckPanel(props: Props) {
 
   async function check() {
     const { order, disabled } = latest.current;
-    if (!prepared || !order || disabled || isFulfilled(order) || inFlight.current || !video.current || !ready || !configured || document.hidden) return;
+    if (!order || disabled || isFulfilled(order) || inFlight.current || !video.current || !ready || !configured || document.hidden) return;
     const boundOrder = { id: order.order.order_id, revision: order.order.revision };
     let photo: MenuPhoto;
     try {
       const frame = sample(video.current);
       photo = { data_base64: crop(video.current, 1024).toDataURL("image/jpeg", 0.8).split(",")[1] };
       if (photo.data_base64.length > 1_800_000) throw new Error("Camera image is too large.");
-      trigger.current.submitted(frame);
+      trigger.current.submitted(frame); setHandoff(null);
       guard.current = new SceneGuard(frame, Date.now());
     } catch { setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
     inFlight.current = true;
@@ -169,26 +175,28 @@ export function CameraCheckPanel(props: Props) {
         } catch { guard.current?.invalidate(); }
         return;
       }
-      if (!video.current || document.hidden || !automaticRef.current) return;
+      if (!video.current || document.hidden || !stream.current?.active) return;
       const { order, disabled } = latest.current;
-      if (!order || disabled || isFulfilled(order)) { trigger.current.reset(); return; }
-      try { if (trigger.current.sample(sample(video.current), Date.now())) void checkRef.current(); }
-      catch { setAuto(false); setError("Camera processing stopped. Reopen the camera to continue."); }
+      try {
+        // Keep observing handoffs while a claim is loading or the queue is empty.
+        const settled = trigger.current.sample(sample(video.current), Date.now());
+        setHandoff(trigger.current.handoff);
+        if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current();
+      } catch { setAuto(false); trigger.current.interrupt(); setError("Camera processing stopped. Reopen the camera to continue."); }
     }, 250);
     return () => window.clearInterval(timer);
   }, [open, ready]);
 
-  const canCheck = prepared && ready && configured && !!props.order && !isFulfilled(props.order) && !props.disabled && !busy;
+  const canCheck = ready && configured && !!props.order && !isFulfilled(props.order) && !props.disabled && !busy;
   return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check">
     <div className="camera-check-heading"><strong>Camera check</strong>{open ? <button className="secondary-button" onClick={stop}>Close camera</button> : <button className="secondary-button" onClick={() => void start()}>Enable camera</button>}</div>
     {open && <div className="camera-check-body">
       <video ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
       <div className="camera-check-controls">
         {devices.length > 1 && <label>Camera<select aria-label="Camera" value={deviceId} onChange={event => { setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select></label>}
-        {!prepared && props.order && <div className="camera-handoff" role="status"><p>Clear the previous order and place #{props.order.order.order_id.slice(-8).toUpperCase()} in view.</p><button className="primary-button" disabled={!ready || busy || props.disabled || isFulfilled(props.order)} onClick={() => { setPreparedTicket(ticketKey); trigger.current.nextOrder(); setError(""); }}>New order placed</button></div>}
-        <p>{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : "One order at a time. Keep every item visible."}</p>
+        <p role="status">{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order from view." : automatic && handoff === "place" ? "Place the next order in view. Checking starts when it settles." : automatic ? "Place the order in view. Checking starts when it settles." : "Automatic checks paused. Check manually or turn them back on."}</p>
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
-        <label className="camera-auto"><input type="checkbox" checked={automatic} disabled={!prepared || !ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto check after movement</label>
+        <label className="camera-auto"><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Automatic checks</label>
         {props.order?.current_check?.verdict === "unsure" && <p>Inspect the highlighted items, then recheck or fulfill manually.</p>}
       </div>
       {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{lastPhoto.orderId.slice(-8).toUpperCase()}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${lastPhoto.orderId.slice(-8).toUpperCase()}`} /><small>Snapshot used for the check. Kept only in this page.</small></details>}

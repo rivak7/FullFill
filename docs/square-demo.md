@@ -174,7 +174,7 @@ New tickets return `disposition="pending"`. Manual review uses `needs_review`;
 manual fulfillment uses `overridden`, never a fabricated vision pass. Live tickets
 without a camera check return `current_check=null`. Tickets never turn green just by arriving from Square.
 The kitchen's **Enable camera** button opens a local browser preview; **Check order**
-submits a single cropped frame. Automatic checks are opt-in, wait for a changed
+submits a single cropped frame. Automatic checks start enabled with the camera, wait for a changed
 scene to settle, and pause on failures or when the tab is hidden. There are no
 application spending caps or forced cooldowns. The expandable check-activity
 section counts attempts over recent time windows. Square reservations prevent
@@ -186,8 +186,9 @@ worker reservation keeps other kitchen screens off the same unfinished ticket.
 Full compact observations, including every unexpected item, are shared through
 station snapshots. See the README for motion-check limitations.
 Neither camera images nor API keys are stored in Square metadata. The backend
-resizes images, loads saved references only for this ticket, and calls Perceptron
-once. New item edits or manual decisions invalidate outstanding checks through
+resizes images, loads saved ticket references plus selected alternative menu
+photos, and calls Perceptron once. Between tickets, the browser waits for a stable
+intermediate view and then a settled replacement view; no handoff button is needed. New item edits or manual decisions invalidate outstanding checks through
 Square revision checks. The menu editor requests camera
 permission only when **Take photo** is clicked, and stops its camera when captured,
 closed, or navigated away from. It does not call the vision API.
