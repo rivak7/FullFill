@@ -27,7 +27,7 @@ export interface MenuEntry {
 export interface MenuSnapshot { revision: string; items: MenuEntry[] }
 export interface MenuPhoto { data_base64: string }
 export interface MenuEdit { item_id: string; name: string; price_cents: number; available: boolean; archived: boolean; version: number; photo?: MenuPhoto }
-export interface OrderStatusEdit { status: "unfulfilled" | "unsure" | "fulfilled"; expected_revision: number }
+export interface OrderStatusEdit { worker_id: string; status: "unfulfilled" | "unsure" | "fulfilled"; expected_revision: number }
 
 export interface CreateOrderInput {
   items: { item_id: string; quantity: number }[];
@@ -92,8 +92,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const orderApi = {
   cameraConfig: (signal?: AbortSignal) => request<{ configured: boolean }>("/checks/camera/config", { signal }),
-  checkCamera: (body: { order_id: string; expected_revision: number; photo: MenuPhoto }, key: string) => request<OrderState>("/checks/camera", {
+  checkCamera: (body: { worker_id: string; order_id: string; expected_revision: number; photo: MenuPhoto }, key: string) => request<OrderState>("/checks/camera", {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
+  }),
+  confirmCamera: (body: { worker_id: string; order_id: string; check_id: string; expected_revision: number; scene_unchanged: boolean }) => request<OrderState>("/checks/camera/confirm", {
+    method: "POST", body: JSON.stringify(body),
+  }),
+  claim: (id: string, body: { worker_id: string; expected_revision: number; release?: boolean }) => request<OrderState>(`/orders/${encodeURIComponent(id)}/claim`, {
+    method: "POST", body: JSON.stringify(body),
   }),
   session: (signal?: AbortSignal) => request<{ required: boolean; authenticated: boolean }>("/session", { signal }),
   menu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/current", { signal }),

@@ -142,8 +142,13 @@ Prepared checkouts remain valid after menu edits; new checkouts use the current 
 Rotating the Square credential invalidates outstanding signed checkouts.
 An HTTP failure is shown explicitly and never substituted with fake orders.
 
-The adapter reads every queue page, with a bounded 2,000-record scan. It reports
-an explicit error beyond that bound instead of silently hiding unresolved work.
+The adapter reads every queue page without the former 2,000-record cutoff.
+A warm API process caches the active queue, fetching changes by `updated_at` with
+a two-minute overlap, including closed orders so they leave the cache. Concurrent
+polls share one fetch. Cold starts and a ten-minute reconciliation still scan all
+open history; large histories may therefore slow those rebuilds. Archived rows
+are discarded from memory, and failed pages never publish a partial queue or
+advance the synchronization timestamp. Square remains the persistent source.
 Empty and terminal orders are excluded. Unsupported quantities produce a visible
 error instead of being rounded or silently omitted. Order IDs, line IDs, and
 Square revisions are retained. Customer records and payment details aren't sent
@@ -168,11 +173,16 @@ manual fulfillment uses `overridden`, never a fabricated vision pass. Live ticke
 without a camera check return `current_check=null`. Tickets never turn green just by arriving from Square.
 The kitchen's **Enable camera** button opens a local browser preview; **Check order**
 submits a single cropped frame. Automatic checks are opt-in, wait for a changed
-scene to settle, and pause on failures or when the tab is hidden. The browser has
-a 10-check session cap, and Square stores a shared 20-attempt cap per order plus
-a reservation preventing simultaneous paid checks. Failed or uncertain attempts
-are not automatically retried. A crashed reservation expires as failed after 90
-seconds. Completed compact observations are shared through station snapshots.
+scene to settle, and pause on failures or when the tab is hidden. There are no
+application spending caps or forced cooldowns. The expandable check-activity
+section counts attempts over recent time windows. Square reservations prevent
+simultaneous paid checks; failed or uncertain attempts are not automatically
+retried. A crashed inference expires as failed after 90 seconds. A successful
+inference remains pending until the capturing screen confirms its view stayed
+unchanged; this confirmation expires after 15 seconds. A separate two-minute
+worker reservation keeps other kitchen screens off the same unfinished ticket.
+Full compact observations, including every unexpected item, are shared through
+station snapshots. See the README for motion-check limitations.
 Neither camera images nor API keys are stored in Square metadata. The backend
 resizes images, loads saved references only for this ticket, and calls Perceptron
 once. New item edits or manual decisions invalidate outstanding checks through

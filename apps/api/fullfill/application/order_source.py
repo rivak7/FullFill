@@ -72,14 +72,27 @@ class OrderSourceError(Exception):
 class OrderStatusEdit(Contract):
     status: Literal["unfulfilled", "unsure", "fulfilled"]
     expected_revision: int = Field(gt=0, strict=True)
+    worker_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+
+
+class OrderClaimEdit(Contract):
+    worker_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    expected_revision: int = Field(gt=0, strict=True)
+    release: bool = False
 
 
 class OrderSource(Protocol):
     async def reserve_camera_check(
-        self, order_id: str, revision: int, image_digest: str, request_key: str
+        self, order_id: str, revision: int, image_digest: str, request_key: str, worker_id: str
     ) -> tuple[dict | None, OrderState]: ...
 
     async def finish_camera_check(self, reserved: dict, observations=None) -> OrderState: ...
+
+    async def confirm_camera_check(
+        self, order_id: str, check_id: str, revision: int, worker_id: str, scene_unchanged: bool
+    ) -> OrderState: ...
+
+    async def claim_order(self, order_id: str, edit: OrderClaimEdit) -> OrderState: ...
 
     async def menu(self) -> MenuSnapshot: ...
 

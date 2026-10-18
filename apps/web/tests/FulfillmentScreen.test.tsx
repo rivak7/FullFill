@@ -9,7 +9,7 @@ import { reconcileQueue } from "../src/features/orders/queueState";
 
 vi.mock("../src/api/client", async importOriginal => ({
   ...await importOriginal<typeof import("../src/api/client")>(),
-  orderApi: { station: vi.fn(), setStatus: vi.fn(), cameraConfig: vi.fn(), checkCamera: vi.fn() },
+  orderApi: { claim: vi.fn(), station: vi.fn(), setStatus: vi.fn(), cameraConfig: vi.fn(), checkCamera: vi.fn() },
 }));
 
 function ticket(id: string, disposition: OrderState["disposition"] = "pending", revision = 1): OrderState {
@@ -24,10 +24,17 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/fulfill");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   orders = [ticket("first"), ticket("second", "needs_review"), ticket("third")];
+  vi.mocked(orderApi.claim).mockImplementation(async (id, edit) => {
+    const state = orders.find(state => state.order.order_id === id)!;
+    const updated = { ...state, claim: edit.release ? null : { worker_id: edit.worker_id, expires_at: Date.now() / 1000 + 120 } };
+    orders = orders.map(state => state.order.order_id === id ? updated : state);
+    return updated;
+  });
   vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: true });
   vi.mocked(orderApi.station).mockImplementation(async () => snapshot(orders));
   vi.mocked(orderApi.setStatus).mockImplementation(async (id, edit) => {
     const updated = ticket(id, edit.status === "fulfilled" ? "overridden" : edit.status === "unsure" ? "needs_review" : "pending", edit.expected_revision + 1);
+    updated.claim = { worker_id: edit.worker_id, expires_at: Date.now() / 1000 + 120 };
     orders = orders.map(state => state.order.order_id === id ? updated : state);
     return updated;
   });
@@ -220,7 +227,7 @@ it("undoes a mistaken fulfillment and returns to that ticket without an AI call"
   expect(selected()).toContain("#FIRST");
   expect(container.querySelector(".station.tone-red")).not.toBeNull();
   expect(container.querySelector(".fulfillment-undo")).toBeNull();
-  expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { status: "unfulfilled", expected_revision: 2 }, expect.any(String));
+  expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { worker_id: expect.any(String), status: "unfulfilled", expected_revision: 2 }, expect.any(String));
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   await poll();
   expect(selected()).toContain("#FIRST");
@@ -232,6 +239,41 @@ it("a stale Undo cannot overwrite another worker's newer decision", async () => 
   vi.mocked(orderApi.setStatus).mockRejectedValueOnce(new ApiError("Order changed. Refresh before correcting it.", 409));
   await click("Undo");
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Order changed");
-  expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { status: "unfulfilled", expected_revision: 2 }, expect.any(String));
+  expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { worker_id: expect.any(String), status: "unfulfilled", expected_revision: 2 }, expect.any(String));
   expect(container.querySelector(".queue-amber")?.textContent).toContain("#SECOND");
+});
+
+it("skips another screen's reservation and marks that ticket in the queue", async () => {
+  orders[0].claim = { worker_id: "someone-else", expires_at: Date.now() / 1000 + 120 };
+  await render();
+  expect(selected()).toContain("#SECOND");
+  const held = [...container.querySelectorAll<HTMLButtonElement>(".queue-ticket")].find(card => card.textContent?.includes("#FIRST"))!;
+  expect(held.disabled).toBe(true);
+  expect(held.textContent).toContain("Working on another screen");
+  expect(orderApi.claim).toHaveBeenCalledWith("second", expect.objectContaining({ worker_id: expect.any(String) }));
+});
+
+it("renews its reservation and releases it when switching tickets", async () => {
+  await render();
+  const initial = vi.mocked(orderApi.claim).mock.calls[0];
+  await act(async () => vi.advanceTimersByTimeAsync(61000));
+  expect(orderApi.claim).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(orderApi.claim).mock.calls[1][1].worker_id).toBe(initial[1].worker_id);
+  await act(async () => (container.querySelectorAll<HTMLButtonElement>(".queue-ticket")[0]).click());
+  expect(orderApi.claim).toHaveBeenCalledWith("first", expect.objectContaining({ release: true, worker_id: initial[1].worker_id }));
+});
+
+it("two screens race for one ticket and the loser moves to the next available order", async () => {
+  vi.mocked(orderApi.claim).mockImplementationOnce(async () => {
+    orders[0] = { ...orders[0], claim: { worker_id: "another-screen", expires_at: Date.now() / 1000 + 120 }, order: { ...orders[0].order, revision: 2 } };
+    throw new ApiError("Another screen is working on this order.", 409);
+  });
+  await render();
+  expect(selected()).toContain("#SECOND");
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
+
+it("picks up a released reservation when every ticket was previously occupied", () => {
+  const held = ticket("held"); held.claim = { worker_id: "other", expires_at: Date.now() / 1000 - 1 };
+  expect(reconcileQueue({ selected: null, orders: [held] }, [ticket("held", "pending", 2)], "ours").selected).toBe("held");
 });

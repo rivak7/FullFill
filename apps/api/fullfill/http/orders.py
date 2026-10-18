@@ -6,7 +6,12 @@ from fastapi import APIRouter, Depends, Header
 from fullfill_contracts.events import OrderState
 from fullfill_contracts.orders import OrderSnapshot
 
-from fullfill.application.order_source import CreateOrder, OrderSource, OrderStatusEdit
+from fullfill.application.order_source import (
+    CreateOrder,
+    OrderClaimEdit,
+    OrderSource,
+    OrderStatusEdit,
+)
 
 from .order_source import get_order_source
 
@@ -56,3 +61,8 @@ async def set_order_status(
     ],
 ):
     return await source.set_order_status(order_id, body, idempotency_key)
+
+
+@router.post("/{order_id}/claim", response_model=OrderState)
+async def claim_order(order_id: str, body: OrderClaimEdit, source: Source):
+    return await source.claim_order(order_id, body)

@@ -32,6 +32,7 @@ router = APIRouter(prefix="/checks", tags=["checks"])
 class CameraCheck(Contract):
     order_id: Identifier
     expected_revision: int = Field(gt=0, strict=True)
+    worker_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     photo: MenuPhoto
 
 
@@ -118,7 +119,7 @@ async def check_camera(
             422, "Camera checks support 1–20 different items. Check this order manually."
         )
     reserved, state = await source.reserve_camera_check(
-        body.order_id, body.expected_revision, body.photo.digest, idempotency_key
+        body.order_id, body.expected_revision, body.photo.digest, idempotency_key, body.worker_id
     )
     if reserved is None:
         return state
@@ -195,3 +196,20 @@ async def check_camera(
             502,
             "The camera check failed. No automatic retry was sent. Check manually or try again.",
         ) from None
+
+
+class CameraConfirmation(Contract):
+    order_id: Identifier
+    check_id: Identifier
+    expected_revision: int = Field(gt=0, strict=True)
+    worker_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
+    scene_unchanged: bool = Field(strict=True)
+
+
+@router.post("/camera/confirm", response_model=OrderState)
+async def confirm_camera(
+    body: CameraConfirmation, source: Annotated[OrderSource, Depends(get_order_source)]
+):
+    return await source.confirm_camera_check(
+        body.order_id, body.check_id, body.expected_revision, body.worker_id, body.scene_unchanged
+    )

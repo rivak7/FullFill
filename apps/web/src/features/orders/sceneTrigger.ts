@@ -55,3 +55,16 @@ export class SceneTrigger {
       && (!this.lastSent || frameDifference(frame, this.lastSent) > 12);
   }
 }
+
+// A sticky guard: removing and replacing food still invalidates the captured photo.
+export class SceneGuard {
+  private dirty = false;
+  private lastAt: number;
+  constructor(private captured: Uint8Array, now: number) { this.lastAt = now; }
+  invalidate() { this.dirty = true; }
+  sample(frame: Uint8Array, now: number) {
+    if (now - this.lastAt > 1000 || frameDifference(frame, this.captured) > 8) this.dirty = true;
+    this.lastAt = now;
+  }
+  unchanged(now: number) { return !this.dirty && now - this.lastAt <= 1000; }
+}

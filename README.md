@@ -58,6 +58,12 @@ Older timestamps are discarded when history is read; clearing browser data reset
 Camera images stay in memory; only compact observations and hashes persist in Square.
 Keep the page visible and the computer awake.
 
+Each kitchen screen reserves its selected unresolved order for two minutes,
+renewing while it works. Other screens skip that ticket and show “Working on
+another screen.” Switching releases unfinished work; closing or losing a screen
+lets the reservation expire. This coordinates software screens, not physical
+staff activity, and the shared demo code is still the access boundary.
+
 ### Camera decisions and corrections
 
 The browser handles camera preview, cropping, movement detection, and stillness
@@ -74,6 +80,18 @@ snapshot match and advances upward in the queue. Red names definite shortages or
 excesses. Orange names uncertain items or gives an instruction for improving the
 camera view. An API error is orange, never evidence that food is missing. Partial,
 contradictory, malformed, or stale results cannot produce a green screen.
+
+Camera results first persist as `awaiting_confirmation`. The capturing browser
+keeps sampling during inference, including manual checks, and confirms only if
+its view stayed unchanged. Movement, a hidden tab, camera loss, or a sampling gap
+invalidates the photo; missing confirmation expires to orange after 15 seconds.
+This is a motion heuristic, not proof against subtle visual changes. The final
+network acknowledgment also has a small race window; detected movement requests
+revocation of that same result without another model call.
+
+Unexpected-item names and quantities are stored in full, using compression and
+line-item metadata overflow when necessary. Storage failure requires review;
+results never silently drop extra items to fit.
 
 If the result looks wrong, expand **Last photo** to inspect the exact submitted
 frame and its ticket ID. Reposition items and check again, or use the existing
@@ -223,11 +241,13 @@ state without requiring authentication.
 | `POST /orders/prepare` | Validate a basket/menu revision and return a signed checkout; requires an `Idempotency-Key`. |
 | `POST /orders` | Create the prepared order using the same checkout and idempotency key. |
 | `GET /orders`, `GET /orders/{id}` | List eligible queue tickets or retrieve an order snapshot. |
-| `POST /orders/{id}/status` | Save `unfulfilled`, `unsure`, or `fulfilled` using `expected_revision` and an `Idempotency-Key`. |
+| `POST /orders/{id}/claim` | Acquire, renew, or release a two-minute reservation using `worker_id` and `expected_revision`. |
+| `POST /orders/{id}/status` | Save `unfulfilled`, `unsure`, or `fulfilled` using `worker_id`, `expected_revision`, and an `Idempotency-Key`. |
 | `GET /stations/{id}` | Read the queue as a station snapshot, including manual status and camera results. |
 | `POST /stations/{id}/refresh` | Remove fulfilled overflow above the soft limit and return the latest snapshot. |
 | `GET /checks/camera/config` | Report whether a server key is configured; does not call Perceptron or reveal the key. |
-| `POST /checks/camera` | Accept `{order_id, expected_revision, photo: {data_base64}}` with `Idempotency-Key`; reserve one check, call Perceptron once, and return the saved `OrderState`. |
+| `POST /checks/camera` | Accept `{order_id, worker_id, expected_revision, photo: {data_base64}}` with `Idempotency-Key`; reserve one check, call Perceptron once, and return the pending `OrderState`. |
+| `POST /checks/camera/confirm` | Confirm the same `check_id`, worker, and revision with `scene_unchanged`; stale/changed scenes require review. |
 
 There is also a legacy `GET /v1/menu` endpoint, which can return the starter menu
 when Square credentials are absent. It does not make live ordering available.

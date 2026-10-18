@@ -6,6 +6,7 @@ import json
 import httpx
 import pytest
 from fastapi.testclient import TestClient
+from fullfill.adapters.orders.claims import CLAIM_KEY, claim_value
 from fullfill.adapters.orders.square import SquareOrders
 from fullfill.main import create_app
 
@@ -16,6 +17,7 @@ def square_order(order_id="square-order-1", **changes):
         "version": 3,
         "location_id": "test-location",
         "state": "OPEN",
+        "metadata": {CLAIM_KEY: claim_value("worker")},
         "line_items": [{"uid": "line-1", "name": "Chicken burrito", "quantity": "2"}],
         **changes,
     }
@@ -191,7 +193,7 @@ class QueueStore:
 def status_request(client, order_id, status, version=3, key="status-attempt"):
     return client.post(
         f"/v1/orders/{order_id}/status",
-        json={"status": status, "expected_revision": version},
+        json={"worker_id": "worker", "status": status, "expected_revision": version},
         headers={"Idempotency-Key": key},
     )
 
@@ -296,7 +298,7 @@ def test_cleanup_rechecks_after_conflict_and_never_removes_reopened_or_changed_w
 def test_status_is_shared_between_independent_screens_and_retries_are_idempotent(
     status, disposition
 ):
-    order = square_order(metadata={"existing": "keep-me"})
+    order = square_order(metadata={"existing": "keep-me", CLAIM_KEY: claim_value("worker")})
     store = QueueStore([order])
     with client_for(store) as kitchen:
         response = status_request(kitchen, order["id"], status)

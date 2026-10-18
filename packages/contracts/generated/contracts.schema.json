@@ -236,6 +236,7 @@
           "enum": [
             "queued",
             "running",
+            "awaiting_confirmation",
             "completed",
             "failed",
             "superseded"
@@ -647,6 +648,26 @@
       "title": "Observations",
       "type": "object"
     },
+    "OrderClaim": {
+      "additionalProperties": false,
+      "properties": {
+        "expires_at": {
+          "title": "Expires At",
+          "type": "integer"
+        },
+        "worker_id": {
+          "minLength": 1,
+          "title": "Worker Id",
+          "type": "string"
+        }
+      },
+      "required": [
+        "worker_id",
+        "expires_at"
+      ],
+      "title": "OrderClaim",
+      "type": "object"
+    },
     "OrderContext": {
       "additionalProperties": false,
       "properties": {
@@ -760,6 +781,17 @@
     "OrderState": {
       "additionalProperties": false,
       "properties": {
+        "claim": {
+          "anyOf": [
+            {
+              "$ref": "#/$defs/OrderClaim"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null
+        },
         "current_check": {
           "anyOf": [
             {

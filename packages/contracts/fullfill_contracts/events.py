@@ -9,11 +9,17 @@ from .common import Contract, Identifier, Revision
 from .orders import OrderSnapshot
 
 
+class OrderClaim(Contract):
+    worker_id: Identifier
+    expires_at: int
+
+
 class OrderState(Contract):
     order: OrderSnapshot
     disposition: Disposition
     disposition_revision: Revision
     current_check: CheckResult | None = None
+    claim: OrderClaim | None = None
 
 
 class StationSnapshot(Contract):

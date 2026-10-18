@@ -1,12 +1,13 @@
 import { useEffect, useRef, useState } from "react";
 import { orderApi, type MenuPhoto } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
-import { SceneTrigger } from "./sceneTrigger";
+import { SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
 
 interface Props {
   order?: OrderState;
+  workerId: string;
   disabled: boolean;
   pauseToken?: number;
   onResult: (state: OrderState) => void;
@@ -51,12 +52,14 @@ export function CameraCheckPanel(props: Props) {
   const generation = useRef(0);
   const mounted = useRef(true);
   const trigger = useRef(new SceneTrigger());
+  const guard = useRef<SceneGuard | null>(null);
 
   function setAuto(value: boolean) {
     automaticRef.current = value; setAutomatic(value); trigger.current.reset();
   }
 
   function stop() {
+    guard.current?.invalidate();
     generation.current++;
     stream.current?.getTracks().forEach(track => track.stop()); stream.current = null;
     if (video.current) video.current.srcObject = null;
@@ -69,16 +72,17 @@ export function CameraCheckPanel(props: Props) {
     void orderApi.cameraConfig(controller.signal).then(value => {
       if (!controller.signal.aborted) setConfigured(value.configured);
     }).catch(() => { if (!controller.signal.aborted) setConfigured(false); });
-    const hidden = () => { if (document.hidden) { setAuto(false); trigger.current.reset(); } };
+    const hidden = () => { if (document.hidden) { guard.current?.invalidate(); setAuto(false); trigger.current.reset(); } };
     document.addEventListener("visibilitychange", hidden);
     return () => {
+      guard.current?.invalidate();
       mounted.current = false; generation.current++; controller.abort();
       stream.current?.getTracks().forEach(track => track.stop());
       document.removeEventListener("visibilitychange", hidden);
     };
   }, []);
 
-  useEffect(() => { trigger.current.nextOrder(); }, [props.order?.order.order_id]);
+  useEffect(() => { guard.current?.invalidate(); trigger.current.nextOrder(); }, [props.order?.order.order_id]);
   useEffect(() => { setAuto(false); }, [props.pauseToken]);
 
   async function start(id = deviceId) {
@@ -112,6 +116,7 @@ export function CameraCheckPanel(props: Props) {
       photo = { data_base64: crop(video.current, 1024).toDataURL("image/jpeg", 0.8).split(",")[1] };
       if (photo.data_base64.length > 1_800_000) throw new Error("Camera image is too large.");
       trigger.current.submitted(frame);
+      guard.current = new SceneGuard(frame, Date.now());
     } catch { setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
     inFlight.current = true;
     setLastPhoto({ orderId: boundOrder.id, url: `data:image/jpeg;base64,${photo.data_base64}` });
@@ -120,11 +125,23 @@ export function CameraCheckPanel(props: Props) {
     const attemptId = crypto.randomUUID();
     recordCheckAttempt(attemptId);
     try {
-      const state = await orderApi.checkCamera({ order_id: boundOrder.id, expected_revision: boundOrder.revision, photo }, attemptId);
+      let state = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo }, attemptId);
+      const validateScene = () => {
+        if (!mounted.current || !video.current || !stream.current?.active || document.hidden) guard.current?.invalidate();
+        else { try { guard.current?.sample(sample(video.current), Date.now()); } catch { guard.current?.invalidate(); } }
+        return guard.current?.unchanged(Date.now()) ?? false;
+      };
+      if (mounted.current && state.current_check?.execution_status === "awaiting_confirmation") {
+        const confirm = (unchanged: boolean) => orderApi.confirmCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, check_id: state.current_check!.check_id, expected_revision: state.order.revision, scene_unchanged: unchanged });
+        const unchanged = validateScene();
+        state = await confirm(unchanged);
+        // Movement during the final network write also revokes this same result.
+        if (unchanged && !validateScene() && state.current_check?.execution_status === "completed") state = await confirm(false);
+      }
       if (mounted.current) {
         latest.current.onResult(state);
         if (state.current_check?.execution_status !== "completed") {
-          setAuto(false); setError("The check has not completed. Check manually before starting another.");
+          setAuto(false); setError(state.current_check?.execution_status === "superseded" ? "The view changed during the check. Keep the order still and take a new photo." : "The check has not completed. Check manually before starting another.");
         } else if (state.current_check.verdict === "unsure") {
           setAuto(false);
         }
@@ -132,6 +149,7 @@ export function CameraCheckPanel(props: Props) {
     } catch (cause) {
       if (mounted.current) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
     } finally {
+      guard.current = null;
       inFlight.current = false;
       if (mounted.current) { setBusy(false); latest.current.onBusyChange(false); }
     }
@@ -141,7 +159,14 @@ export function CameraCheckPanel(props: Props) {
   useEffect(() => {
     if (!open || !ready) return;
     const timer = window.setInterval(() => {
-      if (!video.current || document.hidden || !automaticRef.current || inFlight.current) return;
+      if (inFlight.current) {
+        try {
+          if (!video.current || document.hidden || !stream.current?.active) guard.current?.invalidate();
+          else guard.current?.sample(sample(video.current), Date.now());
+        } catch { guard.current?.invalidate(); }
+        return;
+      }
+      if (!video.current || document.hidden || !automaticRef.current) return;
       const { order, disabled } = latest.current;
       if (!order || disabled || isFulfilled(order)) { trigger.current.reset(); return; }
       try { if (trigger.current.sample(sample(video.current), Date.now())) void checkRef.current(); }

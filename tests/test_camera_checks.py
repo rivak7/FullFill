@@ -10,7 +10,9 @@ from io import BytesIO
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from fullfill.adapters.orders.camera_checks import CHECK_KEY, RESULT_KEYS
+from fullfill.adapters.orders.camera_checks import CHECK_KEY
+from fullfill.adapters.orders.check_storage import RESULT_KEYS
+from fullfill.adapters.orders.claims import CLAIM_KEY, claim_value
 from fullfill.adapters.orders.square import SquareOrders
 from fullfill.adapters.vision.perceptron import VisionProviderError
 from fullfill.application.order_source import MenuEntry, MenuSnapshot
@@ -32,6 +34,7 @@ class Square:
             "location_id": "location",
             "version": 3,
             "state": "OPEN",
+            "metadata": {CLAIM_KEY: claim_value("worker")},
             "line_items": [
                 {
                     "uid": "line",
@@ -51,7 +54,15 @@ class Square:
             body = json.loads(request.content)
             if body["order"]["version"] != self.order["version"]:
                 return httpx.Response(409, json={"errors": [{"code": "VERSION_MISMATCH"}]})
-            self.order.update(body["order"])
+            patch = body["order"].copy()
+            for line in patch.pop("line_items", []):
+                existing = next(
+                    item for item in self.order["line_items"] if item["uid"] == line["uid"]
+                )
+                existing.setdefault("metadata", {}).update(line["metadata"])
+                assert len(existing["metadata"]) <= 10
+                assert all(1 <= len(value) <= 255 for value in existing["metadata"].values())
+            self.order.update(patch)
             self.order["version"] += 1
             metadata = self.order["metadata"]
             assert len(metadata) <= 10
@@ -102,11 +113,37 @@ class Vision:
         )
 
 
-def send(client, key="attempt", revision=3, image=None):
-    return client.post(
+def send(client, key="attempt", revision=3, image=None, confirm=True, worker="worker"):
+    result = client.post(
         "/v1/checks/camera",
         headers={"Idempotency-Key": key},
-        json={"order_id": "ticket", "expected_revision": revision, "photo": image or photo()},
+        json={
+            "worker_id": worker,
+            "order_id": "ticket",
+            "expected_revision": revision,
+            "photo": image or photo(),
+        },
+    )
+
+    if (
+        confirm
+        and result.status_code == 200
+        and result.json()["current_check"]["execution_status"] == "awaiting_confirmation"
+    ):
+        return confirmation(client, result.json(), worker=worker)
+    return result
+
+
+def confirmation(client, state, unchanged=True, worker="worker"):
+    return client.post(
+        "/v1/checks/camera/confirm",
+        json={
+            "order_id": "ticket",
+            "check_id": state["current_check"]["check_id"],
+            "expected_revision": state["order"]["revision"],
+            "worker_id": worker,
+            "scene_unchanged": unchanged,
+        },
     )
 
 
@@ -178,7 +215,11 @@ def test_manual_decision_during_inference_wins():
             result = other.post(
                 "/v1/orders/ticket/status",
                 headers={"Idempotency-Key": "manual"},
-                json={"status": "unsure", "expected_revision": square.order["version"]},
+                json={
+                    "worker_id": "worker",
+                    "status": "unsure",
+                    "expected_revision": square.order["version"],
+                },
             )
             assert result.status_code == 200
 
@@ -363,7 +404,12 @@ def test_concurrent_screens_only_reserve_one_paid_call():
                 transport=httpx.ASGITransport(app=square.app(vision)), base_url="http://test"
             ) as second,
         ):
-            body = {"order_id": "ticket", "expected_revision": 3, "photo": photo()}
+            body = {
+                "worker_id": "worker",
+                "order_id": "ticket",
+                "expected_revision": 3,
+                "photo": photo(),
+            }
             pending = asyncio.create_task(
                 first.post("/v1/checks/camera", headers={"Idempotency-Key": "one"}, json=body)
             )
@@ -509,7 +555,11 @@ def test_item_uncertainty_keeps_actionable_reason_and_manual_correction_wins():
         corrected = client.post(
             "/v1/orders/ticket/status",
             headers={"Idempotency-Key": "staff-confirm"},
-            json={"status": "fulfilled", "expected_revision": result["order"]["revision"]},
+            json={
+                "worker_id": "worker",
+                "status": "fulfilled",
+                "expected_revision": result["order"]["revision"],
+            },
         )
         assert corrected.json()["disposition"] == "overridden"
         assert corrected.json()["current_check"] is None
@@ -536,3 +586,119 @@ def test_maximum_result_preserves_uncertainty_within_square_limits():
     assert result.status_code == 200, result.text
     assert result.json()["disposition"] == "needs_review"
     assert result.json()["current_check"]["verdict"] == "unsure"
+
+
+def test_pending_camera_result_is_never_green_until_same_worker_confirms():
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        state = send(client, confirm=False).json()
+        assert state["disposition"] == "pending"
+        assert state["current_check"]["execution_status"] == "awaiting_confirmation"
+        assert client.get("/v1/stations/main").json()["orders"][0] == state
+        assert confirmation(client, state, worker="other").status_code == 409
+        accepted = confirmation(client, state)
+        assert accepted.json()["disposition"] == "verified"
+        assert confirmation(client, state).json() == accepted.json()
+        rejected = confirmation(client, accepted.json(), unchanged=False)
+        assert rejected.json()["disposition"] == "needs_review"
+        assert rejected.json()["current_check"]["execution_status"] == "superseded"
+        assert confirmation(client, rejected.json()).json() == rejected.json()
+    assert len(vision.calls) == 1
+
+
+@pytest.mark.parametrize("expired", [False, True])
+def test_changed_scene_or_expired_confirmation_cannot_fulfill(expired, monkeypatch):
+    square = Square()
+    with TestClient(square.app(Vision())) as client:
+        state = send(client, confirm=False).json()
+        if expired:
+            record = json.loads(square.order["metadata"][CHECK_KEY])
+            monkeypatch.setattr(
+                "fullfill.adapters.orders.camera_checks.time.time", lambda: record["t"] + 16
+            )
+            assert (
+                client.get("/v1/stations/main").json()["orders"][0]["disposition"] == "needs_review"
+            )
+        result = confirmation(client, state, unchanged=expired)
+        assert result.json()["disposition"] == "needs_review"
+        assert result.json()["current_check"]["execution_status"] == "superseded"
+
+
+def test_late_scene_confirmation_cannot_overwrite_manual_correction_or_ticket_edit():
+    for mutate in ("manual", "ticket"):
+        square = Square()
+        with TestClient(square.app(Vision())) as client:
+            state = send(client, confirm=False).json()
+            if mutate == "manual":
+                assert (
+                    client.post(
+                        "/v1/orders/ticket/status",
+                        headers={"Idempotency-Key": "manual"},
+                        json={
+                            "worker_id": "worker",
+                            "expected_revision": state["order"]["revision"],
+                            "status": "unsure",
+                        },
+                    ).status_code
+                    == 200
+                )
+            else:
+                square.order["line_items"][0]["quantity"] = "3"
+                square.order["version"] += 1
+            assert confirmation(client, state).status_code == 409
+            assert client.get("/v1/stations/main").json()["orders"][0]["disposition"] != "verified"
+
+
+def test_camera_rejects_unclaimed_or_other_workers_before_paid_call():
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        assert send(client, worker="other").status_code == 409
+        square.order["metadata"].pop(CLAIM_KEY)
+        assert send(client).status_code == 409
+    assert not vision.calls
+
+
+def test_all_unexpected_items_survive_overflow_and_a_later_short_result():
+    import random
+    import string
+
+    rng = random.Random(12)
+    names = ["".join(rng.choices(string.ascii_letters, k=75)) for _ in range(18)]
+
+    class ExtrasVision(Vision):
+        async def inspect(self, request):
+            observed = await super().inspect(request)
+            observed.unexpected_items = [UnexpectedItem(name=name, quantity=2) for name in names]
+            return observed
+
+    square, vision = Square(), ExtrasVision(count=1)
+    with TestClient(square.app(vision)) as client:
+        result = send(client)
+        assert result.status_code == 200, result.text
+        messages = [item["message"] for item in result.json()["current_check"]["discrepancies"]]
+        assert all(any(name in message for message in messages) for name in names)
+        assert any(
+            key.startswith("fullfill_result_") for key in square.order["line_items"][0]["metadata"]
+        )
+        with TestClient(square.app()) as other:
+            assert other.get("/v1/stations/main").json()["orders"][0] == result.json()
+        names.clear()
+        shorter = send(client, key="short", revision=square.order["version"])
+        assert shorter.status_code == 200, shorter.text
+        assert len(shorter.json()["current_check"]["discrepancies"]) == 1
+        assert square.order["line_items"][0]["metadata"]["fullfill_item_id"] == "fries"
+        assert square.order["line_items"][0]["quantity"] == "2"
+
+
+def test_duplicate_provider_targets_cannot_be_compacted_into_a_pass():
+    class DuplicateVision(Vision):
+        async def inspect(self, request):
+            observations = await super().inspect(request)
+            observations.targets.append(observations.targets[0])
+            return observations
+
+    square, vision = Square(), DuplicateVision()
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 502
+        assert client.get("/v1/stations/main").json()["orders"][0]["disposition"] == "needs_review"
+    assert len(vision.calls) == 1
