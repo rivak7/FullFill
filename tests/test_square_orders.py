@@ -70,7 +70,9 @@ def test_order_creation_then_independent_screen_reads_square_and_retry_is_idempo
         )
     assert created.status_code == 201
     assert repeated.json() == created.json()
+    assert created.json()["display_number"] == "001"
     assert len(stored) == 1
+    calls = [call for call in calls if call[0] == "/v2/orders"]
     assert calls[0][1]["order"]["line_items"][0]["base_price_money"] == {
         "amount": 1000,
         "currency": "USD",
@@ -89,6 +91,32 @@ def test_order_creation_then_independent_screen_reads_square_and_retry_is_idempo
     assert state["current_check"] is None
     assert state["disposition"] == "pending"
     assert "private-test-token" not in snapshot.text
+
+
+def test_orders_are_numbered_from_001_and_restart_after_the_queue_is_cleared():
+    stored = {}
+
+    def square(request):
+        body = json.loads(request.content)
+        if request.url.path == "/v2/orders":
+            stored.setdefault(
+                body["idempotency_key"], square_order(f"o{len(stored)}", **body["order"])
+            )
+            return httpx.Response(200, json={"order": stored[body["idempotency_key"]]})
+        return httpx.Response(200, json={"orders": list(stored.values())})
+
+    def place(client, key):
+        body = {"items": [{"item_id": "fries", "quantity": 1}]}
+        response = client.post("/v1/orders", json=body, headers={"Idempotency-Key": key})
+        return response.json()["display_number"]
+
+    with client_for(square) as ordering:
+        assert place(ordering, "first-order-key") == "001"
+        assert place(ordering, "second-order-key") == "002"
+        assert place(ordering, "first-order-key") == "001"
+    stored.clear()  # "Start fresh" archives every open ticket.
+    with client_for(square) as ordering:
+        assert place(ordering, "third-order-key") == "001"
 
 
 @pytest.mark.parametrize(

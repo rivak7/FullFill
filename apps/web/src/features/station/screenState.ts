@@ -44,7 +44,7 @@ export function toScreenState(state: OrderState): ScreenState {
     return { tone: "amber", headline: "Needs review", detail: "Ticket changed. Check this order again.", lines, problems: [], confirmedByStaff: false };
   }
   if (!check) {
-    return { tone: "red", headline: "Unfulfilled", detail: null, lines, problems: [], confirmedByStaff: false };
+    return { tone: "red", headline: "Unfulfilled", detail: "Not checked yet", lines, problems: [], confirmedByStaff: false };
   }
   if (check.execution_status === "failed" || check.execution_status === "superseded") {
     return {
@@ -62,14 +62,14 @@ export function toScreenState(state: OrderState): ScreenState {
 
   // The backend's verdict is the only rule (apps/api/fullfill/domain/compare_order.py).
   if (check.verdict === "fail") {
-    return { tone: "red", headline: "Unfulfilled", detail: "Camera found a mismatch", lines, problems: discrepancies, confirmedByStaff: false };
+    return { tone: "red", headline: "Unfulfilled", detail: "Doesn't match the ticket", lines, problems: discrepancies, confirmedByStaff: false };
   }
   if (check.verdict !== "pass") {
     return {
       tone: "amber",
       headline: "Needs review",
-      // Amber always says why FullFill is unsure; the list below names each item.
-      detail: discrepancies.length ? "FullFill isn't sure about this order. Take a look:" : "No reliable result. Check manually or take a new photo.",
+      // Amber always says why FullFill is unsure: each problem names an item, or this detail stands in.
+      detail: discrepancies.length ? null : "No reliable result. Check manually or take a new photo.",
       lines,
       problems: discrepancies,
       confirmedByStaff: false,

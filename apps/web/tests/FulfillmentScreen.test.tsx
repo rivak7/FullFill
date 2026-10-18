@@ -1,11 +1,12 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { orderNumber } from "../src/orderNumber";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError, orderApi } from "../src/api/client";
 import type { OrderState, StationSnapshot } from "../src/api/generated/contracts";
 import { FulfillmentScreen } from "../src/features/orders/FulfillmentScreen";
-import { reconcileQueue } from "../src/features/orders/queueState";
+import { advancePastHeld, reconcileQueue } from "../src/features/orders/queueState";
 
 vi.mock("../src/api/client", async importOriginal => ({
   ...await importOriginal<typeof import("../src/api/client")>(),
@@ -54,11 +55,11 @@ it("shows another screen's changes on the next one-second refresh", async () => 
   await render();
   orders[0] = ticket("first", "overridden", 2);
   await act(async () => vi.advanceTimersByTimeAsync(999));
-  expect(selected()).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
   expect(orderApi.station).toHaveBeenCalledTimes(1);
   await act(async () => vi.advanceTimersByTimeAsync(1));
-  expect(selected()).toContain("#SECOND");
-  expect(container.querySelector(".queue-green")?.textContent).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("second")}`);
+  expect(container.querySelector(".order-queue")?.textContent).not.toContain(`#${orderNumber("first")}`);
 });
 
 it("waits for a slow refresh before starting another request", async () => {
@@ -90,34 +91,30 @@ it("backs off repeated failures up to thirty seconds and resumes fast refresh af
   expect(orderApi.station).toHaveBeenCalledTimes(++calls);
 });
 
-it("colors the queue, advances to orange work, and keeps completed tickets selectable", async () => {
+it("colors the queue, advances to orange work, and drops fulfilled tickets from the rail", async () => {
   await render();
-  expect(selected()).toContain("#FIRST");
-  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual(["#THIRD", "#SECOND", "#FIRST"]);
-  expect(container.querySelector(".queue-heading")?.textContent).toContain("Newest first");
-  expect(container.querySelector(".queue-amber")?.textContent).toContain("#SECOND");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
+  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual([`#${orderNumber("first")}`, `#${orderNumber("second")}`, `#${orderNumber("third")}`]);
+  expect(container.querySelector(".order-queue")?.getAttribute("aria-label")).toBe("Orders, oldest first");
+  expect(container.querySelector(".queue-amber")?.textContent).toContain(`#${orderNumber("second")}`);
   await click("Fulfill order");
-  expect(selected()).toContain("#SECOND");
+  expect(selected()).toContain(`#${orderNumber("second")}`);
   expect(window.location.search).toBe("?order=second");
-  expect(container.querySelector(".queue-green")?.textContent).toContain("#FIRST");
+  expect(container.querySelector(".queue-green")).toBeNull();
   expect(container.querySelector(".station.tone-amber")).not.toBeNull();
-  await act(async () => (container.querySelector(".queue-green") as HTMLButtonElement).click());
-  await poll();
-  expect(selected()).toContain("#FIRST");
-  expect(container.querySelector(".station.tone-green")).not.toBeNull();
-  await click("Reopen");
-  expect(selected()).toContain("#FIRST");
+  await click("Undo");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
   expect(container.querySelector(".station.tone-red")).not.toBeNull();
 });
 
 it("keeps the current ticket on arrivals or orange status and advances on another screen's fulfillment", async () => {
   await render(); await click("Needs review");
-  expect(selected()).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
   expect(container.querySelector(".station.tone-amber")).not.toBeNull();
   orders.push(ticket("newest")); await poll();
-  expect(selected()).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
   orders[0] = ticket("first", "overridden", 3); await poll();
-  expect(selected()).toContain("#SECOND");
+  expect(selected()).toContain(`#${orderNumber("second")}`);
 });
 
 it("keeps unresolved overflow visible and shows caught up only after the last unresolved ticket", async () => {
@@ -127,18 +124,18 @@ it("keeps unresolved overflow visible and shows caught up only after the last un
   expect(container.querySelector("h1")?.textContent).toBe("All caught up");
   expect(window.location.search).toBe("");
   orders.push(ticket("new")); await poll();
-  expect(selected()).toContain("#NEW");
+  expect(selected()).toContain(`#${orderNumber("new")}`);
 });
 
 it("does not advance on a failed write and retries the exact same attempt", async () => {
   vi.mocked(orderApi.setStatus).mockRejectedValueOnce(new Error("Offline"));
   await render(); await click("Fulfill order");
-  expect(selected()).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
   expect(container.querySelector(".queue-green")).toBeNull();
   const attempt = vi.mocked(orderApi.setStatus).mock.calls[0];
   await click("Retry status");
   expect(vi.mocked(orderApi.setStatus).mock.calls[1]).toEqual(attempt);
-  expect(selected()).toContain("#SECOND");
+  expect(selected()).toContain(`#${orderNumber("second")}`);
 });
 
 it("refreshes a conflict without silently overwriting the other screen", async () => {
@@ -147,7 +144,7 @@ it("refreshes a conflict without silently overwriting the other screen", async (
     throw new ApiError("This order changed on another screen.", 409);
   });
   await render(); await click("Fulfill order");
-  expect(selected()).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
   expect(container.querySelector(".station.tone-amber")).not.toBeNull();
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("another screen");
   expect(orderApi.setStatus).toHaveBeenCalledTimes(1);
@@ -160,8 +157,17 @@ it("ignores an in-flight poll from before a status save", async () => {
   await poll();
   await click("Fulfill order");
   await act(async () => resolve(snapshot([ticket("first"), ticket("second", "needs_review"), ticket("third")])));
-  expect(selected()).toContain("#SECOND");
-  expect(container.querySelector(".queue-green")?.textContent).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("second")}`);
+  expect(container.querySelector(".queue-green")).toBeNull();
+});
+
+it("keeps a camera pass on screen while it is bagged, then moves on once the mat is cleared", () => {
+  const first = ticket("first", "overridden", 2);
+  const queue = { orders: [ticket("second"), ticket("first")], selected: "first" };
+  const held = reconcileQueue(queue, [ticket("second"), first], "worker", "first");
+  expect(held.selected).toBe("first");
+  expect(advancePastHeld(held, "worker").selected).toBe("second");
+  expect(reconcileQueue(queue, [ticket("second"), first], "worker").selected).toBe("second");
 });
 
 it("advances if cleanup removes the current ticket, keeps newer revisions, and skips green on initial load", () => {
@@ -176,9 +182,9 @@ it("fulfills the fourth card and moves up to the third, then second, then first"
   orders = Array.from({ length: 6 }, (_, i) => ticket(`order-${i + 1}`));
   window.history.replaceState(null, "", "/fulfill?order=order-3");
   await render();
-  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual(["#ORDER-6", "#ORDER-5", "#ORDER-4", "#ORDER-3", "#ORDER-2", "#ORDER-1"]);
-  expect(selected()).toContain("#ORDER-3");
-  for (const next of ["#ORDER-4", "#ORDER-5", "#ORDER-6"]) {
+  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual([`#${orderNumber("order-1")}`, `#${orderNumber("order-2")}`, `#${orderNumber("order-3")}`, `#${orderNumber("order-4")}`, `#${orderNumber("order-5")}`, `#${orderNumber("order-6")}`]);
+  expect(selected()).toContain(`#${orderNumber("order-3")}`);
+  for (const next of [`#${orderNumber("order-4")}`, `#${orderNumber("order-5")}`, `#${orderNumber("order-6")}`]) {
     await click("Fulfill order");
     expect(selected()).toContain(next);
     await poll();
@@ -190,9 +196,9 @@ it("moves upward past green cards to the next orange card", async () => {
   orders = [ticket("oldest"), ticket("current"), ticket("done", "overridden"), ticket("review", "needs_review"), ticket("newest")];
   window.history.replaceState(null, "", "/fulfill?order=current");
   await render(); await click("Fulfill order");
-  expect(selected()).toContain("#REVIEW");
+  expect(selected()).toContain(`#${orderNumber("review")}`);
   expect(container.querySelector('.queue-ticket[aria-pressed="true"]')?.classList.contains("queue-amber")).toBe(true);
-  expect([...container.querySelectorAll(".queue-green")].map(card => card.textContent)).toEqual([expect.stringContaining("#DONE"), expect.stringContaining("#CURRENT")]);
+  expect(container.querySelectorAll(".queue-green")).toHaveLength(0);
 });
 
 it("preserves the upward position when another screen completes and cleanup removes the current card", async () => {
@@ -202,7 +208,7 @@ it("preserves the upward position when another screen completes and cleanup remo
   orders = orders.filter(state => state.order.order_id !== "order-3");
   orders.push(ticket("order-7"));
   await poll();
-  expect(selected()).toContain("#ORDER-4");
+  expect(selected()).toContain(`#${orderNumber("order-4")}`);
 });
 
 it("waits at the top instead of wrapping to older work, then resumes when new orders arrive", async () => {
@@ -215,22 +221,22 @@ it("waits at the top instead of wrapping to older work, then resumes when new or
   expect(selected()).toBeUndefined();
   orders.push(ticket("new-a"), ticket("new-b"));
   await poll();
-  expect(selected()).toContain("#NEW-A");
+  expect(selected()).toContain(`#${orderNumber("new-a")}`);
   await click("Fulfill order");
-  expect(selected()).toContain("#NEW-B");
+  expect(selected()).toContain(`#${orderNumber("new-b")}`);
 });
 
 it("undoes a mistaken fulfillment and returns to that ticket without an AI call", async () => {
   await render(); await click("Fulfill order");
-  expect(selected()).toContain("#SECOND");
+  expect(selected()).toContain(`#${orderNumber("second")}`);
   await click("Undo");
-  expect(selected()).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
   expect(container.querySelector(".station.tone-red")).not.toBeNull();
   expect(container.querySelector(".fulfillment-undo")).toBeNull();
   expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { worker_id: expect.any(String), status: "unfulfilled", expected_revision: 2 }, expect.any(String));
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   await poll();
-  expect(selected()).toContain("#FIRST");
+  expect(selected()).toContain(`#${orderNumber("first")}`);
 });
 
 it("a stale Undo cannot overwrite another worker's newer decision", async () => {
@@ -240,16 +246,16 @@ it("a stale Undo cannot overwrite another worker's newer decision", async () => 
   await click("Undo");
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Order changed");
   expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { worker_id: expect.any(String), status: "unfulfilled", expected_revision: 2 }, expect.any(String));
-  expect(container.querySelector(".queue-amber")?.textContent).toContain("#SECOND");
+  expect([...container.querySelectorAll(".queue-amber")].map(card => card.textContent)).toContain(`#${orderNumber("second")}`);
 });
 
 it("skips another screen's reservation and marks that ticket in the queue", async () => {
   orders[0].claim = { worker_id: "someone-else", expires_at: Date.now() / 1000 + 120 };
   await render();
-  expect(selected()).toContain("#SECOND");
-  const held = [...container.querySelectorAll<HTMLButtonElement>(".queue-ticket")].find(card => card.textContent?.includes("#FIRST"))!;
+  expect(selected()).toContain(`#${orderNumber("second")}`);
+  const held = [...container.querySelectorAll<HTMLButtonElement>(".queue-ticket")].find(card => card.textContent?.includes(`#${orderNumber("first")}`))!;
   expect(held.disabled).toBe(true);
-  expect(held.textContent).toContain("Working on another screen");
+  expect(held.textContent).toContain("On another screen");
   expect(orderApi.claim).toHaveBeenCalledWith("second", expect.objectContaining({ worker_id: expect.any(String) }));
 });
 
@@ -259,7 +265,7 @@ it("renews its reservation and releases it when switching tickets", async () => 
   await act(async () => vi.advanceTimersByTimeAsync(61000));
   expect(orderApi.claim).toHaveBeenCalledTimes(2);
   expect(vi.mocked(orderApi.claim).mock.calls[1][1].worker_id).toBe(initial[1].worker_id);
-  await act(async () => (container.querySelectorAll<HTMLButtonElement>(".queue-ticket")[0]).click());
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".queue-ticket")].at(-1)!.click());
   expect(orderApi.claim).toHaveBeenCalledWith("first", expect.objectContaining({ release: true, worker_id: initial[1].worker_id }));
 });
 
@@ -269,7 +275,7 @@ it("two screens race for one ticket and the loser moves to the next available or
     throw new ApiError("Another screen is working on this order.", 409);
   });
   await render();
-  expect(selected()).toContain("#SECOND");
+  expect(selected()).toContain(`#${orderNumber("second")}`);
   expect(container.querySelector('[role="alert"]')).toBeNull();
 });
 

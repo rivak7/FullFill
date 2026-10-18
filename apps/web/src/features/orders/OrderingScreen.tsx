@@ -1,3 +1,4 @@
+import { learnOrderNumbers, orderNumber } from "../../orderNumber";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, orderApi, type CreateOrderInput, type MenuEntry } from "../../api/client";
 import type { OrderSnapshot } from "../../api/generated/contracts";
@@ -108,7 +109,7 @@ export function OrderingScreen() {
         savePending(attempt); setPending(attempt);
       }
       const order = await orderApi.create(attempt.body, attempt.key);
-      setCreated(order);
+      learnOrderNumbers([order]); setCreated(order);
       setQuantities({});
       setPending(null);
       setNeedsReview(false);
@@ -125,7 +126,7 @@ export function OrderingScreen() {
   return (
     <main className="ordering-page">
       {created && <section className="success-banner" role="status">
-        <strong>Order #{created.order_id.slice(-8).toUpperCase()} sent</strong>
+        <strong>Order #{orderNumber(created.order_id)} sent</strong>
         {siteScreen === "combined" && <a href={`/fulfill?order=${encodeURIComponent(created.order_id)}`} target="_blank" rel="noreferrer">View ticket ↗</a>}
       </section>}
       <div className="ordering-layout">

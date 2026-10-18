@@ -1,3 +1,4 @@
+import { orderNumber } from "../../orderNumber";
 import { preferredCamera } from "./preferredCamera";
 import { isDevMode } from "../../devMode";
 import { useEffect, useRef, useState } from "react";
@@ -14,7 +15,9 @@ interface Props {
   workerId: string;
   disabled: boolean;
   pauseToken?: number;
-  onResult: (state: OrderState) => void;
+  // `bagging` is true when the camera will watch this passed order get cleared off the mat.
+  onResult: (state: OrderState, bagging: boolean) => void;
+  onMatCleared?: (orderId: string) => void;
   onBusyChange: (busy: boolean) => void;
 }
 
@@ -49,6 +52,8 @@ export function CameraCheckPanel(props: Props) {
   const generation = useRef(0);
   const mounted = useRef(true);
   const trigger = useRef(new SceneTrigger());
+  // A passed order waiting for the mat to clear; the screen stays green until then.
+  const bagging = useRef<string | null>(null);
   const guard = useRef<SceneGuard | null>(null);
   const interruptedByTab = useRef(false);
   // One unprompted look when automatic checks start, and one recheck after an amber
@@ -56,6 +61,7 @@ export function CameraCheckPanel(props: Props) {
   const extraCheck = useRef<{ at: number; reason: CheckTrigger } | null>(null);
 
   function setAuto(value: boolean) {
+    if (!value && bagging.current) { const held = bagging.current; bagging.current = null; latest.current.onMatCleared?.(held); }
     extraCheck.current = value ? { at: Date.now() + 5000, reason: "first look" } : null;
     automaticRef.current = value; setAutomatic(value); trigger.current.reset();
   }
@@ -97,7 +103,7 @@ export function CameraCheckPanel(props: Props) {
   useEffect(() => { setAuto(false); }, [props.pauseToken]);
 
   async function start(id = chosenDevice.current) {
-    stop(); setError(""); setOpen(true); setAuto(true);
+    stop(); setError(""); setOpen(true); setAuto(true); trigger.current.learnEmptyMat();
     const current = generation.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera access requires HTTPS and a supported browser.");
@@ -163,7 +169,9 @@ export function CameraCheckPanel(props: Props) {
       recheck = source !== "recheck after amber" && state.current_check?.execution_status === "completed" && state.current_check.verdict === "unsure";
       updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
       if (mounted.current) {
-        latest.current.onResult(state);
+        const watching = automaticRef.current && !!stream.current?.active && isFulfilled(state);
+        if (watching) { bagging.current = boundOrder.id; trigger.current.nextOrder(); setHandoff(trigger.current.handoff); }
+        latest.current.onResult(state, watching);
         if (state.current_check?.execution_status !== "completed") {
           const resume = interruptedByTab.current && automaticRef.current
             && state.current_check?.execution_status === "superseded"
@@ -205,6 +213,10 @@ export function CameraCheckPanel(props: Props) {
         const extra = extraCheck.current && now >= extraCheck.current.at ? extraCheck.current.reason : null;
         const settled = trigger.current.sample(sample(video.current), now, extra !== null);
         setHandoff(trigger.current.handoff);
+        if (bagging.current && trigger.current.handoff === "place") {
+          const cleared = bagging.current; bagging.current = null;
+          latest.current.onMatCleared?.(cleared);
+        }
         if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current(trigger.current.handoff ? "next order" : extra ?? "scene change");
       } catch { setAuto(false); trigger.current.interrupt(); setError("Camera processing stopped. Reopen the camera to continue."); }
     }, 250);
@@ -212,28 +224,34 @@ export function CameraCheckPanel(props: Props) {
   }, [open, ready]);
 
   const canCheck = ready && configured && !!props.order && !isFulfilled(props.order) && !props.disabled && !busy;
+  const status = busy ? "Checking… hold still" : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Bag it and clear the mat" : automatic && handoff === "place" ? "Place the next order" : automatic ? null : "Auto-check is off";
   return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check">
-    <div className="cv-tabs" role="tablist" aria-label="Camera and diagnostics">
-      <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
-      <button type="button" role="tab" id="logs-tab" aria-controls="logs-panel" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>CV logs</button>
+    <div className="dock-bar">
+      <div className="cv-tabs" role="tablist" aria-label="Camera and diagnostics">
+        <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
+        <button type="button" role="tab" id="logs-tab" aria-controls="logs-panel" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>CV logs</button>
+      </div>
+      {open && <button className="text-button" onClick={stop}>Turn off camera</button>}
     </div>
     <div role="tabpanel" id="camera-panel" aria-labelledby="camera-tab" hidden={tab !== "camera"}>
-    <div className="camera-check-heading"><strong>Camera check</strong>{open ? <button className="secondary-button" onClick={stop}>Close camera</button> : <button className="secondary-button" onClick={() => void start()}>Enable camera</button>}</div>
-    {open && <div className="camera-check-body">
-      <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
-      <div className="camera-check-controls">
-        {devices.length > 1 && <label>Camera<select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select></label>}
-        <p role="status">{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order from view." : automatic && handoff === "place" ? "Place the next order in view. Checking starts when it settles." : automatic ? "Place the order in view. Checking starts when it settles." : "Automatic checks paused. Check manually or turn them back on."}</p>
-        <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
-        <label className="camera-auto"><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Automatic checks</label>
-        {automatic && <small>Checks when the order changes and settles. An amber result gets one recheck.</small>}
-        {props.order?.current_check?.verdict === "unsure" && <p>Inspect the highlighted items, then recheck or fulfill manually.</p>}
+    {open ? <div className="camera-check-body">
+      <div className={`camera-frame${busy ? " camera-frame-busy" : ""}`}>
+        <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
+        <span className={`camera-state${busy ? " camera-state-busy" : ""}`} role="status" hidden={!status}>{status}</span>
       </div>
-      {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{lastPhoto.orderId.slice(-8).toUpperCase()}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${lastPhoto.orderId.slice(-8).toUpperCase()}`} /><small>Snapshot used for the check. Kept only in this page.</small></details>}
+      <div className="camera-check-controls">
+        <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
+        <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto-check</label>
+        {devices.length > 1 && <select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select>}
+        {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{orderNumber(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${orderNumber(lastPhoto.orderId)}`} /></details>}
+      </div>
+    </div> : <div className="camera-off">
+      <svg viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="13" width="38" height="27" rx="7" /><path d="M17 13l3-5h8l3 5" /><circle cx="24" cy="26" r="7" /></svg>
+      <p>Turn on the camera so FullFill can watch the mat.</p>
+      <button className="primary-button" onClick={() => void start()}>Enable camera</button>
     </div>}
-    <CheckActivity />
     </div>
-    <div role="tabpanel" id="logs-panel" aria-labelledby="logs-tab" hidden={tab !== "logs"}><CvLogs order={props.order} /></div>
+    <div role="tabpanel" id="logs-panel" aria-labelledby="logs-tab" hidden={tab !== "logs"}><CheckActivity /><CvLogs order={props.order} /></div>
     {configured === false && <p className="camera-hint">AI checks unavailable. Camera preview still works.</p>}
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;

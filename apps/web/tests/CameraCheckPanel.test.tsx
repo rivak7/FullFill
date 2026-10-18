@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { orderNumber } from "../src/orderNumber";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
 import { orderApi } from "../src/api/client";
@@ -62,7 +63,7 @@ it("takes one look when automatic checks start, then leaves a red or green view 
   await act(async () => vi.advanceTimersByTimeAsync(60000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
-  await click("Close camera");
+  await click("Turn off camera");
   expect(stopTrack).toHaveBeenCalledTimes(1);
 });
 
@@ -111,7 +112,7 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   await act(async () => resolve(checked()));
-  expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ order: expect.objectContaining({ order_id: "first" }) }));
+  expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ order: expect.objectContaining({ order_id: "first" }) }), false);
   expect(onBusyChange.mock.calls.map(call => call[0])).toEqual([true, false]);
 });
 
@@ -282,6 +283,43 @@ it("preserves a clear-and-replace sequence through queue and claim updates", () 
   expect(sampled(scene, meal, 1250, 2750)).toBe(true);
 });
 
+it("ends a passed order only once the mat is back to the empty mat seen at camera start", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(200), meal = bare.slice(), half = bare.slice();
+  for (let i = 0; i < 300; i++) meal[i] = 60;
+  for (let i = 0; i < 100; i++) half[i] = 60;
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  scene.submitted(meal); scene.nextOrder();
+  // Half the bag packed, then a pause: still waiting for the mat to clear.
+  sampled(scene, half, 1250, 4000);
+  expect(scene.handoff).toBe("remove");
+  // A brighter room still reads as the empty mat.
+  sampled(scene, bare.map(value => value + 20), 4250, 6000);
+  expect(scene.handoff).toBe("place");
+});
+
+it("falls back to any settled change when the camera started with an order on the mat", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(200), meal = bare.slice(), half = bare.slice();
+  for (let i = 0; i < 300; i++) meal[i] = 60;
+  for (let i = 0; i < 100; i++) half[i] = 60;
+  scene.learnEmptyMat();
+  sampled(scene, meal, 0, 1000);
+  scene.submitted(meal); scene.nextOrder();
+  sampled(scene, half, 1250, 4000);
+  expect(scene.handoff).toBe("place");
+});
+
+it("goes straight to the next order when the ticket changes on an empty mat", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(200);
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  scene.nextOrder();
+  expect(scene.handoff).toBe("place");
+});
+
 it("detects a small added packet while ignoring an isolated noisy pixel", () => {
   const scene = new SceneTrigger();
   const baseline = new Uint8Array(1024).fill(80);
@@ -305,7 +343,7 @@ it("shows an unexpected unidentified item as orange, matching the comparison ver
 it("keeps the exact submitted photo labeled with its ticket after selection changes", async () => {
   await render(); await camera(); await click("Check order");
   await render(ticket("second"));
-  expect(container.querySelector(".camera-last-photo summary")?.textContent).toContain("FIRST");
+  expect(container.querySelector(".camera-last-photo summary")?.textContent).toContain(orderNumber("first"));
   expect(container.querySelector(".camera-last-photo img")?.getAttribute("src")).toBe("data:image/jpeg;base64,cGhvdG8=");
 });
 
@@ -373,7 +411,7 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
   } else if (kind === "hidden") {
     vi.spyOn(document, "hidden", "get").mockReturnValue(true);
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-  } else if (kind === "closed") await click("Close camera");
+  } else if (kind === "closed") await click("Turn off camera");
   const pending = checked(); pending.current_check!.execution_status = "awaiting_confirmation"; pending.current_check!.verdict = null;
   await act(async () => resolve(pending));
   // Movement after the photo (bagging, a hand) never revokes the result.
@@ -404,7 +442,7 @@ it("never revokes a green result after it is confirmed", async () => {
   let resolve!: (state: OrderState) => void;
   vi.mocked(orderApi.confirmCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await click("Check order");
-  await click("Close camera");
+  await click("Turn off camera");
   const accepted = checked(); accepted.current_check!.verdict = "pass";
   await act(async () => resolve(accepted));
   expect(vi.mocked(orderApi.confirmCamera).mock.calls.map(call => call[0].scene_unchanged)).toEqual([true]);
@@ -430,7 +468,7 @@ it("automatically checks consecutive identical meals without a handoff button or
   await render(ticket("second"));
   await observe(80, 10000); // Untouched food cannot check the next ticket.
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(container.textContent).toContain("Remove the previous order");
+  expect(container.textContent).toContain("Bag it and clear the mat");
   await observe(200, 250); await observe(80); // Brief hand wave.
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   await observe(0, 3000); // Cleared view is observed without an AI call.
@@ -496,7 +534,8 @@ it("always says why an amber screen is unsure", () => {
     { kind: "unidentified", message: "Unidentified item: Container", line_ids: [] },
   ];
   const screen = toScreenState(state);
-  expect(screen.detail).toBe("FullFill isn't sure about this order. Take a look:");
+  expect(screen.detail).toBeNull();
+  expect(screen.problems).toHaveLength(2);
   expect(amberReason(screen)).toBe("Check Ketchup packet: cannot count the items reliably (+1 more)");
   state.current_check!.discrepancies = [];
   expect(amberReason(toScreenState(state))).toBe("No reliable result. Check manually or take a new photo.");
