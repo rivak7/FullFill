@@ -20,6 +20,7 @@ from pydantic import ValidationError
 from fullfill.application.menu_photo import MenuPhoto
 from fullfill.application.order_source import (
     CreateOrder,
+    MenuCategoryEdit,
     MenuEdit,
     MenuEntry,
     MenuSnapshot,
@@ -414,6 +415,11 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
         if not self.catalog:
             raise OrderSourceError("Square menu editing is not configured.", 503)
         return await self.catalog.save(edit, idempotency_key)
+
+    async def add_menu_category(self, edit: MenuCategoryEdit, idempotency_key: str) -> MenuSnapshot:
+        if not self.catalog:
+            raise OrderSourceError("Square menu editing is not configured.", 503)
+        return await self.catalog.add_category(edit.name, idempotency_key)
 
     async def _next_number(self, idempotency_key: str) -> str:
         # Orders are numbered 001, 002... after the newest open ticket. "Start fresh"

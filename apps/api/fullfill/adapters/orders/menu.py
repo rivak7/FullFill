@@ -9,16 +9,37 @@ from urllib.parse import quote, urlparse
 from pydantic import ValidationError
 
 from fullfill.application.menu_photo import MenuPhoto
-from fullfill.application.order_source import MenuEdit, MenuEntry, MenuSnapshot, OrderSourceError
+from fullfill.application.order_source import (
+    MenuCategory,
+    MenuEdit,
+    MenuEntry,
+    MenuSnapshot,
+    OrderSourceError,
+)
 
 SquareRequest = Callable[[str, str, dict | None], Awaitable[dict]]
 SquareImageUpload = Callable[[MenuPhoto, str], Awaitable[str]]
 
 
-def menu_snapshot(items: list[MenuEntry]) -> MenuSnapshot:
+def menu_snapshot(
+    items: list[MenuEntry], categories: list[MenuCategory] | None = None
+) -> MenuSnapshot:
     items = sorted(items, key=lambda item: (item.name.casefold(), item.item_id))
-    encoded = json.dumps([item.model_dump() for item in items], sort_keys=True).encode()
-    return MenuSnapshot(revision=hashlib.sha256(encoded).hexdigest(), items=items)
+    categories = sorted(categories or [], key=lambda c: (c.name.casefold(), c.category_id))
+    encoded = json.dumps(
+        [[item.model_dump() for item in items], [c.model_dump() for c in categories]],
+        sort_keys=True,
+    ).encode()
+    return MenuSnapshot(
+        revision=hashlib.sha256(encoded).hexdigest(), items=items, categories=categories
+    )
+
+
+def _category_of(data: dict) -> str | None:
+    listed = data.get("categories")
+    if isinstance(listed, list) and listed and isinstance(listed[0], dict):
+        return listed[0].get("id")
+    return data.get("category_id")
 
 
 class SquareMenu:
@@ -56,18 +77,32 @@ class SquareMenu:
                 archived=data.get("is_archived", False),
                 version=obj["version"],
                 photo_id=next(iter(data.get("image_ids", [])), None),
+                category_id=_category_of(data),
             )
         except (KeyError, TypeError, ValidationError):
             raise OrderSourceError(
                 "A menu item has unsupported data. Check its Square catalog entry."
             ) from None
 
+    def _categories(self, objects: list[dict]) -> list[MenuCategory]:
+        # Square categories are shared with the restaurant's own catalog, so every
+        # category offered at this location is listed; FullFill only ever adds one.
+        categories = []
+        for obj in objects:
+            name = obj.get("category_data", {}).get("name")
+            at_location = obj.get("present_at_all_locations", True) or self.location_id in (
+                obj.get("present_at_location_ids") or []
+            )
+            if obj.get("type") == "CATEGORY" and at_location and isinstance(name, str) and name:
+                categories.append(MenuCategory(category_id=obj["id"], name=name))
+        return categories
+
     async def _objects(self) -> list[dict]:
         objects = []
         cursor = None
         seen = set()
         for _ in range(50):
-            path = "/v2/catalog/list?types=ITEM"
+            path = "/v2/catalog/list?types=ITEM,CATEGORY"
             if cursor:
                 path += "&cursor=" + quote(cursor, safe="")
             result = await self.request("GET", path, None)
@@ -75,7 +110,9 @@ class SquareMenu:
             if not isinstance(page, list) or any(not isinstance(obj, dict) for obj in page):
                 raise OrderSourceError("Square returned an unreadable menu.")
             objects.extend(
-                obj for obj in page if obj.get("type") == "ITEM" and not obj.get("is_deleted")
+                obj
+                for obj in page
+                if obj.get("type") in ("ITEM", "CATEGORY") and not obj.get("is_deleted")
             )
             cursor = result.get("cursor")
             if not cursor:
@@ -86,11 +123,17 @@ class SquareMenu:
         raise OrderSourceError("The menu could not be loaded completely. Try again.")
 
     async def snapshot(self) -> MenuSnapshot:
+        objects = await self._objects()
+        categories = self._categories(objects)
+        known = {category.category_id for category in categories}
         items = [
             self._entry(obj, variation, info)
-            for obj in await self._objects()
+            for obj in objects
             for variation, info in self._managed(obj)
         ]
+        for item in items:
+            if item.category_id not in known:
+                item.category_id = None
         if len({item.item_id for item in items}) != len(items):
             raise OrderSourceError("The Square menu contains duplicate FullFill item IDs.")
         image_ids = sorted({item.photo_id for item in items if item.photo_id})
@@ -114,7 +157,26 @@ class SquareMenu:
                         images[obj["id"]] = url
         for item in items:
             item.photo_url = images.get(item.photo_id)
-        return menu_snapshot(items)
+        return menu_snapshot(items, categories)
+
+    async def add_category(self, name: str, key: str) -> MenuSnapshot:
+        categories = self._categories(await self._objects())
+        # Adding a name that already exists (or retrying) just returns the menu.
+        if any(category.name.casefold() == name.casefold() for category in categories):
+            return await self.snapshot()
+        if len(categories) >= 30:
+            raise OrderSourceError("This demo supports up to 30 categories.", 422)
+        category = {
+            "type": "CATEGORY",
+            "id": "#category",
+            "present_at_all_locations": False,
+            "present_at_location_ids": [self.location_id],
+            "category_data": {"name": name},
+        }
+        await self.request(
+            "POST", "/v2/catalog/object", {"idempotency_key": key, "object": category}
+        )
+        return await self.snapshot()
 
     async def save(
         self,
@@ -125,6 +187,10 @@ class SquareMenu:
         require_photo: bool = True,
     ) -> MenuSnapshot:
         objects = await self._objects()
+        if edit.category_id and edit.category_id not in {
+            category.category_id for category in self._categories(objects)
+        }:
+            raise OrderSourceError("That category was removed. Pick another one.", 409)
         matches = [
             (obj, variation, info)
             for obj in objects
@@ -144,7 +210,7 @@ class SquareMenu:
             )
             if same_photo and all(
                 getattr(current, field) == getattr(edit, field)
-                for field in ("name", "price_cents", "available", "archived")
+                for field in ("name", "price_cents", "available", "archived", "category_id")
             ):
                 return await self.snapshot()
             if current.version != edit.version:
@@ -190,6 +256,13 @@ class SquareMenu:
             obj["item_data"]["image_ids"] = [image_id]
             info.update(photo_sha256=edit.photo.digest, photo_id=image_id)
         obj["item_data"].update(name=edit.name, is_archived=edit.archived)
+        obj["item_data"].pop("category_id", None)  # Square's older single-category field
+        if edit.category_id:
+            obj["item_data"]["categories"] = [{"id": edit.category_id}]
+            obj["item_data"]["reporting_category"] = {"id": edit.category_id}
+        else:
+            obj["item_data"].pop("categories", None)
+            obj["item_data"].pop("reporting_category", None)
         info["available"] = edit.available
         variation["item_variation_data"].update(
             price_money={"amount": edit.price_cents, "currency": "USD"},

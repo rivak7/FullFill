@@ -10,7 +10,7 @@ import { advancePastHeld, reconcileQueue } from "../src/features/orders/queueSta
 
 vi.mock("../src/api/client", async importOriginal => ({
   ...await importOriginal<typeof import("../src/api/client")>(),
-  orderApi: { claim: vi.fn(), station: vi.fn(), setStatus: vi.fn(), cameraConfig: vi.fn(), checkCamera: vi.fn() },
+  orderApi: { claim: vi.fn(), station: vi.fn(), setStatus: vi.fn(), cameraConfig: vi.fn(), checkCamera: vi.fn(), clearStation: vi.fn() },
 }));
 
 function ticket(id: string, disposition: OrderState["disposition"] = "pending", revision = 1): OrderState {
@@ -282,4 +282,17 @@ it("two screens race for one ticket and the loser moves to the next available or
 it("picks up a released reservation when every ticket was previously occupied", () => {
   const held = ticket("held"); held.claim = { worker_id: "other", expires_at: Date.now() / 1000 - 1 };
   expect(reconcileQueue({ selected: null, orders: [held] }, [ticket("held", "pending", 2)], "ours").selected).toBe("held");
+});
+
+it("offers Start fresh in the toolbar, which clears the queue only after confirming", async () => {
+  vi.mocked(orderApi.clearStation).mockRejectedValue(new Error("Square is unreachable."));
+  const confirm = vi.fn().mockReturnValueOnce(false).mockReturnValueOnce(true);
+  vi.stubGlobal("confirm", confirm);
+  await render();
+  expect(container.querySelector('[aria-label="Refresh"]')).toBeNull();
+  await click("Start fresh");
+  expect(orderApi.clearStation).not.toHaveBeenCalled();
+  await click("Start fresh");
+  expect(orderApi.clearStation).toHaveBeenCalledTimes(1);
+  expect(container.querySelector(".queue-toolbar [role=alert]")?.textContent).toBe("Square is unreachable.");
 });

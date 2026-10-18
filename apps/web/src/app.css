@@ -86,6 +86,19 @@ a { color: inherit; }
 .menu-editor-hint { color: var(--muted); font-size: 14px; line-height: 1.6; padding: 60px 28px; }
 .menu-editor-hint > span { font-size: 28px; }
 .menu-empty { padding: 30px 16px; color: var(--muted); font-size: 14px; }
+.menu-group { scroll-margin-top: 16px; }
+.menu-group + .menu-group { margin-top: 26px; }
+.menu-group-name { display: flex; align-items: center; gap: 10px; margin: 0 0 12px; font-size: 18px; font-weight: 800; color: var(--accent); }
+.menu-group-name span { min-width: 24px; padding: 2px 8px; border-radius: 999px; background: var(--surface-2); color: var(--muted); font-size: 12px; font-weight: 700; text-align: center; }
+.menu-group-empty { margin: 0 0 12px; padding: 16px 20px; border: 1.5px dashed var(--line); border-radius: 10px; color: var(--muted); font-size: 14px; }
+.category-chips { position: sticky; top: 0; z-index: 2; display: flex; gap: 8px; overflow-x: auto; padding: 8px 0 14px; margin-bottom: 6px; background: var(--bg); scrollbar-width: none; }
+.category-chips a { flex: none; padding: 8px 16px; border-radius: 999px; background: var(--surface); border: 1px solid var(--line); color: var(--text); font-size: 14px; font-weight: 700; text-decoration: none; }
+.category-chips a:hover { background: var(--surface-2); }
+.category-form { display: flex; flex-wrap: wrap; align-items: center; gap: 10px; margin: -12px 0 26px; padding: 16px 18px; background: var(--surface); border: 1px solid var(--line); border-radius: 14px; }
+.category-form label { font-size: 13px; font-weight: 700; }
+.category-form input { flex: 1 1 200px; padding: 10px 12px; border: 1px solid var(--field-line); border-radius: 10px; background: var(--field); font: inherit; }
+.category-form .primary-button { width: auto; padding: 10px 20px; }
+.menu-edit-card select { width: 100%; padding: 11px 12px; border: 1px solid var(--field-line); border-radius: 6px; margin-bottom: 22px; background: var(--field); font: inherit; color: var(--text); }
 .menu-sync-label { color: var(--muted); font-size: 11px; }
 .unavailable-item { background: var(--surface-2); }
 .unavailable-item h2 { color: var(--muted); }
