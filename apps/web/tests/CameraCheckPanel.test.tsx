@@ -655,7 +655,9 @@ it("shows exact input photos and model reports in a separate tab without stoppin
   };
   vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: diagnostic });
   await render(); await camera(); await click("CV logs");
-  expect(container.querySelector('#camera-panel')!.hasAttribute("hidden")).toBe(true);
+  // The live camera stays on screen as a thumbnail so it keeps watching the mat.
+  expect(container.querySelector('#camera-panel')!.hasAttribute("hidden")).toBe(false);
+  expect(container.querySelector('#camera-panel')!.classList.contains("camera-panel-mini")).toBe(true);
   expect(container.querySelector('#logs-panel')!.hasAttribute("hidden")).toBe(false);
   expect(stopTrack).not.toHaveBeenCalled();
   await observe(0, 5000);
@@ -673,4 +675,15 @@ it("shows exact input photos and model reports in a separate tab without stoppin
   expect(readCvLogs()[0].diagnostics?.observations?.targets[0].status).toBe("unsure");
   await click("Clear logs");
   expect(logs.querySelector("img")).toBeNull();
+});
+
+it("resumes a camera preview the browser paused, so it still sees the mat clear", async () => {
+  await render(); await camera();
+  const play = vi.mocked(HTMLMediaElement.prototype.play); play.mockClear();
+  const paused = vi.spyOn(HTMLMediaElement.prototype, "paused", "get").mockReturnValue(true);
+  await act(async () => vi.advanceTimersByTimeAsync(250));
+  expect(play).toHaveBeenCalled();
+  paused.mockReturnValue(false); play.mockClear();
+  await act(async () => vi.advanceTimersByTimeAsync(250));
+  expect(play).not.toHaveBeenCalled();
 });

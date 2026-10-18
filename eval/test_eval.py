@@ -166,4 +166,5 @@ def test_obscured_scene_survives_evaluation_scoring(tmp, image):
     client = FakeClient([data])
     result = vision.check_order(adapter_with(client), make_guard(tmp), image, ["fries"], MENU)
     assert result.scene_uncertainty
-    assert vision.verdict({"fries": 1}, result) == "amber"
+    # An exact count stands; the scene note only joins other doubts.
+    assert vision.verdict({"fries": 1}, result) == "green"

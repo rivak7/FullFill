@@ -111,8 +111,18 @@ def test_item_not_on_the_ticket_is_amber():
     assert result.discrepancies[0].message == "Unidentified item: Celsius can"
 
 
-def test_poor_scene_view_is_amber_when_counts_match():
+def test_scene_note_alone_does_not_block_an_exact_match():
+    # Every ticket item counted exactly and nothing else seen: the order is complete.
     observations = seen().model_copy(update={"scene_uncertainty": "Open the closed bag."})
+    result = compare_order(ORDER, observations)
+    assert result.verdict == "pass"
+    assert result.discrepancies == []
+
+
+def test_scene_note_is_shown_with_other_doubts():
+    observations = seen(ketchup=("unsure", None)).model_copy(
+        update={"scene_uncertainty": "Open the closed bag."}
+    )
     result = compare_order(ORDER, observations)
     assert result.verdict == "unsure"
     assert result.discrepancies[0].message == "Open the closed bag."
