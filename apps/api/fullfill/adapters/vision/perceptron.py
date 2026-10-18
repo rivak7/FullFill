@@ -26,23 +26,25 @@ from fullfill_contracts.vision import (
 from fullfill.domain.vision_uncertainty import REASONS, SCENES
 
 DEFAULT_MODEL = "perceptron-mk1.5"
-PROMPT_VERSION = "order-check-v6"
+PROMPT_VERSION = "order-check-v7-inventory"
 STATUSES = ("present", "missing", "unsure")
 
 PROMPT = """\
-You check takeout orders at a restaurant packing station. A camera looks down at the \
-packing area. The last image is the order photo. Any earlier images are labeled reference \
-photos of this restaurant's own menu items. Some references are alternatives NOT ordered.
+You take inventory at a restaurant packing station. A camera looks down at the packing \
+area. The last image is the order photo. Any earlier images are labeled reference photos \
+of this restaurant's own menu items.
 
-For each item in the list below, count how many of it are clearly visible in the order \
-photo. Use the reference photos to tell similar-looking items apart (size, lid or can \
-color, flavor printed on the top, packaging shape, printed or handwritten labels).
+For each menu item in the list below, count how many of it are clearly visible in the \
+order photo. The list is not the order: any of these items may or may not be there, so \
+judge each object only by what it looks like. Use the reference photos to tell \
+similar-looking items apart (size, lid or can color, toppings, flavor printed on the \
+top, packaging shape, printed or handwritten labels).
 
 Rules:
 - "scene_status": "clear" only when one entire order is visible and countable; otherwise \
 "obscured", "blurry", "out_of_frame", or "mixed_orders". Empty, well-lit packing areas \
 can be clear. A closed bag hiding the order is obscured, not empty.
-- Report every listed item exactly once, using its id.
+- Report every listed menu item exactly once, using its id.
 - status "present": you can identify at least one; "count" is a positive number.
 - status "missing": you are confident none are there; "count" is 0.
 - status "unsure": it may be hidden, cut off, blurry, or you cannot tell it apart from a \
@@ -58,28 +60,21 @@ wrapper, if readable; otherwise null.
 - "unlabeled_count": for items marked LABEL REQUIRED, how many objects look like this \
 item but have no readable label, so you can't tell which item they are. Do not include \
 those in "count". For other items, 0.
-- "unexpected_items": food or drink objects that match none of the ORDERED items. \
-Report each with "name" (short description), "item_id" (an ALTERNATIVE reference id only \
-when confidently identified, otherwise null), "count" (positive integer or null), \
-"instead_of_target_id" (ordered target id only for a clear substitution, otherwise null), \
-and "label_text" (exact readable text, otherwise null). Unidentified objects MUST use \
-null item_id and null instead_of_target_id. Never force a match. An alternative's photo \
-is comparison evidence, not a request to find it. LABEL REQUIRED alternatives need \
-a matching readable name; never infer hidden ingredients. Ignore tickets, hands, and shadows.
+- "unknown_items": food or drink objects that match none of the listed menu items. \
+Report each with "name" (short description), "count" (positive integer or null) and \
+"label_text" (exact readable text, otherwise null). Never force a match. Ignore \
+tickets, hands, and shadows.
 {box_rule}- Do not decide whether the order is correct. Only report what you see.
 
-ORDERED items to check:
+Menu items:
 {items}
-
-ALTERNATIVE references (not ordered):
-{alternatives}
 """
 
 
 # Boxes cost output tokens (about 30 per object) and so add latency. The design keeps
 # them out of the first call; the kitchen asks for them only in dev mode.
 BOX_RULE = """\
-- For each ordered or unexpected item, return "boxes": one tight box per visible object \
+- For each listed or unknown item, return "boxes": one tight box per visible object \
 located ONLY in the LAST image (the order photo), never in reference photos. Each box has \
 x_min, y_min, x_max, y_max: integer coordinates normalized to 0–1000, origin top-left, \
 x increasing rightward and y downward. Use an empty array for missing/hidden objects \
@@ -153,20 +148,22 @@ def build_messages(request: VisionInput, boxes: bool = False) -> list[dict]:
             "image_url": {"url": _data_url(request.image.data, request.image.media_type)},
         }
     )
-    items = "\n".join(_target_line(t) for t in request.targets)
+    # Ordered and lookalike items are listed alike, in id order, so the prompt never
+    # tells the model which one the ticket expects.
+    lines = {t.target_id: _target_line(t) for t in request.targets}
+    ordered = {t.item_id for t in request.targets}
+    for ref in request.references:
+        if ref.item_id not in ordered and ref.item_id not in lines:
+            line = f"- {ref.item_id}: {ref.name or ref.item_id}"
+            if ref.verification_mode == "label":
+                line += f' (LABEL REQUIRED: only count it if marked "{ref.name or ref.item_id}")'
+            lines[ref.item_id] = line
     content.append(
         {
             "type": "text",
             "text": PROMPT.format(
                 box_rule=BOX_RULE if boxes else "",
-                items=items,
-                alternatives="\n".join(
-                    f"- {ref.item_id}: {ref.name or ref.item_id}"
-                    + (" (LABEL REQUIRED)" if ref.verification_mode == "label" else "")
-                    for ref in request.references
-                    if ref.item_id not in names
-                )
-                or "None",
+                items="\n".join(lines[key] for key in sorted(lines)),
             ),
         }
     )
@@ -202,7 +199,7 @@ def response_schema(
             *(["boxes"] if boxes else []),
         ],
         "properties": {
-            "item_id": {"type": "string", "enum": target_ids},
+            "item_id": {"type": "string", "enum": sorted([*target_ids, *(alternative_ids or [])])},
             "status": {"type": "string", "enum": list(STATUSES)},
             "count": {"type": ["integer", "null"], "minimum": 0, "maximum": 100000},
             "reason": {"type": "string", "enum": ["none", *REASONS]},
@@ -219,36 +216,26 @@ def response_schema(
             "schema": {
                 "type": "object",
                 "additionalProperties": False,
-                "required": ["items", "unexpected_items", "scene_status"],
+                "required": ["items", "unknown_items", "scene_status"],
                 "properties": {
                     "items": {"type": "array", "items": item},
-                    "unexpected_items": {
+                    "unknown_items": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "additionalProperties": False,
                             "required": [
                                 "name",
-                                "item_id",
                                 "count",
-                                "instead_of_target_id",
                                 "label_text",
                                 *(["boxes"] if boxes else []),
                             ],
                             "properties": {
                                 "name": {"type": "string"},
-                                "item_id": {
-                                    "type": ["string", "null"],
-                                    "enum": [*(alternative_ids or []), None],
-                                },
                                 "count": {
                                     "type": ["integer", "null"],
                                     "minimum": 1,
                                     "maximum": 100000,
-                                },
-                                "instead_of_target_id": {
-                                    "type": ["string", "null"],
-                                    "enum": [*target_ids, None],
                                 },
                                 "label_text": {"type": ["string", "null"]},
                                 **({"boxes": box_list} if boxes else {}),
@@ -282,7 +269,8 @@ def parse_answer(
     try:
         data = json.loads(text)
         entries = data["items"]
-        unexpected = data["unexpected_items"]
+        # "unexpected_items" is the pre-inventory answer shape, kept for offline fixtures.
+        unexpected = data["unknown_items"] if "unknown_items" in data else data["unexpected_items"]
         scene = data.get("scene_status", "clear")  # Older offline evaluation fixtures.
         if not isinstance(entries, list) or not all(isinstance(e, dict) for e in entries):
             raise ValueError("items must be objects")
@@ -293,13 +281,21 @@ def parse_answer(
     except (ValueError, KeyError, TypeError) as exc:
         raise VisionProviderError(f"answer is not the requested JSON: {exc}") from exc
     targets = {t.target_id: t for t in request.targets}
+    alternatives = {
+        ref.item_id: ref
+        for ref in request.references
+        if ref.item_id not in {target.item_id for target in request.targets}
+    }
     seen: dict[str, TargetObservation] = {}
+    listed: list[UnexpectedItem] = []
+    reported: set[str] = set()
     for entry in entries:
         target_id = entry.get("item_id")
-        if not isinstance(target_id, str) or target_id not in targets:
+        if not isinstance(target_id, str) or target_id not in {*targets, *alternatives}:
             raise VisionProviderError(f"unknown item_id {target_id!r}")
-        if target_id in seen:
+        if target_id in reported:
             raise VisionProviderError(f"duplicate item_id {target_id!r}")
+        reported.add(target_id)
         status, count = entry.get("status"), entry.get("count")
         if status not in STATUSES:
             raise VisionProviderError(f"bad status {status!r} for {target_id}")
@@ -317,6 +313,28 @@ def parse_answer(
             raise VisionProviderError("invalid unlabeled count")
         if label is not None and not isinstance(label, str):
             raise VisionProviderError("invalid label text")
+        if target_id in alternatives:
+            # A lookalike that isn't on the ticket. Confidently seen: a wrong item (red).
+            # Possibly there: unidentified (amber). LABEL REQUIRED needs its label.
+            reference = alternatives[target_id]
+            name = reference.name or target_id
+            if status == "missing" or count == 0:
+                continue
+            label_ok = bool(label) and bool(
+                re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", label, re.I)
+            )
+            sure = status == "present" and reason is None and count is not None
+            if reference.verification_mode == "label" and not label_ok:
+                sure = False
+            listed.append(
+                UnexpectedItem(
+                    name=name,
+                    item_id=target_id if sure else None,
+                    quantity=count,
+                    boxes=valid_boxes(entry.get("boxes")),
+                )
+            )
+            continue
         target = targets[target_id]
         label_matches = bool(label and label.strip()) and (
             any(
@@ -346,12 +364,7 @@ def parse_answer(
     missing = sorted(set(targets) - set(seen))
     if missing:
         raise VisionProviderError(f"answer left out {missing}")
-    alternatives = {
-        ref.item_id: ref
-        for ref in request.references
-        if ref.item_id not in {target.item_id for target in request.targets}
-    }
-    extras = []
+    extras = listed
     for item in unexpected:
         # Preserve old offline fixtures as unidentified observations.
         if isinstance(item, str) and item.strip():

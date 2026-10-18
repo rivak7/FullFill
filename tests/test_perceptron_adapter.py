@@ -79,7 +79,7 @@ def run(coro):
 
 def test_request_shape():
     client = FakeClient(
-        {"items": [entry("chicken_burrito", label="C"), entry("mayo")], "unexpected_items": []}
+        {"items": [entry("chicken_burrito", label="C"), entry("mayo")], "unknown_items": []}
     )
     obs = run(vision(client).inspect(REQUEST))
     sent = client.requests[0]
@@ -257,25 +257,54 @@ def alternative_answer(**changes):
     }
 
 
-def test_alternative_references_are_sent_once_and_identity_uses_saved_menu_name():
-    client = FakeClient(alternative_answer())
+def test_prompt_lists_ordered_items_and_lookalikes_alike():
+    answer = {
+        "items": [entry("fries", "missing", 0), entry("chips")],
+        "unknown_items": [],
+        "scene_status": "clear",
+    }
+    client = FakeClient(answer)
     observed = run(vision(client).inspect(alternative_request()))
     assert len(client.requests) == 1
     sent = client.requests[0]
-    schema = sent["response_format"]["json_schema"]["schema"]
-    assert schema["properties"]["unexpected_items"]["items"]["properties"]["item_id"]["enum"] == [
-        "chips",
-        None,
-    ]
+    schema = sent["response_format"]["json_schema"]["schema"]["properties"]
+    assert schema["items"]["items"]["properties"]["item_id"]["enum"] == ["chips", "fries"]
     prompt = sent["messages"][0]["content"][-1]["text"]
-    assert "- chips: Chips" in prompt and "Never force a match" in prompt
+    assert "- chips: Chips\n- fries: Fries" in prompt
+    assert "ORDERED" not in prompt and "ALTERNATIVE" not in prompt
     extra = observed.unexpected_items[0]
     assert (extra.name, extra.item_id, extra.quantity, extra.instead_of_target_id) == (
         "Chips",
         "chips",
         1,
-        "fries",
+        None,
     )
+
+
+@pytest.mark.parametrize(
+    "chips,mode,identified",
+    [
+        (entry("chips"), "visible_item", True),
+        (entry("chips", "unsure", None), "visible_item", False),
+        (entry("chips"), "label", False),
+        (entry("chips", label="Chips"), "label", True),
+    ],
+)
+def test_a_lookalike_is_named_only_when_seen_clearly(chips, mode, identified):
+    answer = {"items": [entry("fries"), chips], "unknown_items": [], "scene_status": "clear"}
+    _, extras = parse_answer(json.dumps(answer), alternative_request(mode))
+    assert extras[0].name == "Chips"
+    assert (extras[0].item_id == "chips") is identified
+
+
+def test_a_missing_lookalike_is_not_reported():
+    answer = {
+        "items": [entry("fries"), entry("chips", "missing", 0)],
+        "unknown_items": [{"name": "Cup", "count": 1, "label_text": None}],
+        "scene_status": "clear",
+    }
+    _, extras = parse_answer(json.dumps(answer), alternative_request())
+    assert [(extra.name, extra.item_id) for extra in extras] == [("Cup", None)]
 
 
 @pytest.mark.parametrize(
@@ -314,7 +343,9 @@ def test_boxes_are_requested_in_same_call_and_linked_to_observed_items():
     client = FakeClient(
         {
             "items": [entry("chicken_burrito", label="C"), mayo],
-            "unexpected_items": [{"name": "Unknown cup", "count": 1, "boxes": [box]}],
+            "unknown_items": [
+                {"name": "Unknown cup", "count": 1, "label_text": None, "boxes": [box]}
+            ],
         }
     )
     observed = run(vision(client, boxes=True).inspect(REQUEST))
@@ -322,7 +353,7 @@ def test_boxes_are_requested_in_same_call_and_linked_to_observed_items():
     sent = client.requests[0]
     schema = sent["response_format"]["json_schema"]["schema"]["properties"]
     assert "boxes" in schema["items"]["items"]["required"]
-    assert "boxes" in schema["unexpected_items"]["items"]["required"]
+    assert "boxes" in schema["unknown_items"]["items"]["required"]
     assert "ONLY in the LAST image" in sent["messages"][0]["content"][-1]["text"]
     assert observed.targets[1].boxes[0].model_dump() == box
     assert observed.unexpected_items[0].boxes[0].model_dump() == box
@@ -395,12 +426,12 @@ def test_rate_limit_spaces_calls_one_second_apart_without_a_cap(monkeypatch):
 
 def test_boxes_are_left_out_unless_asked_for():
     client = FakeClient(
-        {"items": [entry("chicken_burrito", label="C"), entry("mayo")], "unexpected_items": []}
+        {"items": [entry("chicken_burrito", label="C"), entry("mayo")], "unknown_items": []}
     )
     observed = run(vision(client).inspect(REQUEST))
     sent = client.requests[0]
     schema = sent["response_format"]["json_schema"]["schema"]["properties"]
     assert "boxes" not in schema["items"]["items"]["properties"]
-    assert "boxes" not in schema["unexpected_items"]["items"]["properties"]
+    assert "boxes" not in schema["unknown_items"]["items"]["properties"]
     assert "boxes" not in sent["messages"][0]["content"][-1]["text"]
-    assert observed.provider.prompt_version == "order-check-v6"
+    assert observed.provider.prompt_version == "order-check-v7-inventory"
