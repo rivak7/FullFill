@@ -49,7 +49,7 @@ it("captures a photo and releases the camera immediately", async () => {
   Object.defineProperties(video, { videoWidth: { value: 1920 }, videoHeight: { value: 1080 } });
   await act(async () => video.dispatchEvent(new Event("loadeddata")));
   await click("Capture photo");
-  expect(drawImage).toHaveBeenCalledWith(video, 420, 0, 1080, 1080, 0, 0, 1024, 1024);
+  expect(drawImage).toHaveBeenCalledWith(video, 0, 0, 1920, 1080, 0, 0, 1024, 576);
   expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith("image/jpeg", 0.8);
   expect(onChange).toHaveBeenCalledWith({ data_base64: "cGhvdG8=" });
   expect(stop).toHaveBeenCalledTimes(1);

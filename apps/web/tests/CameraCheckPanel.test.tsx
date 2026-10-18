@@ -7,7 +7,7 @@ import { orderApi } from "../src/api/client";
 import type { OrderState } from "../src/api/generated/contracts";
 import { CameraCheckPanel } from "../src/features/orders/CameraCheckPanel";
 import { SceneGuard, SceneTrigger } from "../src/features/orders/sceneTrigger";
-import { toScreenState } from "../src/features/station/screenState";
+import { amberReason, toScreenState } from "../src/features/station/screenState";
 import { readCheckActivity, recordCheckAttempt } from "../src/features/orders/CheckActivity";
 import { readCvLogs } from "../src/features/orders/CvLogs";
 
@@ -57,25 +57,30 @@ async function camera() {
   await act(async () => container.querySelector("video")!.dispatchEvent(new Event("loadeddata")));
 }
 
-it("automatically checks an unchanged view every five seconds", async () => {
+it("takes one look when automatic checks start, then leaves a red or green view alone", async () => {
   await render(); await camera();
   await act(async () => vi.advanceTimersByTimeAsync(60000));
-  expect(orderApi.checkCamera).toHaveBeenCalledTimes(12);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
   await click("Close camera");
   expect(stopTrack).toHaveBeenCalledTimes(1);
 });
 
-it("waits five seconds after a slow check finishes without overlapping requests", async () => {
+it("rechecks an amber result once, five seconds after a slow check finishes", async () => {
+  const unsure = checked(); unsure.current_check!.verdict = "unsure";
   let resolve!: (state: OrderState) => void;
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  vi.mocked(orderApi.checkCamera).mockResolvedValue(unsure);
   await render(); await camera();
   await observe(0, 20000);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  await act(async () => resolve(checked()));
+  await act(async () => resolve(unsure));
   await observe(0, 4750);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   await observe(0, 250);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  expect(readCvLogs()[0].trigger).toBe("recheck after amber");
+  await observe(0, 60000);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
 });
 
@@ -102,13 +107,13 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   expect(onBusyChange.mock.calls.map(call => call[0])).toEqual([true, false]);
 });
 
-it("captures the same centered square and JPEG resolution as menu photos", async () => {
+it("captures the whole frame at the same JPEG resolution as menu photos", async () => {
   vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1920);
   vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(1080);
   const drawImage = vi.fn();
   vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage, getImageData: () => ({ data: new Uint8ClampedArray(4096) }) } as unknown as CanvasRenderingContext2D);
   await render(); await camera(); await click("Check order");
-  expect(drawImage).toHaveBeenCalledWith(container.querySelector("video"), 420, 0, 1080, 1080, 0, 0, 1024, 1024);
+  expect(drawImage).toHaveBeenCalledWith(container.querySelector("video"), 0, 0, 1920, 1080, 0, 0, 1024, 576);
   expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith("image/jpeg", 0.8);
   expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 } } });
 });
@@ -429,8 +434,8 @@ it("automatically checks consecutive identical meals without a handoff button or
   await observe(80);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
   expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0].order_id).toBe("second");
-  await observe(80, 10000);
-  expect(orderApi.checkCamera).toHaveBeenCalledTimes(4);
+  await observe(80, 10000); // A red result on an untouched meal stands.
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
 });
 
 it("keeps handoff evidence while waiting for the new ticket claim", async () => {
@@ -477,6 +482,23 @@ it("shows unidentified items in amber and confidently wrong items in red", () =>
   state.current_check!.verdict = "fail";
   state.current_check!.discrepancies.push({ kind: "wrong_item", message: "Wrong item: Chips", line_ids: [] });
   expect(toScreenState(state).tone).toBe("red");
+});
+
+it("always says why an amber screen is unsure", () => {
+  const state = checked(); state.current_check!.verdict = "unsure";
+  state.current_check!.discrepancies = [
+    { kind: "unsure", message: "Check Ketchup packet: cannot count the items reliably", line_ids: ["line"] },
+    { kind: "unidentified", message: "Unidentified item: Container", line_ids: [] },
+  ];
+  const screen = toScreenState(state);
+  expect(screen.detail).toBe("FullFill isn't sure about this order. Take a look:");
+  expect(amberReason(screen)).toBe("Check Ketchup packet: cannot count the items reliably (+1 more)");
+  state.current_check!.discrepancies = [];
+  expect(amberReason(toScreenState(state))).toBe("No reliable result. Check manually or take a new photo.");
+  const marked = ticket(); marked.disposition = "needs_review";
+  expect(amberReason(toScreenState(marked))).toBe("Marked for review by staff.");
+  state.current_check!.verdict = "pass";
+  expect(amberReason(toScreenState(state))).toBeNull();
 });
 
 

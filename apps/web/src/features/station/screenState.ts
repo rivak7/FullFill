@@ -18,6 +18,7 @@ export interface ScreenState {
   detail: string | null;
   lines: ScreenLine[];
   // Things the worker should look at: missing items for red, unsure items for amber.
+  // An amber screen always has a detail or a problem that says why.
   problems: Discrepancy[];
   confirmedByStaff: boolean;
 }
@@ -37,7 +38,7 @@ export function toScreenState(state: OrderState): ScreenState {
     return { tone: "green", headline: "Fulfilled", detail: "Confirmed by staff", lines: accepted, problems: [], confirmedByStaff: true };
   }
   if (state.disposition === "needs_review" && !check) {
-    return { tone: "amber", headline: "Needs review", detail: null, lines, problems: [], confirmedByStaff: false };
+    return { tone: "amber", headline: "Needs review", detail: "Marked for review by staff.", lines, problems: [], confirmedByStaff: false };
   }
   if (candidate && !check) {
     return { tone: "amber", headline: "Needs review", detail: "Ticket changed. Check this order again.", lines, problems: [], confirmedByStaff: false };
@@ -67,7 +68,8 @@ export function toScreenState(state: OrderState): ScreenState {
     return {
       tone: "amber",
       headline: "Needs review",
-      detail: discrepancies.length ? null : "No reliable result. Check manually or take a new photo.",
+      // Amber always says why FullFill is unsure; the list below names each item.
+      detail: discrepancies.length ? "FullFill isn't sure about this order. Take a look:" : "No reliable result. Check manually or take a new photo.",
       lines,
       problems: discrepancies,
       confirmedByStaff: false,
@@ -82,4 +84,12 @@ function toScreenLine(line: OrderLine, discrepancies: Discrepancy[] | null): Scr
   if (!hit) return { line, status: "ok", note: null };
   if (hit.kind === "unsure") return { line, status: "unsure", note: hit.message };
   return { line, status: "missing", note: hit.message };
+}
+
+// One line for the queue: why an amber ticket needs a look.
+export function amberReason(screen: ScreenState): string | null {
+  if (screen.tone !== "amber") return null;
+  const [first, ...rest] = screen.problems;
+  if (!first) return screen.detail;
+  return rest.length ? `${first.message} (+${rest.length} more)` : first.message;
 }
