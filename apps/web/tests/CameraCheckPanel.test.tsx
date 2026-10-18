@@ -117,11 +117,15 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await checkNow();
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, boxes: false, photos: false });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, boxes: false, photos: false, confirmed: true });
   await render(ticket("second"), true);
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  const withdrawn = checked(); withdrawn.current_check!.execution_status = "superseded"; withdrawn.current_check!.verdict = null;
+  vi.mocked(orderApi.confirmCamera).mockResolvedValue(withdrawn);
   await act(async () => resolve(checked()));
+  // The ticket changed mid-check, so the completed result is withdrawn.
+  expect(orderApi.confirmCamera).toHaveBeenCalledWith(expect.objectContaining({ order_id: "first", scene_unchanged: false }));
   expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ order: expect.objectContaining({ order_id: "first" }) }), false);
   expect(onBusyChange.mock.calls.map(call => call[0])).toEqual([true, false]);
 });
@@ -357,9 +361,9 @@ it("detects a small added packet while ignoring an isolated noisy pixel", () => 
 
 // Two sauce packets cover only a few pixels of the 32-px preview and barely move
 // the averages, so clearing them used to leave "Bag it and clear the mat" up.
-function withPackets(bare: Uint8Array) {
+function withPackets(bare: Uint8Array, value = 150) {
   const frame = bare.slice();
-  for (const [row, col] of [[10, 10], [10, 11], [11, 10], [20, 22], [21, 22]]) frame[row * 32 + col] = 150;
+  for (const [row, col] of [[10, 10], [10, 11], [11, 10], [20, 22], [21, 22]]) frame[row * 32 + col] = value;
   return frame;
 }
 
@@ -385,6 +389,27 @@ it("sees a mustard packet on cardboard even though both are equally bright", () 
   for (const p of [330, 331, 362]) packet.set([230, 185, 35], p * 3); // mustard, grey ≈ 150
   expect(isEmptyMat(cardboard, cardboard)).toBe(true);
   expect(isEmptyMat(packet, cardboard)).toBe(false);
+});
+
+it("moves on after a swapped mat stays still, and learns the new mat", () => {
+  const scene = new SceneTrigger();
+  // Different mats also leave different strips of carpet in view.
+  const mat = (value: number, carpet: number) => Uint8Array.from({ length: 1024 }, (_, i) => i % 32 < carpet ? 60 : value);
+  const paper = mat(230, 6), cardboard = mat(160, 16);
+  scene.learnEmptyMat();
+  sampled(scene, paper, 0, 1000);
+  const packets = withPackets(cardboard, 250);
+  scene.submitted(packets); scene.nextOrder();
+  // Bare cardboard never matches the paper the camera learned at start...
+  sampled(scene, cardboard, 1250, 4000);
+  expect(scene.handoff).toBe("remove");
+  // ...but once it has stayed still long enough the order counts as cleared.
+  sampled(scene, cardboard, 4250, 6000);
+  expect(scene.handoff).toBe("place");
+  // The next order on the cardboard ends as soon as the cardboard is bare again.
+  scene.submitted(packets); scene.nextOrder();
+  sampled(scene, cardboard, 6250, 7250);
+  expect(scene.handoff).toBe("place");
 });
 
 it("still sees the bare mat after the phone shifts by a pixel", () => {

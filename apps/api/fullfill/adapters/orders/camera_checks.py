@@ -163,10 +163,20 @@ class SquareCameraChecks:
         reserved = saved.get("order", {})
         return reserved, self._order_state(reserved)
 
-    async def finish_camera_check(self, reserved, observations=None, reference_version=None):
+    async def finish_camera_check(
+        self, reserved, observations=None, reference_version=None, confirmed=False
+    ):
+        # `confirmed`: the kitchen accepts the result for the photo it sent without a
+        # second round trip; it can still supersede it with confirm(scene_unchanged=False).
         metadata = dict(reserved.get("metadata") or {})
         record = read_record(metadata)
-        record["s"] = "failed" if observations is None else "awaiting_confirmation"
+        record["s"] = (
+            "failed"
+            if observations is None
+            else "completed"
+            if confirmed
+            else "awaiting_confirmation"
+        )
         patches = []
         if observations is not None:
             compare_order(self._snapshot(reserved), observations)  # Validate before compacting.
@@ -201,8 +211,13 @@ class SquareCameraChecks:
                 payload["s"] = observations.scene_uncertainty
             record["r"], patches = pack_result(payload, metadata, reserved.get("line_items", []))
         record["t"] = int(time.time())
-        metadata[COMPLETED_AT_KEY] = "0"
         metadata[CHECK_KEY] = json.dumps(record, separators=(",", ":"))
+        metadata[COMPLETED_AT_KEY] = "0"
+        if (
+            record["s"] == "completed"
+            and compare_order(self._snapshot(reserved), observations).verdict == "pass"
+        ):
+            metadata[COMPLETED_AT_KEY] = str(record["t"])
         # An edit or manual decision while inference runs must win. Never retry
         # this write with a fresh revision or re-run the paid model call.
         result = await self._request(

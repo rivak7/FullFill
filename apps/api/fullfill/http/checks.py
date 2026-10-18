@@ -48,6 +48,8 @@ class CameraCheck(Contract):
     # dev-mode flag and turns both on.
     boxes: bool = False
     photos: bool = False
+    # Complete the check without the separate confirm call (one round trip less).
+    confirmed: bool = False
     diagnostics: bool = False
 
 
@@ -246,7 +248,7 @@ async def check_camera(
         diagnostics["observations"] = observations.model_dump(mode="json")
         phase = "saving_result"
         result = await source.finish_camera_check(
-            reserved, observations, reference_fingerprint(menu)
+            reserved, observations, reference_fingerprint(menu), confirmed=body.confirmed
         )
         lap("saving_result")
         diagnostics["timings_ms"] = timings
