@@ -3,6 +3,7 @@
 import asyncio
 import base64
 import copy
+import hashlib
 import json
 from io import BytesIO
 
@@ -12,8 +13,9 @@ from fastapi.testclient import TestClient
 from fullfill.adapters.orders.camera_checks import CHECK_KEY, RESULT_KEYS
 from fullfill.adapters.orders.square import SquareOrders
 from fullfill.adapters.vision.perceptron import VisionProviderError
+from fullfill.application.order_source import MenuEntry, MenuSnapshot
 from fullfill.main import create_app
-from fullfill_contracts.vision import Observations, TargetObservation, UnexpectedItem
+from fullfill_contracts.vision import ImageInput, Observations, TargetObservation, UnexpectedItem
 from PIL import Image
 
 
@@ -108,6 +110,31 @@ def send(client, key="attempt", revision=3, image=None):
     )
 
 
+@pytest.fixture(autouse=True)
+def saved_reference_photos(monkeypatch):
+    async def menu(source):
+        order = await source.get_order("ticket")
+        return MenuSnapshot(
+            revision="menu",
+            items=[
+                MenuEntry(
+                    item_id=line.item_id,
+                    name=line.name,
+                    description="",
+                    price_cents=400,
+                    photo_url=f"https://items-images-production.s3.amazonaws.com/{line.item_id}.jpg",
+                )
+                for line in order.lines
+            ],
+        )
+
+    async def reference(_url):
+        return ImageInput(b"fake-reference", "image/jpeg")
+
+    monkeypatch.setattr(SquareOrders, "menu", menu)
+    monkeypatch.setattr("fullfill.http.checks.reference_image", reference)
+
+
 @pytest.mark.parametrize(
     "count,status,unexpected,verdict",
     [
@@ -190,28 +217,113 @@ def test_failed_provider_never_goes_green_and_does_not_leak_error_or_retry():
     assert len(vision.calls) == 1
 
 
-def test_duplicate_keys_reject_different_images_and_cooldown_applies():
+def test_duplicate_keys_reject_different_images_but_new_checks_need_no_cooldown():
     square, vision = Square(), Vision(count=1)
     with TestClient(square.app(vision)) as client:
         assert send(client).status_code == 200
         assert send(client, image=photo("black")).status_code == 409
-        assert send(client, key="new", revision=square.order["version"]).status_code == 429
-    assert len(vision.calls) == 1
+        assert send(client, key="new", revision=square.order["version"]).status_code == 200
+    assert len(vision.calls) == 2
 
 
-def test_per_order_limit_survives_new_api_instances(monkeypatch):
+def test_existing_twenty_attempt_orders_can_keep_checking_after_restart():
     square, vision = Square(), Vision(count=1)
     with TestClient(square.app(vision)) as client:
         assert send(client).status_code == 200
     record = json.loads(square.order["metadata"][CHECK_KEY])
     record["n"] = 20
     square.order["metadata"][CHECK_KEY] = json.dumps(record)
-    monkeypatch.setattr(
-        "fullfill.adapters.orders.camera_checks.time.time", lambda: record["t"] + 100
-    )
     with TestClient(square.app(vision)) as other:
-        assert send(other, key="new", revision=square.order["version"]).status_code == 429
-    assert len(vision.calls) == 1
+        for index in range(25):
+            result = send(other, key=f"new-{index}", revision=square.order["version"])
+            assert result.status_code == 200, result.text
+    assert len(vision.calls) == 26
+    assert json.loads(square.order["metadata"][CHECK_KEY])["n"] == 45
+
+
+def test_missing_references_never_fall_back_to_names_only(monkeypatch):
+    async def no_photo(_source):
+        return MenuSnapshot(
+            revision="menu",
+            items=[
+                MenuEntry(
+                    item_id="fries",
+                    name="Fries",
+                    description="",
+                    price_cents=400,
+                )
+            ],
+        )
+
+    monkeypatch.setattr(SquareOrders, "menu", no_photo)
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        result = send(client)
+        assert result.status_code == 422
+        assert "reference photo" in result.json()["detail"]
+        assert "Fries" in result.json()["detail"]
+        assert client.get("/v1/stations/main").json()["orders"][0]["disposition"] == "needs_review"
+    assert not vision.calls
+
+
+def test_unavailable_reference_does_not_call_vision(monkeypatch):
+    async def unavailable(_url):
+        raise httpx.ConnectError("unavailable")
+
+    monkeypatch.setattr("fullfill.http.checks.reference_image", unavailable)
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 502
+    assert not vision.calls
+
+
+def test_modified_lines_keep_separate_counts_and_require_staff_confirmation():
+    square, vision = Square(), Vision(count=1)
+    square.order["line_items"] = [
+        {
+            "uid": "regular",
+            "name": "Fries",
+            "quantity": "1",
+            "metadata": {"fullfill_item_id": "fries"},
+        },
+        {
+            "uid": "custom",
+            "name": "Fries",
+            "quantity": "1",
+            "metadata": {"fullfill_item_id": "fries"},
+            "modifiers": [{"name": "No salt"}],
+        },
+    ]
+    with TestClient(square.app(vision)) as client:
+        result = send(client)
+        assert result.status_code == 200, result.text
+        assert result.json()["disposition"] == "needs_review"
+        assert "No salt" in result.json()["current_check"]["discrepancies"][0]["message"]
+    assert len(vision.calls[0].targets) == 2
+    assert {t.name for t in vision.calls[0].targets} == {"Fries", "Fries — No salt"}
+    with TestClient(square.app()) as other:
+        assert other.get("/v1/stations/main").json()["orders"][0] == result.json()
+
+
+def test_existing_plain_order_fingerprints_survive_but_modified_approvals_expire():
+    square = Square()
+    source = SquareOrders("token", "location")
+
+    def legacy_fingerprint():
+        lines = [
+            line.model_dump(mode="json", exclude={"requires_manual_review"})
+            for line in source._snapshot(square.order).lines
+        ]
+        return hashlib.sha256(json.dumps(lines, sort_keys=True).encode()).hexdigest()
+
+    square.order["metadata"] = {
+        "fullfill_queue_status": "fulfilled",
+        "fullfill_status_fingerprint": legacy_fingerprint(),
+    }
+    assert source._order_state(square.order).disposition == "overridden"
+    square.order["line_items"][0]["note"] = "No salt"
+    square.order["metadata"]["fullfill_status_fingerprint"] = legacy_fingerprint()
+    assert source._order_state(square.order).disposition == "pending"
 
 
 def test_camera_bytes_and_bad_photos_never_leak_into_validation_response():

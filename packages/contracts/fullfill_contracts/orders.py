@@ -15,6 +15,7 @@ class OrderLine(Contract):
     name: str
     quantity: PositiveQuantity
     verification_mode: VerificationMode = "visible_item"
+    requires_manual_review: bool = False
 
 
 class OrderSnapshot(Contract):

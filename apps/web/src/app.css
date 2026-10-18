@@ -88,6 +88,12 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .camera-auto input { width: auto; }
 .camera-check-controls select { display: block; width: 100%; margin-top: 5px; }
 .camera-hint { margin-top: 10px; }
+.check-activity { margin-top: 12px; font-size: 12px; color: #62695e; }
+.check-activity summary { cursor: pointer; width: fit-content; }
+.check-activity-row { display: flex; flex-wrap: wrap; align-items: center; gap: 16px; margin: 12px 0 8px; }
+.check-activity-row select { width: auto; margin-left: 4px; padding: 4px 8px; font-size: 12px; }
+.check-activity-row output { font-weight: 600; color: var(--forest); }
+.check-activity small { font-size: 11px; }
 .camera-last-photo { width: 100%; font-size: 12px; color: #62695e; }
 .camera-last-photo summary { cursor: pointer; }
 .camera-last-photo img { display: block; max-width: 240px; width: 100%; margin: 10px 0; border-radius: 8px; }

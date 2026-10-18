@@ -3,7 +3,20 @@ export function frameDifference(a: Uint8Array, b: Uint8Array): number {
   if (a.length !== b.length || !a.length) return 255;
   let total = 0;
   for (let i = 0; i < a.length; i++) total += Math.abs(a[i] - b[i]);
-  return total / a.length;
+  let difference = total / a.length;
+  const edge = Math.sqrt(a.length);
+  if (!Number.isInteger(edge) || edge < 8) return difference;
+  // Small packets should not disappear into an average of the whole counter.
+  // Compare 4×4 regions as well, while averaging out individual noisy pixels.
+  const tile = Math.ceil(edge / 4);
+  for (let y = 0; y < edge; y += tile) for (let x = 0; x < edge; x += tile) {
+    let sum = 0, count = 0;
+    for (let row = y; row < Math.min(y + tile, edge); row++) for (let col = x; col < Math.min(x + tile, edge); col++) {
+      sum += Math.abs(a[row * edge + col] - b[row * edge + col]); count++;
+    }
+    difference = Math.max(difference, sum / count);
+  }
+  return difference;
 }
 
 export class SceneTrigger {
@@ -12,7 +25,6 @@ export class SceneTrigger {
   private lastSent: Uint8Array | null = null;
   private changed = false;
   private movingAt = 0;
-  private sentAt = -Infinity;
 
   reset(frame?: Uint8Array) {
     this.previous = frame?.slice() ?? null;
@@ -21,8 +33,14 @@ export class SceneTrigger {
     this.movingAt = 0;
   }
 
-  submitted(frame: Uint8Array, now: number) {
-    this.lastSent = frame.slice(); this.sentAt = now; this.reset(frame);
+  nextOrder() {
+    // Identical meals on different tickets are separate checks. Still require
+    // movement after selection so untouched food is not immediately reused.
+    this.lastSent = null; this.reset();
+  }
+
+  submitted(frame: Uint8Array) {
+    this.lastSent = frame.slice(); this.reset(frame);
   }
 
   sample(frame: Uint8Array, now: number): boolean {
@@ -33,7 +51,7 @@ export class SceneTrigger {
       this.changed = true;
     }
     this.previous = frame.slice();
-    return this.changed && now - this.movingAt >= 1500 && now - this.sentAt >= 10000
+    return this.changed && now - this.movingAt >= 1500
       && (!this.lastSent || frameDifference(frame, this.lastSent) > 12);
   }
 }

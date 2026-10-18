@@ -204,6 +204,7 @@ class SquareOrders(SquareCameraChecks):
                         quantity=int(quantity),
                         verification_mode=metadata.get("fullfill_verification_mode")
                         or (known.verification_mode if known else "visible_item"),
+                        requires_manual_review=bool(details),
                     )
                 )
             return OrderSnapshot(
@@ -218,6 +219,11 @@ class SquareOrders(SquareCameraChecks):
         # A changed quantity/item must be checked again, even if Square retains
         # the metadata from the old ticket. Status-only writes do not change it.
         lines = [line.model_dump(mode="json") for line in self._snapshot(order).lines]
+        # Preserve existing status fingerprints for ordinary, unmodified orders.
+        # Modified orders deliberately invalidate their old camera approvals.
+        for line in lines:
+            if not line["requires_manual_review"]:
+                del line["requires_manual_review"]
         return hashlib.sha256(json.dumps(lines, sort_keys=True).encode()).hexdigest()
 
     def _order_state(self, order: dict) -> OrderState:

@@ -88,6 +88,7 @@ export type ItemId1 = string;
 export type LineId = string;
 export type Name2 = string;
 export type Quantity1 = number;
+export type RequiresManualReview = boolean;
 export type VerificationMode1 = "visible_item" | "label" | "container_count";
 export type OrderId3 = string;
 export type Revision = number;
@@ -275,6 +276,7 @@ export interface OrderLine {
   line_id: LineId;
   name: Name2;
   quantity: Quantity1;
+  requires_manual_review?: RequiresManualReview;
   verification_mode?: VerificationMode1;
 }
 export interface OverrideRequest {

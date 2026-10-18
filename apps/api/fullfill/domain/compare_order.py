@@ -7,6 +7,8 @@
   on the ticket. The worker decides.
 """
 
+import hashlib
+import json
 from collections.abc import Mapping
 
 from fullfill_contracts.checks import Comparison, Discrepancy
@@ -17,12 +19,26 @@ from fullfill_contracts.vision import Observations, VerificationTarget
 def targets_for(
     order: OrderSnapshot, menu: Mapping[str, MenuItem] | None = None
 ) -> tuple[VerificationTarget, ...]:
-    """One target per item, summing the quantities of lines for the same item."""
-    grouped: dict[str, VerificationTarget] = {}
+    """Combine identical lines only; variants/modifiers remain distinct targets."""
+
+    def signature(line):
+        item = (menu or {}).get(line.item_id)
+        return (
+            line.item_id,
+            line.name,
+            item.verification_mode if item else line.verification_mode,
+            line.requires_manual_review,
+        )
+
+    variants = {}
     for line in order.lines:
-        existing = grouped.get(line.item_id)
+        variants.setdefault(line.item_id, set()).add(signature(line))
+    grouped: dict[tuple, VerificationTarget] = {}
+    for line in order.lines:
+        key = signature(line)
+        existing = grouped.get(key)
         if existing is not None:
-            grouped[line.item_id] = existing.model_copy(
+            grouped[key] = existing.model_copy(
                 update={
                     "line_ids": [*existing.line_ids, line.line_id],
                     "expected_quantity": existing.expected_quantity + line.quantity,
@@ -31,8 +47,11 @@ def targets_for(
             continue
         item = (menu or {}).get(line.item_id)
         mode = item.verification_mode if item else line.verification_mode
-        grouped[line.item_id] = VerificationTarget(
-            target_id=line.item_id,
+        target_id = line.item_id
+        if len(variants[line.item_id]) > 1:
+            target_id += ":" + hashlib.sha256(json.dumps(key).encode()).hexdigest()[:16]
+        grouped[key] = VerificationTarget(
+            target_id=target_id,
             line_ids=[line.line_id],
             item_id=line.item_id,
             name=line.name,
@@ -110,6 +129,16 @@ def compare_order(
                     message=f"Extra: {observed - expected} {target.name}",
                     expected_quantity=expected,
                     observed_quantity=observed,
+                )
+            )
+        if any(
+            line.requires_manual_review for line in order.lines if line.line_id in target.line_ids
+        ):
+            discrepancies.append(
+                Discrepancy(
+                    **common,
+                    kind="unsure",
+                    message=f"Confirm the options and instructions for {target.name} manually.",
                 )
             )
 

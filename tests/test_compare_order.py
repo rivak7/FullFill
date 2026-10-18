@@ -47,6 +47,40 @@ def test_exact_counts_pass():
     assert compare_order(ORDER, seen()).verdict == "pass"
 
 
+def test_variant_targets_do_not_merge_and_ids_survive_line_reordering():
+    lines = [
+        OrderLine(line_id="regular", item_id="burger", name="Burger", quantity=1),
+        OrderLine(
+            line_id="custom",
+            item_id="burger",
+            name="Burger — no cheese",
+            quantity=1,
+            requires_manual_review=True,
+        ),
+        OrderLine(line_id="another", item_id="burger", name="Burger", quantity=2),
+    ]
+    order = OrderSnapshot(order_id="variants", revision=1, lines=lines)
+    targets = targets_for(order)
+    assert [(t.name, t.expected_quantity) for t in targets] == [
+        ("Burger", 3),
+        ("Burger — no cheese", 1),
+    ]
+    reversed_targets = targets_for(order.model_copy(update={"lines": list(reversed(lines))}))
+    assert {t.name: t.target_id for t in targets} == {t.name: t.target_id for t in reversed_targets}
+    observations = Observations(
+        capture_id="photo",
+        targets=[
+            TargetObservation(
+                target_id=t.target_id, status="present", observed_quantity=t.expected_quantity
+            )
+            for t in targets
+        ],
+    )
+    comparison = compare_order(order, observations)
+    assert comparison.verdict == "unsure"
+    assert comparison.discrepancies[0].line_ids == ["custom"]
+
+
 def test_missing_item_fails_and_names_it():
     result = compare_order(ORDER, seen(ketchup=("present", 2)))
     assert result.verdict == "fail"

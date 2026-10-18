@@ -2,11 +2,13 @@
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { JSDOM } from "jsdom";
 import { orderApi } from "../src/api/client";
 import type { OrderState } from "../src/api/generated/contracts";
 import { CameraCheckPanel } from "../src/features/orders/CameraCheckPanel";
 import { SceneTrigger } from "../src/features/orders/sceneTrigger";
 import { toScreenState } from "../src/features/station/screenState";
+import { readCheckActivity, recordCheckAttempt } from "../src/features/orders/CheckActivity";
 
 vi.mock("../src/api/client", () => ({ orderApi: { cameraConfig: vi.fn(), checkCamera: vi.fn() } }));
 
@@ -22,6 +24,7 @@ let onBusyChange: ReturnType<typeof vi.fn>;
 
 beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  vi.stubGlobal("localStorage", new JSDOM("", { url: "http://localhost/" }).window.localStorage);
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
   vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
@@ -31,7 +34,7 @@ beforeEach(() => {
   stopTrack = vi.fn();
   const track = { stop: stopTrack, addEventListener: vi.fn(), getSettings: () => ({ deviceId: "camera" }) };
   vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [track], getVideoTracks: () => [track] }), enumerateDevices: vi.fn().mockResolvedValue([]) } });
-  vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: true, cooldown_seconds: 10, max_checks_per_order: 20 });
+  vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: true });
   vi.mocked(orderApi.checkCamera).mockResolvedValue(checked());
   onResult = vi.fn(); onBusyChange = vi.fn();
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
@@ -86,16 +89,43 @@ it("does not automatically retry failures and stops auto checking on error", asy
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
 });
 
-it("caps this browser session at ten checks", async () => {
+it("allows checks beyond the old caps without a forced wait and records attempts", async () => {
   await render(); await camera();
-  for (let i = 0; i < 10; i++) {
-    await click("Check order");
-    await act(async () => vi.advanceTimersByTimeAsync(10000));
-  }
-  expect(orderApi.checkCamera).toHaveBeenCalledTimes(10);
-  expect(container.textContent).toContain("Session limit reached");
+  for (let i = 0; i < 25; i++) await click("Check order");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(25);
+  expect(readCheckActivity()).toHaveLength(25);
+  expect(container.textContent).not.toContain("Session limit reached");
+});
+
+it("keeps usage across remounts, includes failed attempts, and expires time windows", async () => {
+  await render(); await camera(); await click("Check order");
+  await act(async () => vi.advanceTimersByTimeAsync(10 * 60000));
+  vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new Error("Unavailable"));
   await click("Check order");
-  expect(orderApi.checkCamera).toHaveBeenCalledTimes(10);
+  await act(async () => root.unmount());
+  root = createRoot(container); await render();
+  const details = container.querySelector<HTMLDetailsElement>(".check-activity")!;
+  expect(details.open).toBe(false);
+  await act(async () => { details.open = true; details.dispatchEvent(new Event("toggle")); });
+  expect(container.querySelector("output")?.textContent).toBe("2 check attempts");
+  const period = container.querySelector<HTMLSelectElement>('[aria-label="Check activity period"]')!;
+  await act(async () => { period.value = "5"; period.dispatchEvent(new Event("change", { bubbles: true })); });
+  expect(container.querySelector("output")?.textContent).toBe("1 check attempt");
+  await act(async () => { localStorage.setItem("fullfill.check-attempt.v1.other-tab", String(Date.now())); window.dispatchEvent(new Event("storage")); });
+  expect(container.querySelector("output")?.textContent).toBe("2 check attempts");
+  await act(async () => vi.advanceTimersByTimeAsync(5 * 60000));
+  expect(container.querySelector("output")?.textContent).toBe("0 check attempts");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+});
+
+it("retains only recent timestamps and deduplicates an attempt ID", () => {
+  recordCheckAttempt("same"); recordCheckAttempt("same");
+  localStorage.setItem("fullfill.check-attempt.v1.invalid", "bad");
+  localStorage.setItem("fullfill.check-attempt.v1.expired", String(Date.now() - 86400000));
+  localStorage.setItem("fullfill.check-attempt.v1.future", String(Date.now() + 100));
+  expect(readCheckActivity()).toHaveLength(1);
+  expect(localStorage.length).toBe(2);
+  expect(readCheckActivity(Date.now() + 100)).toHaveLength(2);
 });
 
 it("pauses automatic checks when the page is hidden", async () => {
@@ -108,13 +138,13 @@ it("pauses automatic checks when the page is hidden", async () => {
 });
 
 it("disables paid checks when the backend is not configured while allowing preview", async () => {
-  vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: false, cooldown_seconds: 10, max_checks_per_order: 20 });
+  vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: false });
   await render(); await camera(); await click("Check order");
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   expect(container.textContent).toContain("AI checks unavailable");
 });
 
-it("requires new movement and settling, suppresses unchanged scenes, and respects the cooldown", () => {
+it("requires new movement and settling and suppresses unchanged scenes", () => {
   const scene = new SceneTrigger();
   const frame = (value: number) => new Uint8Array(16).fill(value);
   expect(scene.sample(frame(0), 0)).toBe(false);
@@ -122,7 +152,7 @@ it("requires new movement and settling, suppresses unchanged scenes, and respect
   expect(scene.sample(frame(80), 3500)).toBe(false);
   expect(scene.sample(frame(80), 4999)).toBe(false);
   expect(scene.sample(frame(80), 5000)).toBe(true);
-  scene.submitted(frame(80), 5000);
+  scene.submitted(frame(80));
   expect(scene.sample(frame(80), 20000)).toBe(false);
   // Moving hands out and returning to the same scene cannot resubmit it.
   expect(scene.sample(frame(200), 21000)).toBe(false);
@@ -134,10 +164,34 @@ it("requires new movement and settling, suppresses unchanged scenes, and respect
   expect(scene.sample(frame(80), 32000)).toBe(false);
   expect(scene.sample(frame(150), 33000)).toBe(false);
   expect(scene.sample(frame(150), 35000)).toBe(true);
-  scene.submitted(frame(150), 35000);
+  scene.submitted(frame(150));
   expect(scene.sample(frame(0), 36000)).toBe(false);
-  expect(scene.sample(frame(0), 38000)).toBe(false);
-  expect(scene.sample(frame(0), 45000)).toBe(true);
+  expect(scene.sample(frame(0), 38000)).toBe(true);
+});
+
+it("can check an identical next meal after the station is cleared and refilled", () => {
+  const scene = new SceneTrigger();
+  const meal = new Uint8Array(1024).fill(80);
+  scene.submitted(meal); scene.nextOrder();
+  expect(scene.sample(meal, 0)).toBe(false);
+  expect(scene.sample(meal, 2000)).toBe(false);
+  expect(scene.sample(new Uint8Array(1024), 3000)).toBe(false);
+  expect(scene.sample(meal, 4000)).toBe(false);
+  expect(scene.sample(meal, 5499)).toBe(false);
+  expect(scene.sample(meal, 5500)).toBe(true);
+});
+
+it("detects a small added packet while ignoring an isolated noisy pixel", () => {
+  const scene = new SceneTrigger();
+  const baseline = new Uint8Array(1024).fill(80);
+  scene.sample(baseline, 0);
+  const noise = baseline.slice(); noise[0] = 200;
+  expect(scene.sample(noise, 1000)).toBe(false);
+  expect(scene.sample(noise, 3000)).toBe(false);
+  const packet = baseline.slice();
+  for (let row = 0; row < 4; row++) for (let col = 0; col < 8; col++) packet[row * 32 + col] = 200;
+  expect(scene.sample(packet, 4000)).toBe(false);
+  expect(scene.sample(packet, 5500)).toBe(true);
 });
 
 it("shows an unexpected unidentified item as orange, matching the comparison verdict", () => {
