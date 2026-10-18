@@ -50,20 +50,24 @@ Camera checks require `PERCEPTRON_API_KEY` on the backend. Keep it out of `VITE_
 variables. Open the kitchen page and enable the camera once. **Automatic checks**
 start enabled and stay enabled as fulfilled tickets advance through the queue.
 Place the first order in view after the preview starts; a changed view that stays
-still for 1.5 seconds triggers a check. **Check order** remains an optional manual
+still for 750 ms triggers a check. An unchanged view is also checked after five
+seconds, then five seconds after each completed check while the ticket remains
+unresolved. **Check order** remains an optional manual
 capture with no separate handoff confirmation.
 
 For subsequent tickets, the browser observes two transitions: the previous view
 changes and stays stable for at least 750 ms, then a replacement view changes
-again and settles for 1.5 seconds. The intermediate view makes no model call.
+again and settles for 750 ms. The intermediate view makes no model call, and
+periodic checks cannot bypass this handoff guard.
 Clear the packing area briefly between orders. This allows identical meals to be
 checked separately while suppressing untouched food and brief hand waves. It is
 a motion heuristic, not proof that the area is empty: a prolonged obstruction or
 lighting change can fool it, and a swap with no visible gap can be missed. Manual
 checks remain available if the transition was missed. Hidden tabs, sampling gaps,
-and camera stops discard incomplete handoff evidence. Initial startup/reload
-establishes a fresh baseline rather than automatically submitting a still scene.
-There are no application spending caps or forced cooldowns for browser checks.
+and camera stops discard incomplete handoff evidence. Switching tabs preserves
+automatic mode and resumes visible settling when the page returns. Initial startup
+also checks a still view after five seconds, including an empty packing area.
+There are no application spending caps or forced waits for manual checks.
 Only one check runs at a time for a ticket, duplicate requests remain idempotent,
 and failures are not automatically retried. Expand **Check activity** to count
 attempts over the last 5 minutes, hour, or 24 hours. Timestamp-only history survives
@@ -128,8 +132,9 @@ actions pause automatic checks; fulfilling a ticket keeps automatic mode running
 for the next ticket. Manual decisions take precedence over an in-flight result; conflicting edits
 from another screen require refresh instead of silently overwriting them.
 
-Automatic checks pause on uncertainty or failure. They never retry a paid request
-on their own. Each result describes the captured moment, not continuous proof of
+Uncertain and mismatched results continue periodic automatic checks. Technical
+failures pause automatic mode; they are not automatically retried. Each new check
+uses a fresh photo and request ID. Each result describes the captured moment, not continuous proof of
 the order's contents: keep one order entirely visible until the check finishes.
 Closed bags, hidden fillings, and visually identical packaging need a readable
 identifier or staff inspection. The app does not infer that the physical packing
