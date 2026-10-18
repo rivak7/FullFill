@@ -1,5 +1,7 @@
 {
   "menu": {
+    "tsss": {"name": "TSSS (tofu, spicy sunrise sauce)", "description": "black takeout container, clear lid, sesame seeds on top"},
+    "tssss": {"name": "TSSSS (tofu, super spicy sunrise sauce)", "description": "black takeout container, clear lid, green onions on top"},
     "chicken_burrito": {"name": "Chicken burrito", "description": "foil-wrapped burrito", "label": ["C"]},
     "steak_burrito": {"name": "Steak burrito", "description": "foil-wrapped burrito", "label": ["S"]},
     "ketchup": {"name": "Ketchup packet", "description": "small red packet"},
@@ -13,5 +15,5 @@
     "espresso_can": {"name": "Starbucks espresso can"},
     "frappuccino": {"name": "Starbucks Frappuccino mocha bottle", "description": "glass bottle"}
   },
-  "order": {"chicken_burrito": 1, "ketchup": 2, "celsius": 1}
+  "order": {"tsss": 1, "ketchup": 2}
 }

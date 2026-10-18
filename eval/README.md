@@ -99,4 +99,4 @@ python -m eval.live --fake                               # no calls: checks the 
 python -m eval.live --order chicken_burrito=1,ketchup=3  # real calls, capped at 50 per run
 ```
 
-Keys: `r` drag a box around the mat, `e` re-learn the empty mat, `c` check now, `q` quit. Each check's photo and result go to `logs/live/`. Reference photos come from `data/references/<item_id>/` as above.
+Keys: `r` drag a box around the mat, `e` re-learn the empty mat, `c` check now, `q` quit. Each check's photo and result go to `logs/live/`. Reference photos come from `data/references/<item_id>/` as above. Up to 2 per item are sent (`--refs-per-item`), the first ones by file name. For lookalikes, take the label-visible photo first (`ref_01.jpg`), then cover the label and take `ref_02.jpg`, so the model learns the food and not only the sticker.

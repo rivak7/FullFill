@@ -6,7 +6,8 @@
 
 The ticket comes from eval/live_order.json (copy live_order.example.json), or --order
 overrides its quantities. Reference photos are read from data/references/<item_id>/,
-taken with eval.capture; items without any are checked by name only.
+taken with eval.capture. Up to --refs-per-item (default 2) are sent per item, first by
+file name; items without any are checked by name only.
 
 Start with the mat clear. Keys: q quit, e re-learn empty mat, c check now, r drag mat crop.
 Every check is logged to logs/live/<time>.jsonl and its photo saved next to it.
@@ -56,7 +57,7 @@ def load_ticket(override):
     return menu, order
 
 
-def build(menu, order):
+def build(menu, order, refs_per_item):
     lines = [OrderLine(line_id=i, item_id=i, name=menu[i]["name"], quantity=q) for i, q in order.items()]
     snapshot = OrderSnapshot(order_id="live", revision=1, lines=lines)
     menu_items = {i: MenuItem(item_id=i, name=menu[i]["name"],
@@ -67,7 +68,7 @@ def build(menu, order):
                     for t in targets_for(snapshot, menu_items))
     refs = tuple(ReferenceImage(item_id=i, revision=1,
                                 image=ImageInput(vision.jpeg_bytes(p, vision.REFERENCE_MAX_SIDE), "image/jpeg"))
-                 for i in order for p in vision.reference_photos(i, 1))
+                 for i in order for p in vision.reference_photos(i, refs_per_item))
     return snapshot, menu_items, targets, refs
 
 
@@ -105,11 +106,14 @@ def main():
     parser.add_argument("--source", default=str(config.CAMERA_INDEX), help="camera index or video file")
     parser.add_argument("--max-calls", type=int, default=50, help="hard cap for this run")
     parser.add_argument("--check-removals", action="store_true")
+    parser.add_argument("--refs-per-item", type=int, default=2,
+                        help="reference photos sent per ticket item (first N by file name)")
     args = parser.parse_args()
 
     menu, order = load_ticket(args.order)
-    snapshot, menu_items, targets, refs = build(menu, order)
-    print(f"ticket: {order}; reference photos: {sorted({r.item_id for r in refs}) or 'none'}")
+    snapshot, menu_items, targets, refs = build(menu, order, args.refs_per_item)
+    counts = {i: sum(r.item_id == i for r in refs) for i in order}
+    print(f"ticket: {order}; reference photos per item: {counts}")
     provider = FakeVision() if args.fake else vision.make_client()
 
     settings = TriggerSettings(mat_roi=config.MAT_ROI, still_seconds=config.STILL_SECONDS,
