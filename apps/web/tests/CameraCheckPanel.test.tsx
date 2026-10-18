@@ -412,6 +412,70 @@ it("moves on after a swapped mat stays still, and learns the new mat", () => {
   expect(scene.handoff).toBe("place");
 });
 
+// Once an order passes, every sample looks at the spots where it sat; no settle or
+// movement event is needed beyond a quarter second of stillness.
+function passedOrder() {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(210), meal = bare.slice();
+  for (let row = 8; row < 20; row++) for (let col = 8; col < 20; col++) meal[row * 32 + col] = 70;
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  scene.submitted(meal); scene.nextOrder();
+  scene.sample(meal, 1125);
+  return { scene, bare, meal };
+}
+
+it("moves on within a quarter second of the order spots showing the bare mat", () => {
+  const { scene, bare } = passedOrder();
+  for (const time of [1250, 1375]) scene.sample(bare, time);
+  expect(scene.handoff).toBe("remove");
+  scene.sample(bare, 1500);
+  expect(scene.handoff).toBe("place");
+  expect(scene.lastClearCheck).toMatchObject({ left: 0, spots: 144, cleared: "empty mat" });
+});
+
+it("ignores the paper shifting or a cable elsewhere in view when the order is gone", () => {
+  const { scene, bare } = passedOrder();
+  const moved = bare.slice();
+  for (let row = 0; row < 32; row++) for (let col = 26; col < 32; col++) moved[row * 32 + col] = 40;
+  for (const time of [1250, 1375, 1500]) scene.sample(moved, time);
+  expect(scene.handoff).toBe("place");
+  // That view is not an order, so it doesn't start a check for the next ticket.
+  expect(sampled(scene, moved, 1750, 3000)).toBe(false);
+});
+
+it("keeps waiting while a packet is left where the order sat, or a hand is still moving", () => {
+  const { scene, bare } = passedOrder();
+  const packet = bare.slice(); packet[10 * 32 + 10] = 120; packet[10 * 32 + 11] = 120; packet[11 * 32 + 10] = 120;
+  for (let time = 1250; time <= 3500; time += 125) scene.sample(packet, time);
+  expect(scene.handoff).toBe("remove");
+  expect(scene.lastClearCheck?.left).toBe(3);
+  // The packet is taken away by a hand that keeps moving outside the order spots.
+  const hand = (offset: number) => { const frame = bare.slice(); for (let i = 0; i < 160; i++) frame[offset + i] = 90; return frame; };
+  for (let time = 3625, step = 0; time <= 4500; time += 125, step++) scene.sample(hand(step % 2 ? 640 : 800), time);
+  expect(scene.handoff).toBe("remove");
+  for (const time of [4625, 4750, 4875]) scene.sample(bare, time);
+  expect(scene.handoff).toBe("place");
+});
+
+it("learns the mat as it is now after the slow clear, so the next order clears quickly", () => {
+  const { scene, bare } = passedOrder();
+  // The paper turned under the order: its edge now crosses the spots where the order sat.
+  const turned = bare.slice();
+  for (let row = 8; row < 20; row++) for (let col = 8; col < 11; col++) turned[row * 32 + col] = 40;
+  sampled(scene, turned, 1250, 4000);
+  expect(scene.handoff).toBe("remove");
+  sampled(scene, turned, 4250, 5500);
+  expect(scene.handoff).toBe("place");
+  expect(scene.lastClearCheck?.cleared).toBe("still for 4 s");
+  const meal = turned.slice();
+  for (let row = 12; row < 24; row++) for (let col = 14; col < 26; col++) meal[row * 32 + col] = 70;
+  scene.submitted(meal); scene.nextOrder();
+  scene.sample(meal, 5625);
+  for (const time of [5750, 5875, 6000]) scene.sample(turned, time);
+  expect(scene.handoff).toBe("place");
+});
+
 it("still sees the bare mat after the phone shifts by a pixel", () => {
   const bare = new Uint8Array(1024).fill(210);
   for (let row = 0; row < 32; row++) for (let col = 0; col < 6; col++) bare[row * 32 + col] = 60; // carpet edge
@@ -686,4 +750,30 @@ it("resumes a camera preview the browser paused, so it still sees the mat clear"
   paused.mockReturnValue(false); play.mockClear();
   await act(async () => vi.advanceTimersByTimeAsync(250));
   expect(play).not.toHaveBeenCalled();
+});
+
+it("advances a passed order as soon as the mat is bare, and logs each clear check", async () => {
+  const passed = checked(); passed.current_check!.verdict = "pass"; passed.disposition = "fulfilled";
+  vi.mocked(orderApi.checkCamera).mockResolvedValue(passed);
+  const onMatCleared = vi.fn();
+  const show = (meal: boolean) => vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({
+    data: Uint8ClampedArray.from({ length: 4096 }, (_, i) => { const p = i >> 2, row = p >> 5, col = p & 31; return i % 4 === 3 ? 255 : meal && row >= 8 && row < 20 && col >= 8 && col < 20 ? 70 : 210; }),
+  }) } as unknown as CanvasRenderingContext2D);
+  show(false);
+  await act(async () => root.render(<CameraCheckPanel workerId="worker" order={ticket()} pauseToken={0} checkToken={0} onResult={onResult} onBusyChange={onBusyChange} onMatCleared={onMatCleared} />));
+  await camera();
+  await act(async () => vi.advanceTimersByTimeAsync(1000)); // learns the bare mat
+  show(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  expect(onResult.mock.calls[0][1]).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1500));
+  expect(onMatCleared).not.toHaveBeenCalled();
+  show(false);
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  expect(onMatCleared).toHaveBeenCalledWith("first");
+  const events = readCvLogs()[0].events.map(event => event.message);
+  expect(events).toContain("Watching for the mat to clear.");
+  expect(events).toContain("Clear check: 144 of 144 order pixels still differ from the bare mat.");
+  expect(events).toContain("Mat clear (empty mat): moving to the next order.");
 });

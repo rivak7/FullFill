@@ -30,6 +30,13 @@ export const SAMPLE_MS = 125;
 // A changed mat that stays still this long counts as cleared even if it doesn't match
 // the learned bare mat (a swapped mat, new lighting, a crumb).
 export const CLEARED_FALLBACK_MS = 4000;
+// After a pass, the mat counts as cleared as soon as the spots where the order sat look
+// like the bare mat again and the view has been still this long (a hand still carrying
+// the bag out moves, so it can't count as the empty mat). No other movement is needed.
+export const QUICK_CLEAR_MS = 250;
+
+// What the clear check saw on its latest sample, for the CV logs.
+export type ClearCheck = { left: number | null; spots: number | null; stillMs: number; cleared: "empty mat" | "still for 4 s" | "changed (no bare mat learned)" | null };
 
 // Pixels of `frame` that differ from `before` once a whole-frame exposure shift is
 // removed. Colour counts, not just brightness: a mustard packet and brown cardboard are
@@ -37,8 +44,22 @@ export const CLEARED_FALLBACK_MS = 4000;
 // differs from all of its neighbours in `before` too, so a phone nudged by a pixel
 // doesn't light up every paper edge. A 32-px preview makes a sauce packet only a pixel
 // or two, so the caller compares to 2.
-export function changedPixels(frame: Uint8Array, before: Uint8Array, stopAt = Infinity): number {
+export function changedPixels(frame: Uint8Array, before: Uint8Array, stopAt = Infinity, only?: Uint8Array): number {
   if (frame.length !== before.length || !frame.length) return Infinity;
+  let changed = 0;
+  forEachChange(frame, before, only, () => ++changed >= stopAt);
+  return changed;
+}
+
+// Which pixels of `frame` differ from `before` (same rules as changedPixels): where the
+// order sat on the mat.
+export function changedMask(frame: Uint8Array, before: Uint8Array): Uint8Array {
+  const mask = new Uint8Array(frame.length / layout(frame.length).channels);
+  if (frame.length === before.length) forEachChange(frame, before, undefined, p => { mask[p] = 1; return false; });
+  return mask;
+}
+
+function forEachChange(frame: Uint8Array, before: Uint8Array, only: Uint8Array | undefined, visit: (pixel: number) => boolean) {
   const { channels, edge } = layout(frame.length);
   const pixels = frame.length / channels;
   const shift = Array.from({ length: channels }, (_, c) =>
@@ -48,9 +69,8 @@ export function changedPixels(frame: Uint8Array, before: Uint8Array, stopAt = In
     return true;
   };
   const square = Number.isInteger(edge);
-  let changed = 0;
   for (let p = 0; p < pixels; p++) {
-    if (same(p, p)) continue;
+    if ((only && !only[p]) || same(p, p)) continue;
     let moved = false;
     if (square) {
       const row = Math.floor(p / edge), col = p % edge;
@@ -58,9 +78,8 @@ export function changedPixels(frame: Uint8Array, before: Uint8Array, stopAt = In
         for (let x = Math.max(0, col - 1); x <= Math.min(edge - 1, col + 1); x++)
           if (same(p, y * edge + x)) { moved = true; break; }
     }
-    if (!moved && ++changed >= stopAt) return changed;
+    if (!moved && visit(p)) return;
   }
-  return changed;
 }
 
 export function isEmptyMat(frame: Uint8Array, empty: Uint8Array): boolean {
@@ -90,6 +109,9 @@ export class SceneTrigger {
   // apps/capture's trigger). With it, an order only ends once the mat is empty again.
   private empty: Uint8Array | null = null;
   private learning = false;
+  // Where the passed order sat: pixels of its photo that differ from the bare mat.
+  private orderSpots: Uint8Array | null = null;
+  lastClearCheck: ClearCheck | null = null;
 
   get handoff(): "remove" | "place" | null {
     return this.handoffFrom ? this.betweenOrders ? "place" : "remove" : null;
@@ -103,7 +125,7 @@ export class SceneTrigger {
   }
 
   learnEmptyMat() {
-    this.empty = null; this.learning = true;
+    this.empty = null; this.learning = true; this.orderSpots = null;
   }
 
   nextOrder() {
@@ -113,6 +135,7 @@ export class SceneTrigger {
     // Preserve an unfinished handoff through an empty queue or another selection.
     // A still frame from the previous ticket must never automatically check the next.
     this.handoffFrom ??= (this.lastSent ?? this.previous)?.slice() ?? null;
+    this.orderSpots = null; this.lastClearCheck = null;
     // Nothing on the mat to clear: go straight to waiting for the next order.
     if (this.handoffFrom && !this.betweenOrders && this.empty && isEmptyMat(this.handoffFrom, this.empty)) this.betweenOrders = this.handoffFrom;
     this.lastSent = null;
@@ -142,7 +165,7 @@ export class SceneTrigger {
 
   submitted(frame: Uint8Array) {
     this.retryPending = false;
-    this.handoffFrom = null; this.betweenOrders = null;
+    this.handoffFrom = null; this.betweenOrders = null; this.orderSpots = null;
     this.lastSent = frame.slice(); this.reset(frame);
   }
 
@@ -164,24 +187,32 @@ export class SceneTrigger {
     }
     if (this.handoffFrom) {
       if (!this.betweenOrders) {
-        // Observe a settled scene before accepting a second transition. With a learned
-        // bare mat that scene must be the empty mat (small packets alone barely move the
-        // averages, so this compares pixels); without one any settled change counts.
-        const matches = this.empty ? isEmptyMat(frame, this.empty) : false;
-        if (settledFor >= SETTLE_MS && sceneChanged(frame, this.handoffFrom)
-          && (matches || !this.empty || settledFor >= CLEARED_FALLBACK_MS)) {
-          // Follow slow lighting drift, and learn a whole new mat (most of the view
-          // changed, e.g. cardboard swapped in for paper). A few leftover packets
-          // don't replace the learned bare mat.
-          if (matches || (this.empty && changedPixels(frame, this.empty) > frame.length / 4 / layout(frame.length).channels)) this.empty = frame.slice();
+        // Every sample, look only where the order sat: once those spots show the bare
+        // mat again (fewer than 2 pixels left, so one sauce packet still counts) and the
+        // view is briefly still, the mat is clear. The paper shifting or a cable
+        // elsewhere in the view doesn't matter. Without a learned bare mat, or if the
+        // mat itself changed under the order, a changed view that stays still counts.
+        if (this.empty && !this.orderSpots) this.orderSpots = changedMask(this.handoffFrom, this.empty);
+        const left = this.empty && this.orderSpots ? changedPixels(frame, this.empty, Infinity, this.orderSpots) : null;
+        const changed = () => sceneChanged(frame, this.handoffFrom!);
+        const cleared: ClearCheck["cleared"] = left !== null && left < 2 && settledFor >= QUICK_CLEAR_MS ? "empty mat"
+          : !this.empty && settledFor >= SETTLE_MS && changed() ? "changed (no bare mat learned)"
+          : this.empty && settledFor >= CLEARED_FALLBACK_MS && changed() ? "still for 4 s" : null;
+        this.lastClearCheck = { left, spots: this.orderSpots ? this.orderSpots.reduce((sum, value) => sum + value, 0) : null, stillMs: settledFor, cleared };
+        if (cleared) {
+          // A still, changed mat that took the slow route is the mat as it is now
+          // (paper turned, new lighting): learn it so the next order clears quickly.
+          if (this.empty && (cleared === "still for 4 s" || isEmptyMat(frame, this.empty))) this.empty = frame.slice();
           this.betweenOrders = frame.slice();
+          this.orderSpots = null;
           this.reset(frame);
         }
         return false;
       }
-      // Do not spend a check on the intermediate/cleared view. Identical meals
-      // can pass this gate after the observed removal-and-replacement sequence.
-      return settledFor >= SETTLE_MS && sceneChanged(frame, this.betweenOrders);
+      // Do not spend a check on the intermediate/cleared view or the bare mat. Identical
+      // meals can pass this gate after the observed removal-and-replacement sequence.
+      return settledFor >= SETTLE_MS && sceneChanged(frame, this.betweenOrders)
+        && !(this.empty && isEmptyMat(frame, this.empty));
     }
     return settledFor >= SETTLE_MS && (extraDue || this.retryPending || sceneChanged(frame, this.baseline))
       && (extraDue || !this.lastSent || sceneChanged(frame, this.lastSent));

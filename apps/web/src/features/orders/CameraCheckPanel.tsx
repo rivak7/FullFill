@@ -57,6 +57,8 @@ export function CameraCheckPanel(props: Props) {
   const trigger = useRef(new SceneTrigger());
   // A passed order waiting for the mat to clear; the screen stays green until then.
   const bagging = useRef<string | null>(null);
+  // The passed check's log, where each clear-check decision is written.
+  const clearLog = useRef<{ id: string; at: number; text: string; lines: number } | null>(null);
   const guard = useRef<SceneGuard | null>(null);
   const interruptedByTab = useRef(false);
   // One unprompted look when automatic checks start, and one recheck after an amber
@@ -195,7 +197,11 @@ export function CameraCheckPanel(props: Props) {
       updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
       if (mounted.current) {
         const watching = automaticRef.current && !!stream.current?.active && isFulfilled(state);
-        if (watching) { bagging.current = boundOrder.id; trigger.current.nextOrder(); setHandoff(trigger.current.handoff); }
+        if (watching) {
+          bagging.current = boundOrder.id; trigger.current.nextOrder(); setHandoff(trigger.current.handoff);
+          clearLog.current = { id: attemptId, at: 0, text: "", lines: 0 };
+          updateCvLog(attemptId, trigger.current.handoff === "place" ? "Mat already clear: moving to the next order." : "Watching for the mat to clear.");
+        }
         latest.current.onResult(state, watching);
         if (state.current_check?.execution_status !== "completed") {
           const resume = interruptedByTab.current && automaticRef.current
@@ -228,6 +234,19 @@ export function CameraCheckPanel(props: Props) {
   }
   const checkRef = useRef(check); checkRef.current = check;
 
+  // At most one line a second while waiting (only when what it sees changes), plus the
+  // decision, so the next missed clear can be read straight from the CV logs.
+  function logClearCheck(now: number) {
+    const log = clearLog.current, seen = trigger.current.lastClearCheck;
+    if (!log || !seen) return;
+    const text = seen.cleared ? `Mat clear (${seen.cleared}): moving to the next order.`
+      : seen.left === null ? "Waiting for the mat to change and stay still (no bare mat learned)."
+      : `Clear check: ${seen.left} of ${seen.spots} order pixels still differ from the bare mat${seen.left < 2 ? ", waiting for stillness" : ""}.`;
+    if (seen.cleared) { updateCvLog(log.id, text); clearLog.current = null; return; }
+    if (text === log.text || now - log.at < 1000 || log.lines >= 10) return;
+    updateCvLog(log.id, text); clearLog.current = { ...log, at: now, text, lines: log.lines + 1 };
+  }
+
   useEffect(() => {
     if (!open || !ready) return;
     const timer = window.setInterval(() => {
@@ -246,6 +265,7 @@ export function CameraCheckPanel(props: Props) {
         const extra = extraCheck.current && now >= extraCheck.current.at ? extraCheck.current.reason : null;
         const settled = trigger.current.sample(sample(video.current), now, extra !== null);
         setHandoff(trigger.current.handoff);
+        if (bagging.current) logClearCheck(now);
         if (bagging.current && trigger.current.handoff === "place") {
           const cleared = bagging.current; bagging.current = null;
           latest.current.onMatCleared?.(cleared);
