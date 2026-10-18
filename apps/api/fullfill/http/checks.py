@@ -7,7 +7,7 @@ import os
 import time
 from collections import OrderedDict
 from io import BytesIO
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -48,9 +48,24 @@ class CameraCheck(Contract):
     # dev-mode flag and turns both on.
     boxes: bool = False
     photos: bool = False
+    # Perceptron's reasoning effort. "auto" (the default) lets FullFill decide: see
+    # reasoning_for. The others are manual overrides from the kitchen's Settings.
+    reasoning: Literal["auto", "none", "low", "high"] = "auto"
     # Complete the check without the separate confirm call (one round trip less).
     confirmed: bool = False
     diagnostics: bool = False
+
+
+# Without reasoning, Perceptron hedges ("cannot count reliably") on every item of bigger
+# orders; reasoning is slower, so small orders keep the fastest mode.
+REASONING_FROM_ITEMS = 4
+
+
+def reasoning_for(requested: str, targets) -> str:
+    if requested != "auto":
+        return requested
+    items = sum(target.expected_quantity for target in targets)
+    return "low" if items >= REASONING_FROM_ITEMS else "none"
 
 
 def normalized_image(data, edge=1024):
@@ -182,6 +197,7 @@ async def check_camera(
     phase = "reference_photos"
     try:
         targets = targets_for(state.order)
+        reasoning = reasoning_for(body.reasoning, targets)
         menu = await menu_task
         lap("square_menu")
         wanted = {target.item_id for target in targets}
@@ -241,8 +257,15 @@ async def check_camera(
                 observations = await PerceptronVision(
                     client=client,
                     limiter=PERCEPTRON_RATE,
-                    max_output_tokens=min(6000, 1600 + 200 * (len(targets) + len(alternatives))),
+                    # Reasoning is written into the same output budget as the answer.
+                    max_output_tokens=min(
+                        8000,
+                        1600
+                        + 200 * (len(targets) + len(alternatives))
+                        + {"none": 0, "low": 2000, "high": 4000}[reasoning],
+                    ),
                     boxes=boxes,
+                    reasoning=reasoning,
                 ).inspect(vision_input)
         lap("perceptron")
         diagnostics["observations"] = observations.model_dump(mode="json")

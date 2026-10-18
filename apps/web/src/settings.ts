@@ -2,12 +2,15 @@
 // by default; turn them on from Settings while debugging.
 // - boxes: Perceptron also returns where each item is, drawn on photos in the CV logs.
 // - photos: the API also returns the exact images sent to Perceptron (large responses).
+// - reasoning: how hard Perceptron thinks before answering. "auto" lets the API choose
+//   from the order size; the others force a mode for testing.
 import { useSyncExternalStore } from "react";
 
-export interface KitchenSettings { boxes: boolean; photos: boolean }
+export type Reasoning = "auto" | "none" | "low" | "high";
+export interface KitchenSettings { boxes: boolean; photos: boolean; reasoning: Reasoning }
 
 const storageKey = "fullfill.settings.v1";
-const defaults: KitchenSettings = { boxes: false, photos: false };
+const defaults: KitchenSettings = { boxes: false, photos: false, reasoning: "auto" };
 const listeners = new Set<() => void>();
 let cached: { raw: string | null; value: KitchenSettings } | null = null;
 let memory: string | null = null; // When storage is blocked, settings last for this tab.
@@ -27,7 +30,7 @@ export function readSettings(): KitchenSettings {
   return cached!.value;
 }
 
-export function changeSetting(key: keyof KitchenSettings, value: boolean) {
+export function changeSetting<K extends keyof KitchenSettings>(key: K, value: KitchenSettings[K]) {
   memory = JSON.stringify({ ...readSettings(), [key]: value });
   try { localStorage.setItem(storageKey, memory); } catch { /* Kept in memory. */ }
   listeners.forEach(listener => listener());

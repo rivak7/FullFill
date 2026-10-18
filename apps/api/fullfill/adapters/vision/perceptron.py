@@ -458,11 +458,17 @@ class PerceptronVision(VisionProvider):
         limiter: CallLimiter | None = None,
         client=None,
         boxes: bool = False,
+        reasoning: str = "none",
     ):
-        """``client`` is for tests; otherwise a Perceptron ``AsyncClient`` is built from the key."""
+        """``client`` is for tests; otherwise a Perceptron ``AsyncClient`` is built from the key.
+
+        ``reasoning`` is Perceptron's reasoning effort ("none", "low" or "high"). Thinking
+        is slower and spends output tokens, so callers raise ``max_output_tokens`` with it.
+        """
         self.model = model or os.getenv("PERCEPTRON_MODEL") or DEFAULT_MODEL
         self.max_output_tokens = max_output_tokens
         self.boxes = boxes
+        self.reasoning = reasoning
         # Optional limits are for explicitly budgeted offline evaluations only.
         self.limiter = limiter
         if client is None:
@@ -497,7 +503,7 @@ class PerceptronVision(VisionProvider):
                 ),
                 max_completion_tokens=self.max_output_tokens,
                 temperature=0,
-                reasoning_effort="none",
+                reasoning_effort=self.reasoning,
             )
         except Exception as exc:  # SDK errors carry no secrets; keep the type for logs
             raise VisionProviderError(f"{type(exc).__name__}: {exc}") from exc
@@ -528,7 +534,9 @@ class PerceptronVision(VisionProvider):
             provider=ProviderMetadata(
                 provider="perceptron",
                 model=self.model,
-                prompt_version=PROMPT_VERSION + ("-boxes" if self.boxes else ""),
+                prompt_version=PROMPT_VERSION
+                + ("-boxes" if self.boxes else "")
+                + ("" if self.reasoning == "none" else f"-reasoning-{self.reasoning}"),
                 latency_ms=latency_ms,
                 request_id=getattr(completion, "request_id", None),
                 prompt_tokens=usage.prompt_tokens if usage else None,
