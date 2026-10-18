@@ -778,7 +778,7 @@ it("advances a passed order as soon as the mat is bare, and logs each clear chec
   expect(events).toContain("Mat clear (empty mat): moving to the next order.");
 });
 
-it("sees an amber or red order bagged anyway once its spots show the bare mat, without checking the bare mat", () => {
+it("sees an order with a warning bagged anyway once its spots show the bare mat, without checking the bare mat", () => {
   const scene = new SceneTrigger();
   const bare = new Uint8Array(1024).fill(210), meal = bare.slice(), half = bare.slice();
   for (let row = 8; row < 20; row++) for (let col = 8; col < 20; col++) meal[row * 32 + col] = 70;
@@ -799,6 +799,47 @@ it("sees an amber or red order bagged anyway once its spots show the bare mat, w
   expect(scene.handoff).toBe("place");
   expect(sampled(scene, bare, 2500, 4000)).toBe(false);
   expect(sampled(scene, meal, 4250, 5000)).toBe(true);
+});
+
+it("never counts a hand or an added item as a cleared mat after a warning, and rechecks the added item", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(210), meal = bare.slice();
+  for (let row = 8; row < 20; row++) for (let col = 8; col < 20; col++) meal[row * 32 + col] = 70;
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  scene.submitted(meal);
+  // The order is lifted off while a hand (or a new drink) sits elsewhere on the mat.
+  const elsewhere = bare.slice();
+  for (let row = 24; row < 30; row++) for (let col = 24; col < 30; col++) elsewhere[row * 32 + col] = 40;
+  sampled(scene, elsewhere, 1250, 2000);
+  expect(scene.clearedAfterWarning).toBe(false);
+  // The order plus an extra item is a new scene: check it again.
+  const added = meal.slice();
+  for (let row = 24; row < 30; row++) for (let col = 24; col < 30; col++) added[row * 32 + col] = 40;
+  scene.submitted(meal);
+  expect(sampled(scene, added, 2250, 3000)).toBe(true);
+  expect(scene.clearedAfterWarning).toBe(false);
+});
+
+it("stays on an amber order when the mat is cleared", async () => {
+  const amber = checked(); amber.disposition = "needs_review"; amber.current_check!.verdict = "unsure";
+  vi.mocked(orderApi.checkCamera).mockResolvedValue(amber);
+  const onBaggedWithWarning = vi.fn();
+  const show = (meal: boolean) => vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({
+    data: Uint8ClampedArray.from({ length: 4096 }, (_, i) => { const p = i >> 2, row = p >> 5, col = p & 31; return i % 4 === 3 ? 255 : meal && row >= 8 && row < 20 && col >= 8 && col < 20 ? 70 : 210; }),
+  }) } as unknown as CanvasRenderingContext2D);
+  show(false);
+  const render = (order: OrderState) => act(async () => root.render(<CameraCheckPanel workerId="worker" order={order} pauseToken={0} checkToken={0} onResult={onResult} onBusyChange={onBusyChange} onBaggedWithWarning={onBaggedWithWarning} />));
+  await render(ticket());
+  await camera();
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  show(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  await render(onResult.mock.calls[0][0]);
+  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("amber");
+  show(false);
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(onBaggedWithWarning).not.toHaveBeenCalled();
 });
 
 it("moves past a red order when the worker bags it anyway, keeping it red", async () => {

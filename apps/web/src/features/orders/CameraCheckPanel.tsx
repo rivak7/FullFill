@@ -283,9 +283,11 @@ export function CameraCheckPanel(props: Props) {
         const extra = extraCheck.current && now >= extraCheck.current.at ? extraCheck.current.reason : null;
         const frame = sample(video.current);
         const settled = trigger.current.sample(frame, now, extra !== null);
-        if (trigger.current.clearedAfterWarning && order && !disabled && ["red", "amber"].includes(toScreenState(order).tone)) {
+        // Only red moves on when bagged anyway. Amber stays on the order until a worker
+        // leaves it: the model was unsure, and the next check often turns it green.
+        if (trigger.current.clearedAfterWarning && order && !disabled && toScreenState(order).tone === "red") {
           trigger.current.bagged(frame); extraCheck.current = null;
-          if (lastAttempt.current) updateCvLog(lastAttempt.current, `Mat cleared without a pass: warning overridden by bagging, order left ${toScreenState(order).tone === "red" ? "unfulfilled" : "for review"}. Moving to the next order.`);
+          if (lastAttempt.current) updateCvLog(lastAttempt.current, "Mat cleared without a pass: warning overridden by bagging, order left unfulfilled. Moving to the next order.");
           latest.current.onBaggedWithWarning?.(order.order.order_id);
         }
         setHandoff(trigger.current.handoff);

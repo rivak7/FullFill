@@ -226,12 +226,14 @@ export class SceneTrigger {
       return settledFor >= SETTLE_MS && sceneChanged(frame, this.betweenOrders)
         && !(this.empty && isEmptyMat(frame, this.empty));
     }
-    // The last photo's order is gone from the mat (same test as after a pass): never
-    // check the bare mat; the panel decides whether this counts as bagging past a warning.
+    // The last photo's order is gone and the whole mat is bare again: never check the
+    // bare mat; the panel decides whether this counts as bagging past a warning. A hand
+    // or an added item anywhere in view is not a cleared mat, so it falls through to a
+    // recheck instead.
     this.clearedAfterWarning = false;
     if (this.lastSent && this.empty) {
       this.sentSpots ??= changedMask(this.lastSent, this.empty);
-      if (changedPixels(frame, this.empty, 2, this.sentSpots) < 2 && this.sentSpots.some(Boolean)) {
+      if (this.sentSpots.some(Boolean) && changedPixels(frame, this.empty, 2, this.sentSpots) < 2 && isEmptyMat(frame, this.empty)) {
         this.clearedAfterWarning = settledFor >= QUICK_CLEAR_MS;
         return false;
       }
