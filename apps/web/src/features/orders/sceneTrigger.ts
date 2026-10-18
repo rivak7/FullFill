@@ -27,9 +27,6 @@ export function frameDifference(a: Uint8Array, b: Uint8Array): number {
 // How long the mat must stay still before a photo is taken, and how often it is sampled.
 export const SETTLE_MS = 500;
 export const SAMPLE_MS = 125;
-// The kitchen waits longer before a photo, so a pause while setting items down doesn't
-// photograph a half-placed order.
-export const KITCHEN_SETTLE_MS = 1000;
 // A changed mat that stays still this long counts as cleared even if it doesn't match
 // the learned bare mat (a swapped mat, new lighting, a crumb).
 export const CLEARED_FALLBACK_MS = 4000;
@@ -111,7 +108,6 @@ export function sceneChanged(frame: Uint8Array, before: Uint8Array): boolean {
 }
 
 export class SceneTrigger {
-  constructor(private readonly settleMs = SETTLE_MS) {}
   private previous: Uint8Array | null = null;
   private baseline: Uint8Array | null = null;
   private lastSent: Uint8Array | null = null;
@@ -228,14 +224,10 @@ export class SceneTrigger {
           : this.empty && settledFor >= CLEARED_FALLBACK_MS && changed() ? "still for 4 s" : null;
         this.lastClearCheck = { left, spots: this.orderSpots ? this.orderSpots.reduce((sum, value) => sum + value, 0) : null, stillMs: settledFor, cleared };
         if (cleared) {
-          // The next order's items may already be on the mat beside this one's: then
-          // wait from the bare mat, so they get checked instead of counting as the
-          // starting scene.
-          const nextAlreadyPlaced = cleared === "empty mat" && !!this.empty && !isEmptyMat(frame, this.empty);
           // A still, changed mat that took the slow route is the mat as it is now
           // (paper turned, new lighting): learn it so the next order clears quickly.
           if (this.empty && (cleared === "still for 4 s" || isEmptyMat(frame, this.empty))) this.empty = frame.slice();
-          this.betweenOrders = (nextAlreadyPlaced ? this.empty! : frame).slice();
+          this.betweenOrders = frame.slice();
           this.orderSpots = null;
           this.reset(frame);
         }
@@ -243,7 +235,7 @@ export class SceneTrigger {
       }
       // Do not spend a check on the intermediate/cleared view or the bare mat. Identical
       // meals can pass this gate after the observed removal-and-replacement sequence.
-      return settledFor >= this.settleMs && sceneChanged(frame, this.betweenOrders)
+      return settledFor >= SETTLE_MS && sceneChanged(frame, this.betweenOrders)
         && !(this.empty && isEmptyMat(frame, this.empty));
     }
     // The last photo's order is gone and the whole mat is bare again: never check the
@@ -258,7 +250,7 @@ export class SceneTrigger {
         return false;
       }
     }
-    return settledFor >= this.settleMs && (extraDue || this.retryPending || sceneChanged(frame, this.baseline))
+    return settledFor >= SETTLE_MS && (extraDue || this.retryPending || sceneChanged(frame, this.baseline))
       && (extraDue || !this.lastSent || sceneChanged(frame, this.lastSent));
   }
 }
