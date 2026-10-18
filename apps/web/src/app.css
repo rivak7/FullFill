@@ -211,3 +211,16 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
   .active-ticket .station { min-height: auto; }
   .success-banner { align-items: start; flex-direction: column; }
 }
+
+.cv-tabs { display: flex; gap: 8px; margin-bottom: 16px; }
+.cv-tabs button { padding: 8px 16px; border: 1px solid #c9cdbf; border-radius: 8px; background: transparent; color: #374334; cursor: pointer; }
+.cv-tabs button[aria-selected="true"] { background: #243c2b; color: #fff; }
+.cv-log-list { max-height: 65dvh; min-height: 160px; overscroll-behavior: contain; scrollbar-gutter: stable; padding-right: 10px; }
+.cv-photo-grid { display: grid; grid-template-columns: repeat(auto-fit, minmax(150px, 1fr)); gap: 12px; margin: 12px 0; }
+.cv-photo-grid figure { margin: 0; max-width: 280px; }
+.cv-photo-grid img { width: 100%; aspect-ratio: 1; object-fit: contain; background: #14231a; border-radius: 8px; }
+.cv-photo-grid figcaption { margin-top: 6px; }
+.cv-visuals table { width: 100%; border-collapse: collapse; margin: 12px 0; text-align: left; }
+.cv-visuals th, .cv-visuals td { padding: 8px 5px; border-bottom: 1px solid #dedfd4; }
+.cv-visuals td small { display: block; }
+.cv-visuals pre { white-space: pre-wrap; overflow-wrap: anywhere; background: #f0f1e9; padding: 12px; border-radius: 8px; }

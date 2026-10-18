@@ -75,17 +75,18 @@ refreshes and menu visits and includes other tabs on this browser/site. It inclu
 failed requests, so it is not a provider billing total or an all-devices counter.
 Older timestamps are discarded when history is read; clearing browser data resets it.
 Camera images stay in memory; only compact observations and hashes persist in Square.
-Expand **CV logs** for a per-check timeline: order and attempt IDs, trigger, elapsed
-time, result/discrepancies, and scene invalidation or server failure details.
-The latest 50 checks are kept in this tab's session storage across refreshes and
-menu visits, without photos or API keys. **Copy logs** exports the diagnostic text;
-**Clear logs** clears this history without changing the separate activity count.
-Checks made before this feature or in another tab have no local timeline, but the
-selected ticket's latest saved result is shown separately. Technical errors identify
-the failed stage and a safe category (such as provider HTTP status or timeout),
-without returning raw provider responses or credentials.
-Keep the page visible and the computer awake. Preview frames stay local; automatic
-checks send selected snapshots only after the trigger conditions are met.
+Open the **CV logs** tab for a scrollable per-check timeline, order/attempt IDs,
+trigger, elapsed time, and final decision. Each new check includes the exact normalized
+order image and selected reference images sent to Perceptron, plus its structured
+item counts, uncertainty, readable labels, and unexpected items. These model reports
+are separate from the final decision, which can reject a result after movement.
+The latest 50 text reports persist in this browser tab's session; photos for the
+last 10 checks stay in memory until reload. **Copy logs** excludes photos, and
+**Clear logs** removes this history without resetting usage. Photos are returned
+only to the requesting kitchen and are not stored in Square. Large diagnostic
+image collections are bounded at 3 MB; omitted previews are explicitly unavailable,
+without changing the images sent to the model. Opening the logs does not stop the
+camera or launch another check. Older checks cannot recover photos or model reports.
 
 Each kitchen screen reserves its selected unresolved order for two minutes,
 renewing while it works. Other screens skip that ticket and show “Working on

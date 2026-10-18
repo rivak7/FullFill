@@ -1,5 +1,7 @@
 // Order ingress is live. The camera/check command interface below is for the vision integration.
 import type {
+  Observations,
+  VerificationTarget,
   CaptureRequest,
   CheckAccepted,
   CreateCaptureRequest,
@@ -35,8 +37,17 @@ export interface CreateOrderInput {
   quote?: string;
 }
 
+export interface CameraDiagnostics {
+  provider_called: boolean;
+  image: string | null;
+  targets: VerificationTarget[];
+  references: { item_id: string; name: string; revision: number; role: "expected" | "alternative"; image: string | null }[];
+  observations: Observations | null;
+}
+export type CameraResponse = OrderState & { diagnostics?: CameraDiagnostics | null };
+
 export class ApiError extends Error {
-  constructor(message: string, public readonly status: number) {
+  constructor(message: string, public readonly status: number, public readonly diagnostics?: CameraDiagnostics) {
     super(message);
   }
 }
@@ -77,6 +88,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       throw new ApiError(
         typeof data?.detail === "string" ? data.detail : "The request could not be completed. Please retry.",
         response.status,
+        data?.diagnostics,
       );
     }
     if (data === null) throw new Error("The API returned an unreadable response.");
@@ -92,7 +104,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const orderApi = {
   cameraConfig: (signal?: AbortSignal) => request<{ configured: boolean }>("/checks/camera/config", { signal }),
-  checkCamera: (body: { worker_id: string; order_id: string; expected_revision: number; photo: MenuPhoto }, key: string) => request<OrderState>("/checks/camera", {
+  checkCamera: (body: { worker_id: string; order_id: string; expected_revision: number; photo: MenuPhoto; diagnostics?: boolean }, key: string) => request<CameraResponse>("/checks/camera", {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
   }),
   confirmCamera: (body: { worker_id: string; order_id: string; check_id: string; expected_revision: number; scene_unchanged: boolean }) => request<OrderState>("/checks/camera/confirm", {
