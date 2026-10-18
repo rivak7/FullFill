@@ -14,7 +14,7 @@ separately; the camera-to-kitchen checking loop is still being integrated.
 | Area | Current behavior |
 | --- | --- |
 | Order entry | Browse the shared menu and create Square Sandbox orders with server-owned prices and retry-safe checkout. |
-| Kitchen queue | Poll Square every three seconds and show open, nonempty tickets oldest first. Staff can fulfill, flag for review, or reopen tickets; completion advances to the oldest unresolved ticket. New arrivals preserve the current selection. |
+| Kitchen queue | Refresh one second after each successful response; requests stay sequential and failed refreshes back off from 3 to 30 seconds. Show open, nonempty tickets newest first. Staff can fulfill, flag for review, or reopen tickets; completion advances upward to the next unresolved ticket. New arrivals preserve the current selection. |
 | Menu management | Add items with a required photo, replace photos, edit names/prices, mark items sold out, and delete items. Photos persist in Square Catalog. Ordering screens refresh every five seconds and when returning to the tab. |
 | Shared state | Orders and menu edits persist in Square across browsers and API instances using the same Sandbox account and location. Conflicting menu edits require a refresh. |
 | Vision adapter | Send an order photo and optional labeled reference photos to Perceptron Mk1.5; validate structured observations, with a cooldown and call cap. Expected quantities are kept out of the model prompt. |
