@@ -10,9 +10,12 @@ The key is read from `PERCEPTRON_API_KEY`, either exported in the shell or in th
 
 ```sh
 export PERCEPTRON_API_KEY=ak....
-pip install -r requirements.txt
-python -m pytest eval/test_eval.py # offline, spends nothing
+uv sync --inexact --all-packages --extra camera   # Python 3.13 + every package, incl. OpenCV
+source .venv/bin/activate                         # once per terminal
+python -m pytest eval/test_eval.py                # offline, spends nothing
 ```
+
+With the venv active, every `python -m eval...` command below works as written. Without it, put `uv run --no-sync` in front, e.g. `uv run --no-sync python -m eval.live --fake`.
 
 ## Quick smoke test (3 calls)
 
