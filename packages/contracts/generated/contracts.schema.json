@@ -428,48 +428,6 @@
       "title": "CreateCheckRequest",
       "type": "object"
     },
-    "DeliveryResult": {
-      "additionalProperties": false,
-      "properties": {
-        "error_code": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Error Code"
-        },
-        "provider_receipt": {
-          "anyOf": [
-            {
-              "type": "string"
-            },
-            {
-              "type": "null"
-            }
-          ],
-          "default": null,
-          "title": "Provider Receipt"
-        },
-        "status": {
-          "enum": [
-            "sent",
-            "failed"
-          ],
-          "title": "Status",
-          "type": "string"
-        }
-      },
-      "required": [
-        "status"
-      ],
-      "title": "DeliveryResult",
-      "type": "object"
-    },
     "Discrepancy": {
       "additionalProperties": false,
       "properties": {
@@ -590,42 +548,6 @@
         "name"
       ],
       "title": "MenuItem",
-      "type": "object"
-    },
-    "Notification": {
-      "additionalProperties": false,
-      "properties": {
-        "deduplication_key": {
-          "minLength": 1,
-          "title": "Deduplication Key",
-          "type": "string"
-        },
-        "kind": {
-          "enum": [
-            "error",
-            "override",
-            "shift_summary"
-          ],
-          "title": "Kind",
-          "type": "string"
-        },
-        "message": {
-          "title": "Message",
-          "type": "string"
-        },
-        "notification_id": {
-          "minLength": 1,
-          "title": "Notification Id",
-          "type": "string"
-        }
-      },
-      "required": [
-        "notification_id",
-        "deduplication_key",
-        "kind",
-        "message"
-      ],
-      "title": "Notification",
       "type": "object"
     },
     "Observations": {
@@ -1344,14 +1266,8 @@
     "create_capture_request": {
       "$ref": "#/$defs/CreateCaptureRequest"
     },
-    "delivery_result": {
-      "$ref": "#/$defs/DeliveryResult"
-    },
     "menu_item": {
       "$ref": "#/$defs/MenuItem"
-    },
-    "notification": {
-      "$ref": "#/$defs/Notification"
     },
     "observations": {
       "$ref": "#/$defs/Observations"
@@ -1391,9 +1307,7 @@
     "observations",
     "vision_target",
     "station_event",
-    "station_snapshot",
-    "notification",
-    "delivery_result"
+    "station_snapshot"
   ],
   "title": "FullFillContracts",
   "type": "object"

@@ -15,19 +15,5 @@ What the worker sees next to the mat: the ticket on the left, one big color on t
 - `screenState.ts` decides the color, headline, and per-line marks from an `OrderState`. Change the rules here and only here.
 - `StationScreen.tsx` draws it. Takes `state`, nothing else. It is display only: the worker never taps it.
 - `station.css` is all the styling. Colors are the variables at the top.
-- `fakeOrders.ts` holds the hardcoded scenarios used by the demo bar at the bottom of the page.
 
-## Running
-
-```
-cd apps/web
-npm install
-npm run dev
-```
-
-Click the buttons at the bottom to switch scenarios.
-
-## Hooking up the real backend
-
-`OrderState` comes from `src/api/generated/contracts.ts` (generated from `packages/contracts`), so it is the same shape the API sends.
-In `App.tsx`, replace the fake `state` with the order from `StationApi.getStation` / `subscribe` and delete the demo bar.
+The kitchen screen (`../orders/FulfillmentScreen.tsx`) feeds it live orders from the API.

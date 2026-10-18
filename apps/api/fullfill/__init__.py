@@ -1,1 +1,1 @@
-"""FullFill API scaffold. Business logic belongs in application/ and domain/."""
+"""FullFill API. Business rules live in domain/; vendor code lives in adapters/."""
