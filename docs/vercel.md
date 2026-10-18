@@ -5,6 +5,16 @@ shared FastAPI backend. Both screens read the same Square Sandbox location.
 The order site has no kitchen navigation; the kitchen site has no order-entry
 navigation. Both open directly at `/` and preserve their own old route alias.
 
+Production URLs in the `iceberg-projects` Vercel account:
+
+- Order: https://fullfill-order.vercel.app
+- Kitchen: https://fullfill-kitchen.vercel.app
+- API: https://fullfill-api.vercel.app
+
+The demo access code is stored in the ignored root `.env` as
+`FULLFILL_ACCESS_KEY`. Share it with the people using the demonstration; do not
+share the Square access token. The API also stores this code as a Vercel secret.
+
 | Project | Root directory | Framework | Build command | Output |
 | --- | --- | --- | --- | --- |
 | `fullfill-api` | repository root | FastAPI | automatic Python build | automatic |
@@ -60,6 +70,8 @@ Automatic deployments require the Vercel GitHub integration to have access to
 the repository owner must grant the integration access before connecting it.
 CLI deployments work from the authorized checkout independently of that Git
 connection. Git pushes alone do not redeploy projects without a Git connection.
+The initial deployment used the CLI because the account's GitHub integration
+could not see this shared repository; the Git connection is still outstanding.
 
 ## Local development and checks
 
