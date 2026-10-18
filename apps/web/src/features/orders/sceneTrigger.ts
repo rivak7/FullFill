@@ -65,20 +65,8 @@ function forEachChange(frame: Uint8Array, before: Uint8Array, only: Uint8Array |
   const shift = Array.from({ length: channels }, (_, c) =>
     Array.from({ length: pixels }, (_, p) => frame[p * channels + c] - before[p * channels + c]).sort((x, y) => x - y)[pixels >> 1]);
   const same = (p: number, q: number) => {
-    let close = true;
-    for (let c = 0; c < channels; c++) if (Math.abs(frame[p * channels + c] - before[q * channels + c] - shift[c]) > 25) { close = false; break; }
-    return close || (p === q && lightingOnly(p));
-  };
-  // A shadow or a glare spot scales all three channels of the same surface by about the
-  // same factor; an item changes the colour, or darkens the mat far more than a shadow.
-  const lightingOnly = (p: number) => {
-    if (channels !== 3) return false;
-    let low = Infinity, high = 0;
-    for (let c = 0; c < 3; c++) {
-      const ratio = (frame[p * 3 + c] + 8) / (before[p * 3 + c] + 8);
-      low = Math.min(low, ratio); high = Math.max(high, ratio);
-    }
-    return low >= 0.6 && high <= 1.5 && high - low <= 0.12;
+    for (let c = 0; c < channels; c++) if (Math.abs(frame[p * channels + c] - before[q * channels + c] - shift[c]) > 25) return false;
+    return true;
   };
   const square = Number.isInteger(edge);
   for (let p = 0; p < pixels; p++) {
