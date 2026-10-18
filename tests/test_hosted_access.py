@@ -45,7 +45,6 @@ def test_hosted_api_fails_closed_when_access_is_not_configured(monkeypatch, key)
 @pytest.mark.parametrize("authorization", ["", "Bearer wrong", "Basic " + ACCESS_CODE])
 def test_unauthorized_requests_never_reach_square(monkeypatch, authorization):
     monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS_CODE)
-    monkeypatch.setenv("FULLFILL_KITCHEN_KEY", KITCHEN_CODE)
 
     def forbidden_square_call(_request):
         pytest.fail("An unauthorized request reached Square")
@@ -79,7 +78,6 @@ def test_unauthorized_requests_never_reach_square(monkeypatch, authorization):
 
 def test_both_sites_can_authenticate_and_invalid_origins_are_not_allowed(monkeypatch):
     monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS_CODE)
-    monkeypatch.setenv("FULLFILL_KITCHEN_KEY", KITCHEN_CODE)
     with TestClient(create_app()) as client:
         for origin in (ORDER_SITE, KITCHEN_SITE):
             preflight = client.options(
@@ -109,7 +107,6 @@ def test_both_sites_can_authenticate_and_invalid_origins_are_not_allowed(monkeyp
 
 def test_rotating_access_code_invalidates_old_code(monkeypatch):
     monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS_CODE)
-    monkeypatch.setenv("FULLFILL_KITCHEN_KEY", KITCHEN_CODE)
     with TestClient(create_app()) as client:
         headers = {"Authorization": f"Bearer {ACCESS_CODE}"}
         assert client.get("/v1/menu", headers=headers).status_code == 200
@@ -117,65 +114,36 @@ def test_rotating_access_code_invalidates_old_code(monkeypatch):
         assert client.get("/v1/menu", headers=headers).status_code == 401
 
 
-def test_ordering_code_cannot_access_kitchen_even_from_kitchen_origin(monkeypatch):
+@pytest.mark.parametrize("legacy_kitchen", [None, "", "short", ACCESS_CODE, KITCHEN_CODE])
+def test_existing_shared_code_works_on_both_screens_regardless_of_retired_setting(
+    monkeypatch, legacy_kitchen
+):
     monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS_CODE)
-    monkeypatch.setenv("FULLFILL_KITCHEN_KEY", KITCHEN_CODE)
-
-    def forbidden(_request):
-        pytest.fail("Denied request reached Square")
-
-    source = SquareOrders("token", "location", transport=httpx.MockTransport(forbidden))
-    with TestClient(create_app(source)) as client:
-        headers = {"Authorization": f"Bearer {ACCESS_CODE}", "Origin": KITCHEN_SITE}
-        assert client.get("/v1/session?scope=kitchen", headers=headers).json() == {
-            "required": True,
-            "authenticated": False,
-            "role": "order",
-        }
-        for method, path in [
-            ("GET", "/v1/stations/main"),
-            ("GET", "/v1/orders"),
-            ("GET", "/v1/orders/123"),
-            ("POST", "/v1/orders/123/status"),
-            ("POST", "/v1/orders/123/claim"),
-            ("GET", "/v1/menu/manage"),
-            ("POST", "/v1/menu/items"),
-            ("GET", "/v1/checks/camera/config"),
-            ("POST", "/v1/checks/camera"),
-            ("POST", "/v1/checks/camera/confirm"),
-            ("POST", "/v1/stations/main/refresh"),
-        ]:
-            assert client.request(method, path, headers=headers).status_code == 403
-
-
-def test_kitchen_code_has_staff_access_and_ordering_code_can_checkout(monkeypatch):
-    monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS_CODE)
-    monkeypatch.setenv("FULLFILL_KITCHEN_KEY", KITCHEN_CODE)
+    if legacy_kitchen is not None:
+        monkeypatch.setenv("FULLFILL_KITCHEN_KEY", legacy_kitchen)
     source = SquareOrders(
         "token",
         "location",
-        transport=httpx.MockTransport(lambda _request: pytest.fail("Unexpected Square call")),
+        transport=httpx.MockTransport(lambda _request: httpx.Response(200, json={"orders": []})),
     )
     with TestClient(create_app(source)) as client:
-        staff = {"Authorization": f"Bearer {KITCHEN_CODE}"}
-        for scope in ("kitchen", "order"):
-            assert client.get(f"/v1/session?scope={scope}", headers=staff).json() == {
+        for scope, origin in [("order", ORDER_SITE), ("kitchen", KITCHEN_SITE)]:
+            headers = {"Authorization": f"Bearer {ACCESS_CODE}", "Origin": origin}
+            assert client.get(f"/v1/session?scope={scope}", headers=headers).json() == {
                 "required": True,
                 "authenticated": True,
                 "role": "kitchen",
             }
-        assert client.get("/v1/checks/camera/config", headers=staff).status_code == 200
-        for path in ("/v1/orders", "/v1/orders/prepare"):
-            # Validation is after authorization. No provider calls are needed here.
-            response = client.post(
-                path, json={}, headers={"Authorization": f"Bearer {ACCESS_CODE}"}
-            )
-            assert response.status_code == 422
-
-
-@pytest.mark.parametrize("kitchen", ["", "short", ACCESS_CODE])
-def test_missing_weak_or_shared_kitchen_secret_fails_closed(monkeypatch, kitchen):
-    monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS_CODE)
-    monkeypatch.setenv("FULLFILL_KITCHEN_KEY", kitchen)
-    with TestClient(create_app()) as client:
-        assert client.get("/v1/session").status_code == 503
+            for path in ("/v1/menu", "/v1/stations/main", "/v1/orders", "/v1/checks/camera/config"):
+                assert client.get(path, headers=headers).status_code == 200
+            for path in (
+                "/v1/menu/items",
+                "/v1/orders",
+                "/v1/orders/prepare",
+                "/v1/orders/123/status",
+                "/v1/orders/123/claim",
+            ):
+                # Body validation is reached after shared-code authentication.
+                assert client.post(path, json={}, headers=headers).status_code == 422
+        retired = {"Authorization": f"Bearer {KITCHEN_CODE}"}
+        assert client.get("/v1/stations/main", headers=retired).status_code == 401
