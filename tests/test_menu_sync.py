@@ -103,6 +103,8 @@ class SquareCatalog:
                 self.fail_after_menu = False
                 raise httpx.ReadTimeout("lost menu response", request=request)
             return httpx.Response(200, json={"catalog_object": obj})
+        if request.url.path == "/v2/orders/search":
+            return httpx.Response(200, json={"orders": list(self.orders.values())})
         assert request.url.path == "/v2/orders"
         key = body["idempotency_key"]
         self.submissions.append(copy.deepcopy(body))

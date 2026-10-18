@@ -94,8 +94,8 @@ it("backs off repeated failures up to thirty seconds and resumes fast refresh af
 it("colors the queue, advances to orange work, and keeps completed tickets selectable", async () => {
   await render();
   expect(selected()).toContain(`#${orderNumber("first")}`);
-  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual([`#${orderNumber("third")}`, `#${orderNumber("second")}`, `#${orderNumber("first")}`]);
-  expect(container.querySelector(".order-queue")?.getAttribute("aria-label")).toBe("Orders, newest first");
+  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual([`#${orderNumber("first")}`, `#${orderNumber("second")}`, `#${orderNumber("third")}`]);
+  expect(container.querySelector(".order-queue")?.getAttribute("aria-label")).toBe("Orders, oldest first");
   expect(container.querySelector(".queue-amber")?.textContent).toContain(`#${orderNumber("second")}`);
   await click("Fulfill order");
   expect(selected()).toContain(`#${orderNumber("second")}`);
@@ -177,7 +177,7 @@ it("fulfills the fourth card and moves up to the third, then second, then first"
   orders = Array.from({ length: 6 }, (_, i) => ticket(`order-${i + 1}`));
   window.history.replaceState(null, "", "/fulfill?order=order-3");
   await render();
-  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual([`#${orderNumber("order-6")}`, `#${orderNumber("order-5")}`, `#${orderNumber("order-4")}`, `#${orderNumber("order-3")}`, `#${orderNumber("order-2")}`, `#${orderNumber("order-1")}`]);
+  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual([`#${orderNumber("order-1")}`, `#${orderNumber("order-2")}`, `#${orderNumber("order-3")}`, `#${orderNumber("order-4")}`, `#${orderNumber("order-5")}`, `#${orderNumber("order-6")}`]);
   expect(selected()).toContain(`#${orderNumber("order-3")}`);
   for (const next of [`#${orderNumber("order-4")}`, `#${orderNumber("order-5")}`, `#${orderNumber("order-6")}`]) {
     await click("Fulfill order");
@@ -193,7 +193,7 @@ it("moves upward past green cards to the next orange card", async () => {
   await render(); await click("Fulfill order");
   expect(selected()).toContain(`#${orderNumber("review")}`);
   expect(container.querySelector('.queue-ticket[aria-pressed="true"]')?.classList.contains("queue-amber")).toBe(true);
-  expect([...container.querySelectorAll(".queue-green")].map(card => card.textContent)).toEqual([expect.stringContaining(`#${orderNumber("done")}`), expect.stringContaining(`#${orderNumber("current")}`)]);
+  expect([...container.querySelectorAll(".queue-green")].map(card => card.textContent)).toEqual([expect.stringContaining(`#${orderNumber("current")}`), expect.stringContaining(`#${orderNumber("done")}`)]);
 });
 
 it("preserves the upward position when another screen completes and cleanup removes the current card", async () => {
@@ -241,7 +241,7 @@ it("a stale Undo cannot overwrite another worker's newer decision", async () => 
   await click("Undo");
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Order changed");
   expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { worker_id: expect.any(String), status: "unfulfilled", expected_revision: 2 }, expect.any(String));
-  expect(container.querySelector(".queue-amber")?.textContent).toContain(`#${orderNumber("second")}`);
+  expect([...container.querySelectorAll(".queue-amber")].map(card => card.textContent)).toContain(`#${orderNumber("second")}`);
 });
 
 it("skips another screen's reservation and marks that ticket in the queue", async () => {
@@ -260,7 +260,7 @@ it("renews its reservation and releases it when switching tickets", async () => 
   await act(async () => vi.advanceTimersByTimeAsync(61000));
   expect(orderApi.claim).toHaveBeenCalledTimes(2);
   expect(vi.mocked(orderApi.claim).mock.calls[1][1].worker_id).toBe(initial[1].worker_id);
-  await act(async () => (container.querySelectorAll<HTMLButtonElement>(".queue-ticket")[0]).click());
+  await act(async () => [...container.querySelectorAll<HTMLButtonElement>(".queue-ticket")].at(-1)!.click());
   expect(orderApi.claim).toHaveBeenCalledWith("first", expect.objectContaining({ release: true, worker_id: initial[1].worker_id }));
 });
 

@@ -39,6 +39,8 @@ from .claims import CLAIM_KEY, SquareClaims, claim_value, read_claim, require_wo
 from .menu import SquareMenu, menu_snapshot
 from .queue_cache import SquareQueue
 
+NUMBER_KEY = "fullfill_number"
+
 
 def demo_menu() -> list[MenuEntry]:
     data = json.loads(Path(__file__).with_name("demo-menu.json").read_text())
@@ -219,8 +221,14 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
                         requires_manual_review=bool(details),
                     )
                 )
+            number = (order.get("metadata") or {}).get(NUMBER_KEY)
             return OrderSnapshot(
-                order_id=order["id"], revision=order.get("version", 1), lines=lines
+                order_id=order["id"],
+                revision=order.get("version", 1),
+                lines=lines,
+                display_number=number
+                if isinstance(number, str) and number.isdigit() and len(number) == 3
+                else None,
             )
         except (AttributeError, KeyError, TypeError, ValueError, InvalidOperation, ValidationError):
             raise OrderSourceError(
@@ -407,6 +415,20 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
             raise OrderSourceError("Square menu editing is not configured.", 503)
         return await self.catalog.save(edit, idempotency_key)
 
+    async def _next_number(self, idempotency_key: str) -> str:
+        # Orders are numbered 001, 002... after the newest open ticket. "Start fresh"
+        # empties the queue, so numbering restarts at 001. A retry keeps its number.
+        reference = f"FF-{idempotency_key[:32]}"
+        highest = 0
+        for order in await self._queue_records():
+            number = (order.get("metadata") or {}).get(NUMBER_KEY, "")
+            if not (isinstance(number, str) and number.isdigit()):
+                continue
+            if order.get("reference_id") == reference:
+                return number
+            highest = max(highest, int(number))
+        return f"{highest % 999 + 1:03d}"
+
     def _order_payload(
         self, request: CreateOrder, idempotency_key: str, menu: dict[str, MenuEntry]
     ) -> dict:
@@ -448,6 +470,7 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
         payload = self._order_payload(
             request, idempotency_key, {item.item_id: item for item in snapshot.items}
         )
+        payload["order"]["metadata"] = {NUMBER_KEY: await self._next_number(idempotency_key)}
         approved = {"items": [item.model_dump() for item in request.items], "payload": payload}
         encoded = base64.urlsafe_b64encode(
             json.dumps(approved, sort_keys=True, separators=(",", ":")).encode()
@@ -476,6 +499,7 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
             if self.catalog:
                 raise OrderSourceError("Refresh this website before placing an order.", 422)
             payload = self._order_payload(request, idempotency_key, self._menu)
+            payload["order"]["metadata"] = {NUMBER_KEY: await self._next_number(idempotency_key)}
         # Prepared checkouts are immutable. Retrying after a menu edit sends exactly the
         # same Square request/key, even across independent serverless instances.
         result = await self._request("POST", "/v2/orders", payload)

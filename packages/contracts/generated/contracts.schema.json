@@ -785,6 +785,19 @@
     "OrderSnapshot": {
       "additionalProperties": false,
       "properties": {
+        "display_number": {
+          "anyOf": [
+            {
+              "pattern": "^\\d{3}$",
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Display Number"
+        },
         "lines": {
           "items": {
             "$ref": "#/$defs/OrderLine"

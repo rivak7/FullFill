@@ -1,4 +1,4 @@
-import { orderNumber } from "../../orderNumber";
+import { learnOrderNumbers, orderNumber } from "../../orderNumber";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, orderApi, type CreateOrderInput, type MenuEntry } from "../../api/client";
 import type { OrderSnapshot } from "../../api/generated/contracts";
@@ -109,7 +109,7 @@ export function OrderingScreen() {
         savePending(attempt); setPending(attempt);
       }
       const order = await orderApi.create(attempt.body, attempt.key);
-      setCreated(order);
+      learnOrderNumbers([order]); setCreated(order);
       setQuantities({});
       setPending(null);
       setNeedsReview(false);

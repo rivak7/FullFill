@@ -220,18 +220,24 @@ export function CameraCheckPanel(props: Props) {
         <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
         <button type="button" role="tab" id="logs-tab" aria-controls="logs-panel" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>CV logs</button>
       </div>
-      {open && <span className={`camera-state${busy ? " camera-state-busy" : automatic && ready ? " camera-state-live" : ""}`} role="status">{status}</span>}
-      {open ? <button className="secondary-button" onClick={stop}>Close camera</button> : <button className="secondary-button" onClick={() => void start()}>Enable camera</button>}
+      {open && <button className="text-button" onClick={stop}>Close camera</button>}
     </div>
     <div role="tabpanel" id="camera-panel" aria-labelledby="camera-tab" hidden={tab !== "camera"}>
-    {open && <div className="camera-check-body">
-      <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
+    {open ? <div className="camera-check-body">
+      <div className={`camera-frame${busy ? " camera-frame-busy" : ""}`}>
+        <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
+        <span className={`camera-state${busy ? " camera-state-busy" : automatic && ready ? " camera-state-live" : ""}`} role="status">{status}</span>
+      </div>
       <div className="camera-check-controls">
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
-        <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto</label>
+        <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto-check</label>
         {devices.length > 1 && <select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select>}
+        {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{orderNumber(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${orderNumber(lastPhoto.orderId)}`} /></details>}
       </div>
-      {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{orderNumber(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${orderNumber(lastPhoto.orderId)}`} /></details>}
+    </div> : <div className="camera-off">
+      <svg viewBox="0 0 48 48" aria-hidden="true" fill="none" stroke="currentColor" strokeWidth="3" strokeLinecap="round" strokeLinejoin="round"><rect x="5" y="13" width="38" height="27" rx="7" /><path d="M17 13l3-5h8l3 5" /><circle cx="24" cy="26" r="7" /></svg>
+      <p>Turn on the camera so FullFill can watch the mat.</p>
+      <button className="primary-button" onClick={() => void start()}>Enable camera</button>
     </div>}
     </div>
     <div role="tabpanel" id="logs-panel" aria-labelledby="logs-tab" hidden={tab !== "logs"}><CheckActivity /><CvLogs order={props.order} /></div>

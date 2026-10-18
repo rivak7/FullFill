@@ -23,6 +23,8 @@ class OrderSnapshot(Contract):
     order_id: Identifier
     revision: Revision
     lines: list[OrderLine] = Field(min_length=1)
+    # What people call the order: "001", "002"... Restarts after the queue is cleared.
+    display_number: str | None = Field(default=None, pattern=r"^\d{3}$")
 
 
 class MenuItem(Contract):

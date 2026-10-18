@@ -61,14 +61,16 @@ function Status({ screen }: { screen: ScreenState }) {
   return (
     <section className="status" aria-live="polite">
       <Face tone={screen.tone} />
-      <h1 className="status-headline">{screen.headline}</h1>
-      {screen.problems.length > 0 ? (
-        <ul className="status-problems">
-          {screen.problems.map((p, i) => (
-            <li key={`${p.target_id ?? "scene"}:${p.kind}:${i}`}>{p.message}</li>
-          ))}
-        </ul>
-      ) : screen.detail && <p className="status-detail">{screen.detail}</p>}
+      <div className="status-text">
+        <h1 className="status-headline">{screen.headline}</h1>
+        {screen.problems.length > 0 ? (
+          <ul className="status-problems">
+            {screen.problems.map((p, i) => (
+              <li key={`${p.target_id ?? "scene"}:${p.kind}:${i}`}>{p.message}</li>
+            ))}
+          </ul>
+        ) : screen.detail && <p className="status-detail">{screen.detail}</p>}
+      </div>
     </section>
   );
 }
