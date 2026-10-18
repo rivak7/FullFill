@@ -1,6 +1,7 @@
 import { useEffect, useState } from "react";
 import { ApiError, orderApi, type CreateOrderInput, type MenuEntry } from "../../api/client";
 import type { OrderSnapshot } from "../../api/generated/contracts";
+import { siteScreen } from "../../site";
 
 const storageKey = "fullfill.pending-order.v1";
 type PendingOrder = { key: string; body: CreateOrderInput };
@@ -89,7 +90,7 @@ export function OrderingScreen() {
     <main className="ordering-page">
       {created && <section className="success-banner" role="status">
         <strong>Order #{created.order_id.slice(-8).toUpperCase()} sent</strong>
-        <a href={`/fulfill?order=${encodeURIComponent(created.order_id)}`} target="_blank" rel="noreferrer">View ticket ↗</a>
+        {siteScreen === "combined" && <a href={`/fulfill?order=${encodeURIComponent(created.order_id)}`} target="_blank" rel="noreferrer">View ticket ↗</a>}
       </section>}
       <div className="ordering-layout">
         <section className="menu-section" aria-label="Menu">

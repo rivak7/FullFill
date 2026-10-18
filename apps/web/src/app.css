@@ -14,6 +14,12 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .app-header nav a[aria-current="page"] { background: white; color: var(--forest); box-shadow: 0 1px 3px #0001; }
 .environment-label { color: #62695e; font-size: 12px; display: flex; align-items: center; gap: 7px; }
 .environment-label > span { width: 6px; height: 6px; border-radius: 50%; background: #b48337; }
+.site-label { color: #62695e; font-size: 14px; font-weight: 650; }
+.access-page { min-height: 65vh; display: grid; place-items: center; padding: 24px; }
+.access-card { width: min(100%, 380px); padding: 28px; background: #fffef9; border: 1px solid #dedfd4; border-radius: 12px; }
+.access-card h1 { margin: 0 0 24px; font-size: 25px; }
+.access-card label { display: block; font-size: 14px; margin-bottom: 8px; }
+.access-card input { width: 100%; padding: 12px; border: 1px solid #c5ccbe; border-radius: 6px; font: inherit; margin-bottom: 20px; }
 .ordering-page { max-width: 1180px; padding: 40px 40px 64px; margin: auto; }
 .ordering-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 40px; align-items: start; }
 .section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }

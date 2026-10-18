@@ -30,6 +30,17 @@ export class ApiError extends Error {
 
 // Configure this only when the deployed API has a separate origin. Never put credentials here.
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
+const accessStorageKey = "fullfill.access.v1";
+let accessKey = "";
+try { accessKey = sessionStorage.getItem(accessStorageKey) ?? ""; } catch { /* In-memory access still works. */ }
+
+export function setAccessKey(value: string) {
+  accessKey = value;
+  try {
+    if (value) sessionStorage.setItem(accessStorageKey, value);
+    else sessionStorage.removeItem(accessStorageKey);
+  } catch { /* Keep the code in memory when storage is unavailable. */ }
+}
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
@@ -42,10 +53,14 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
       ...options,
       cache: "no-store",
       signal: controller.signal,
-      headers: { "Content-Type": "application/json", ...options.headers },
+      headers: { "Content-Type": "application/json", ...(accessKey ? { Authorization: `Bearer ${accessKey}` } : {}), ...options.headers },
     });
     const data = await response.json().catch(() => null);
     if (!response.ok) {
+      if (response.status === 401) {
+        setAccessKey("");
+        window.dispatchEvent(new Event("fullfill:access-required"));
+      }
       throw new ApiError(
         typeof data?.detail === "string" ? data.detail : "The request could not be completed. Please retry.",
         response.status,
@@ -63,6 +78,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const orderApi = {
+  session: (signal?: AbortSignal) => request<{ required: boolean; authenticated: boolean }>("/session", { signal }),
   menu: (signal?: AbortSignal) => request<MenuEntry[]>("/menu", { signal }),
   station: (signal?: AbortSignal) => request<StationSnapshot>("/stations/main", { signal }),
   create: (body: CreateOrderInput, key: string) => request<OrderSnapshot>("/orders", {

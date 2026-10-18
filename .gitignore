@@ -12,3 +12,4 @@ data/
 .ruff_cache/
 .pytest_cache/
 .DS_Store
+.vercel/
