@@ -88,6 +88,10 @@ def test_verdicts():
     assert vision.verdict(order, ok(answer(fries=1, ranch_cup=1))) == "red"
     unsure = answer(fries=1, ranch_cup=2)
     unsure["items"][1]["status"] = "unsure"
+    # Unsure, but its best count matches the ticket: trusted as a match.
+    assert vision.verdict(order, ok(unsure)) == "green"
+    unsure = answer(fries=1, ranch_cup=1)
+    unsure["items"][1]["status"] = "unsure"
     assert vision.verdict(order, ok(unsure)) == "amber"
     assert vision.verdict(order, vision.CheckResult(ok=False, latency_s=1)) == "error"
 

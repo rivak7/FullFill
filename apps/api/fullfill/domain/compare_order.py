@@ -7,8 +7,8 @@ Matches the comparison rules in docs/system-design.md:
 - fail (red): a ticket item is definitely short or over its quantity, or a known menu item
   that isn't on the ticket is on the mat. Red wins: it stays red even if something else is
   unsure or the view is poor.
-- unsure (amber): anything else the worker should look at: an item the model couldn't see,
-  count or tell apart, an unlabeled lookalike, an object it can't identify, a line that
+- unsure (amber): anything else the worker should look at: an item the model couldn't see
+  or count (an unsure item whose best count equals the ticket's quantity counts as a match), an unlabeled lookalike, an object it can't identify, a line that
   needs manual review. The worker decides. A poor view of the scene is shown alongside
   those, but on its own it doesn't block green: when every ticket item was counted
   exactly and nothing else was seen, the order is complete whatever the scene note says.
@@ -91,7 +91,9 @@ def compare_order(
         ):
             raise ValueError("inconsistent observation status and count")
         common = {"target_id": target.target_id, "line_ids": target.line_ids}
-        if obs.status == "unsure" or observed is None:
+        if obs.status == "unsure" and observed == expected:
+            pass  # unsure, but its best count matches the ticket: trust the count
+        elif obs.status == "unsure" or observed is None:
             discrepancies.append(
                 Discrepancy(
                     **common,

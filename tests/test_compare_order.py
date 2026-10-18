@@ -92,6 +92,20 @@ def test_extra_item_fails():
     assert compare_order(ORDER, seen(ketchup=("present", 4))).verdict == "fail"
 
 
+def test_unsure_target_whose_best_count_matches_the_ticket_passes():
+    assert (
+        compare_order(ORDER, seen(chicken=("unsure", 1), ketchup=("unsure", 3))).verdict == "pass"
+    )
+    assert compare_order(ORDER, seen(ketchup=("unsure", 2))).verdict == "unsure"
+
+
+def test_trusted_unsure_count_still_fails_on_a_known_item_not_on_the_ticket():
+    observations = seen(chicken=("unsure", 1)).model_copy(
+        update={"unexpected_items": [UnexpectedItem(name="Fries", item_id="fries", quantity=1)]}
+    )
+    assert compare_order(ORDER, observations).verdict == "fail"
+
+
 def test_unsure_target_is_amber_even_with_zero_count():
     # An unlabeled burrito: the model can't confirm chicken, so the worker decides.
     result = compare_order(ORDER, seen(chicken=("unsure", 0)))

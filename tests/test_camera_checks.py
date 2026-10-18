@@ -630,7 +630,7 @@ def test_short_result_replaces_both_chunks_after_a_long_result(monkeypatch):
 
 
 def test_scene_uncertainty_and_reason_survive_square_storage():
-    square, vision = Square(), Vision(status="unsure")
+    square, vision = Square(), Vision(status="unsure", count=None)
     vision.scene_uncertainty = "Keep the entire order inside the camera preview."
     with TestClient(square.app(vision)) as client:
         result = send(client)
@@ -645,7 +645,7 @@ def test_scene_uncertainty_and_reason_survive_square_storage():
 def test_item_uncertainty_keeps_actionable_reason_and_manual_correction_wins():
     from fullfill.domain.vision_uncertainty import REASONS
 
-    square, vision = Square(), Vision(status="unsure")
+    square, vision = Square(), Vision(status="unsure", count=None)
     vision.reason = REASONS["label"]
     with TestClient(square.app(vision)) as client:
         result = send(client).json()

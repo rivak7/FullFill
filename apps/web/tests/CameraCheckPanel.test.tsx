@@ -904,3 +904,15 @@ it("stays on a red order whose photo showed none of it when the mat clears", asy
   await act(async () => vi.advanceTimersByTimeAsync(500));
   expect(onBaggedWithWarning).not.toHaveBeenCalled();
 });
+
+it("counts a shadow or glare on the bare mat as bare, but still sees a small packet", () => {
+  const mat = Uint8Array.from({ length: 32 * 32 * 3 }, (_, i) => [235, 230, 220][i % 3]);
+  const paint = (cells: (row: number, col: number) => boolean, colour: (c: number, old: number) => number) =>
+    Uint8Array.from(mat, (value, i) => { const p = Math.floor(i / 3); return cells(p >> 5, p & 31) ? colour(i % 3, value) : value; });
+  const shadow = paint((row, col) => row >= 4 && row < 20 && col >= 4 && col < 20, (_, old) => Math.round(old * 0.7));
+  const glare = paint((row, col) => row >= 20 && col >= 20, (_, old) => Math.min(255, Math.round(old * 1.08)));
+  const ketchup = paint((row, col) => row === 10 && (col === 10 || col === 11), c => [200, 30, 30][c]);
+  expect(isEmptyMat(shadow, mat)).toBe(true);
+  expect(isEmptyMat(glare, mat)).toBe(true);
+  expect(isEmptyMat(ketchup, mat)).toBe(false);
+});
