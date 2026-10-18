@@ -85,3 +85,15 @@ when the photos are ready and the planned call count is acceptable. Automated
 fake-provider tests verify software behavior; they do not establish camera
 accuracy. Browser handoff, stale references, and simultaneous workers are tested
 separately in `tests/` and `apps/web/tests/`.
+
+## Live demo on the mount (no POS needed)
+
+`python -m eval.live` runs the real loop: the camera trigger sends one photo each time the mat settles after a change, Perceptron checks it against a hardcoded ticket, and a window shows green, red or amber with the reasons. Start with the mat clear so it learns the empty mat.
+
+```sh
+cp eval/live_order.example.json eval/live_order.json    # edit the menu and the ticket
+python -m eval.live --fake                               # no calls: checks the trigger and window
+python -m eval.live --order chicken_burrito=1,ketchup=3  # real calls, capped at 50 per run
+```
+
+Keys: `r` drag a box around the mat, `e` re-learn the empty mat, `c` check now, `q` quit. Each check's photo and result go to `logs/live/`. Reference photos come from `data/references/<item_id>/` as above.
