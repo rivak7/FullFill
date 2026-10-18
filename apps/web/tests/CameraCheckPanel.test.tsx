@@ -865,3 +865,26 @@ it("moves past a red order when the worker bags it anyway, keeping it red", asyn
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   expect(readCvLogs()[0].events.map(event => event.message)).toContain("Mat cleared without a pass: warning overridden by bagging, order left unfulfilled. Moving to the next order.");
 });
+
+it("stays on a red order whose photo showed none of it when the mat clears", async () => {
+  const red = checked(); red.disposition = "unfulfilled";
+  red.current_check!.discrepancies = [{ kind: "missing", message: "Missing: 1 Burrito", line_ids: ["line"], expected_quantity: 1, observed_quantity: 0, missing_quantity: 1 }];
+  vi.mocked(orderApi.checkCamera).mockResolvedValue(red);
+  const onBaggedWithWarning = vi.fn();
+  const show = (meal: boolean) => vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({
+    data: Uint8ClampedArray.from({ length: 4096 }, (_, i) => { const p = i >> 2, row = p >> 5, col = p & 31; return i % 4 === 3 ? 255 : meal && row >= 8 && row < 20 && col >= 8 && col < 20 ? 70 : 210; }),
+  }) } as unknown as CanvasRenderingContext2D);
+  show(false);
+  const render = (order: OrderState) => act(async () => root.render(<CameraCheckPanel workerId="worker" order={order} pauseToken={0} checkToken={0} onResult={onResult} onBusyChange={onBusyChange} onBaggedWithWarning={onBaggedWithWarning} />));
+  await render(ticket());
+  await camera();
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  show(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  await render(onResult.mock.calls[0][0]);
+  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("red");
+  show(false);
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  expect(onBaggedWithWarning).not.toHaveBeenCalled();
+});

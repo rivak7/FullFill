@@ -284,8 +284,9 @@ export function CameraCheckPanel(props: Props) {
         const frame = sample(video.current);
         const settled = trigger.current.sample(frame, now, extra !== null);
         // Only red moves on when bagged anyway. Amber stays on the order until a worker
-        // leaves it: the model was unsure, and the next check often turns it green.
-        if (trigger.current.clearedAfterWarning && order && !disabled && toScreenState(order).tone === "red") {
+        // leaves it: the model was unsure, and the next check often turns it green. A red
+        // that saw none of the order (a hand, a nearly bare mat) had nothing to bag.
+        if (trigger.current.clearedAfterWarning && order && !disabled && toScreenState(order).tone === "red" && !sawNoneOfOrder(order)) {
           trigger.current.bagged(frame); extraCheck.current = null;
           if (lastAttempt.current) updateCvLog(lastAttempt.current, "Mat cleared without a pass: warning overridden by bagging, order left unfulfilled. Moving to the next order.");
           latest.current.onBaggedWithWarning?.(order.order.order_id);
@@ -332,4 +333,10 @@ export function CameraCheckPanel(props: Props) {
     {configured === false && <p className="camera-hint">AI checks unavailable. Camera preview still works.</p>}
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;
+}
+
+// Every problem is an ordered item with none seen: the photo had nothing of this order.
+function sawNoneOfOrder(order: OrderState) {
+  const problems = order.current_check?.discrepancies ?? [];
+  return problems.length > 0 && problems.every(d => d.kind === "missing" && d.observed_quantity === 0);
 }
