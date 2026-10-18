@@ -179,7 +179,6 @@ function RawDetails({ log }: { log: CvLog }) {
       {observation?.provider && <>
         <div><dt>Model</dt><dd>{observation.provider.model}</dd></div>
         <div><dt>Model time</dt><dd>{(observation.provider.latency_ms / 1000).toFixed(2)} s</dd></div>
-        <div><dt>Reasoning</dt><dd>{/reasoning-(\w+)/.exec(observation.provider.prompt_version)?.[1] ?? "none"}</dd></div>
         <div><dt>Input tokens</dt><dd>{observation.provider.prompt_tokens?.toLocaleString() ?? "Unavailable"}</dd></div>
         <div><dt>Output tokens</dt><dd>{observation.provider.completion_tokens?.toLocaleString() ?? "Unavailable"}</dd></div>
       </>}

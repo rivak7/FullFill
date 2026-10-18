@@ -105,15 +105,11 @@ it("does not periodically check fulfilled orders, unclaimed orders, or an empty 
 });
 
 it("asks for boxes and model input only when they are turned on in settings", async () => {
-  vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: { provider_called: true, image: null, targets: [], references: [], observations: null, timings_ms: { square_order: 400, perceptron: 2100 }, reasoning: "low" } });
+  vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: { provider_called: true, image: null, targets: [], references: [], observations: null, timings_ms: { square_order: 400, perceptron: 2100 } } });
   changeSetting("boxes", true);
   await render(); await camera(); await checkNow();
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toMatchObject({ boxes: true, photos: false, reasoning: "auto" });
-  changeSetting("reasoning", "low"); await checkNow();
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0]).toMatchObject({ reasoning: "low" });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toMatchObject({ boxes: true, photos: false });
   expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain("Server steps: square order 0.4 s, perceptron 2.1 s, network 0.0 s.");
-  expect(readCvLogs()[0].events.map(event => event.message)).toContain("Perceptron reasoning: low (set in Settings).");
-  expect(readCvLogs()[1].events.map(event => event.message)).toContain("Perceptron reasoning: low (auto: low for orders of 4+ items).");
 });
 
 it("binds one snapshot to the captured ticket and never relabels a late result", async () => {
@@ -121,7 +117,7 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await checkNow();
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, boxes: false, photos: false, reasoning: "auto", confirmed: true });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, boxes: false, photos: false, confirmed: true });
   await render(ticket("second"), true);
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -737,7 +733,6 @@ it("shows exact input photos and model reports in a separate tab without stoppin
   expect(logs.textContent).toContain("1 × Drink");
   expect(logs.textContent).toContain("Hands in frame");
   expect(logs.textContent).toContain("Model time2.30 s");
-  expect(logs.textContent).toContain("Reasoningnone");
   expect(logs.textContent).toContain("Input tokens1,800");
   expect(logs.textContent).toContain("Output tokens0");
   expect(JSON.stringify(readCvLogs())).not.toContain("data:image");

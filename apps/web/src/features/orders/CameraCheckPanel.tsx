@@ -170,12 +170,11 @@ export function CameraCheckPanel(props: Props) {
     recordCheckAttempt(attemptId);
     updateCvLog(attemptId, `Snapshot sent. Expected: ${order.order.lines.map(line => `${line.quantity}× ${line.name}`).join(", ")}.`, "Analyzing");
     try {
-      const { boxes, photos, reasoning } = readSettings();
+      const { boxes, photos } = readSettings();
       const sentAt = performance.now();
-      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos, reasoning, confirmed: true }, attemptId);
+      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos, confirmed: true }, attemptId);
       const roundTrip = performance.now() - sentAt;
       if (response.diagnostics) attachCvVisuals(attemptId, { diagnostics: response.diagnostics });
-      logReasoning(attemptId, response.diagnostics?.reasoning, reasoning);
       if (manuallySuperseded()) {
         updateCvLog(attemptId, "Manual decision takes priority; ignoring the late camera result.", "Superseded by staff", true);
         return;
@@ -231,7 +230,6 @@ export function CameraCheckPanel(props: Props) {
       }
     } catch (cause) {
       if (cause instanceof ApiError && cause.diagnostics) attachCvVisuals(attemptId, { diagnostics: cause.diagnostics });
-      if (cause instanceof ApiError) logReasoning(attemptId, cause.diagnostics?.reasoning, readSettings().reasoning);
       if (manuallySuperseded()) {
         updateCvLog(attemptId, "Camera request superseded by a manual decision; no retry needed.", "Superseded by staff", true);
         return;
@@ -253,11 +251,6 @@ export function CameraCheckPanel(props: Props) {
     }
   }
   const checkRef = useRef(check); checkRef.current = check;
-
-  function logReasoning(attemptId: string, used: string | undefined, asked: string) {
-    if (!used) return;
-    updateCvLog(attemptId, `Perceptron reasoning: ${used}${asked === "auto" ? " (auto: low for orders of 4+ items)" : " (set in Settings)"}.`);
-  }
 
   // At most one line a second while waiting (only when what it sees changes), plus the
   // decision, so the next missed clear can be read straight from the CV logs.
