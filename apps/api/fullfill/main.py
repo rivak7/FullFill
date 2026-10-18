@@ -55,7 +55,7 @@ def create_app(order_source: OrderSource | None = None) -> FastAPI:
             CORSMiddleware,
             allow_origins=origins,
             allow_methods=["GET", "POST"],
-            allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Menu-Key"],
+            allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
         )
 
     @app.get("/v1/session", tags=["access"])

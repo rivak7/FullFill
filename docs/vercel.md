@@ -33,8 +33,6 @@ Set these only on the API project, as server-side secrets:
 - `SQUARE_ENVIRONMENT=sandbox`
 - `SQUARE_ACCESS_TOKEN` and `SQUARE_LOCATION_ID` from the Sandbox account
 - `FULLFILL_ACCESS_KEY`: a randomly generated access code, at least 32 characters
-- `FULLFILL_MENU_KEY`: a separate random code, at least 32 characters, for kitchen
-  menu editing. Store it in the ignored local `.env` too; share only with staff.
 - `FULLFILL_WEB_ORIGINS`: the exact order and kitchen HTTPS origins, separated
   by a comma, without trailing slashes
 
@@ -49,8 +47,8 @@ or too short; local development without a code remains available. Rotating the
 code invalidates existing sessions. This shared demo code is not per-user access
 control and is intended for the Sandbox demonstration.
 
-The kitchen **Menu** tab additionally requires the menu editing code, sent as
-`X-Menu-Key`. It can be locked again without signing out of the kitchen queue.
+The kitchen **Menu** tab opens directly using the existing demo session.
+There is no additional menu editing code or secret to configure.
 Run `uv run python scripts/seed_square_menu.py` once against the same Sandbox
 location before deploying the catalog-backed menu. Menu edits persist in Square;
 deployment does not overwrite them. See [the menu workflow](square-demo.md).
