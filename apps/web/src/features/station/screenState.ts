@@ -48,7 +48,7 @@ export function toScreenState(state: OrderState): ScreenState {
   if (check.execution_status === "failed" || check.execution_status === "superseded") {
     return {
       tone: "amber",
-      headline: "Needs review",
+      headline: check.execution_status === "failed" ? "Check failed" : "Needs review",
       detail: check.error_code === "reference_changed" ? "Menu reference photos changed. Check this order again." : check.execution_status === "superseded" ? "The camera view changed or confirmation expired. Take a new photo." : "Camera check failed. Check manually or take a new photo.",
       lines,
       problems: [],

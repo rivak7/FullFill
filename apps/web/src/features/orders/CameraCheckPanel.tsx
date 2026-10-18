@@ -56,6 +56,7 @@ export function CameraCheckPanel(props: Props) {
   const mounted = useRef(true);
   const trigger = useRef(new SceneTrigger());
   const guard = useRef<SceneGuard | null>(null);
+  const interruptedByTab = useRef(false);
 
   function setAuto(value: boolean) {
     automaticRef.current = value; setAutomatic(value); trigger.current.reset();
@@ -76,7 +77,10 @@ export function CameraCheckPanel(props: Props) {
     void orderApi.cameraConfig(controller.signal).then(value => {
       if (!controller.signal.aborted) setConfigured(value.configured);
     }).catch(() => { if (!controller.signal.aborted) setConfigured(false); });
-    const hidden = () => { if (document.hidden) { guard.current?.invalidate(); setAuto(false); trigger.current.interrupt(); } };
+    const hidden = () => { if (document.hidden) {
+      if (inFlight.current) interruptedByTab.current = true;
+      guard.current?.invalidate(); trigger.current.suspend();
+    } };
     document.addEventListener("visibilitychange", hidden);
     return () => {
       guard.current?.invalidate();
@@ -128,6 +132,7 @@ export function CameraCheckPanel(props: Props) {
       guard.current = new SceneGuard(frame, Date.now());
     } catch { setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
     inFlight.current = true;
+    interruptedByTab.current = false;
     setLastPhoto({ orderId: boundOrder.id, url: `data:image/jpeg;base64,${photo.data_base64}` });
     setBusy(true); setError("");
     latest.current.onBusyChange(true);
@@ -150,7 +155,14 @@ export function CameraCheckPanel(props: Props) {
       if (mounted.current) {
         latest.current.onResult(state);
         if (state.current_check?.execution_status !== "completed") {
-          setAuto(false); setError(state.current_check?.error_code === "reference_changed" ? "Menu reference photos changed. Take a new photo." : state.current_check?.execution_status === "superseded" ? "The view changed during the check. Keep the order still and take a new photo." : "The check has not completed. Check manually before starting another.");
+          const resume = interruptedByTab.current && automaticRef.current
+            && state.current_check?.execution_status === "superseded"
+            && state.current_check.error_code !== "reference_changed"
+            && latest.current.order?.order.order_id === boundOrder.id;
+          if (resume) { trigger.current.retryInterrupted(); setError(""); }
+          else {
+            setAuto(false); setError(state.current_check?.error_code === "reference_changed" ? "Menu reference photos changed. Take a new photo." : state.current_check?.execution_status === "superseded" ? "The view changed during the check. Keep the order still and take a new photo." : "The check has not completed. Check manually before starting another.");
+          }
         } else if (state.current_check.verdict === "unsure") {
           setAuto(false);
         }

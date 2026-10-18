@@ -67,6 +67,7 @@ async def reference_image(url, revision=0):
         or parsed.port not in (None, 443)
         or not (
             host.endswith(".squarecdn.com")
+            or host == "items-images-sandbox.s3.us-west-2.amazonaws.com"
             or (
                 host.startswith(
                     ("items-images-production.", "square-marketplace.", "square-production.")

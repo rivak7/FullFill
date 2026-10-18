@@ -127,12 +127,21 @@ it("retains only recent timestamps and deduplicates an attempt ID", () => {
   expect(readCheckActivity(Date.now() + 100)).toHaveLength(2);
 });
 
-it("pauses automatic checks when the page is hidden", async () => {
+it("keeps automatic mode enabled across tab switches and waits for visible settling", async () => {
   await render(); await camera();
+  await observe(0);
+  await observe(80, 500);
   vi.spyOn(document, "hidden", "get").mockReturnValue(true);
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
+  await observe(80, 10000);
+  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
+  vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+  await observe(80, 750);
+  expect(orderApi.checkCamera).not.toHaveBeenCalled();
+  await observe(80, 250);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
 });
 
 it("disables paid checks when the backend is not configured while allowing preview", async () => {
@@ -152,8 +161,8 @@ it("requires movement and settling, ignores hand waves, and suppresses unchanged
   const scene = new SceneTrigger();
   const frame = (value: number) => new Uint8Array(1024).fill(value);
   expect(sampled(scene, frame(0), 0, 3000)).toBe(false);
-  expect(sampled(scene, frame(80), 3250, 4500)).toBe(false);
-  expect(scene.sample(frame(80), 4750)).toBe(true);
+  expect(sampled(scene, frame(80), 3250, 3750)).toBe(false);
+  expect(scene.sample(frame(80), 4000)).toBe(true);
   scene.submitted(frame(80));
   expect(sampled(scene, frame(80), 5000, 9000)).toBe(false);
   scene.sample(frame(200), 9250);
@@ -175,8 +184,8 @@ it("waits for a stable intermediate scene before checking an identical next meal
   expect(scene.handoff).toBe("remove");
   expect(sampled(scene, empty, 5750, 9000)).toBe(false);
   expect(scene.handoff).toBe("place");
-  expect(sampled(scene, meal, 9250, 10500)).toBe(false);
-  expect(scene.sample(meal, 10750)).toBe(true);
+  expect(sampled(scene, meal, 9250, 9750)).toBe(false);
+  expect(scene.sample(meal, 10000)).toBe(true);
 });
 
 it("does not treat time away from the camera as handoff evidence", () => {
@@ -207,8 +216,8 @@ it("detects a small added packet while ignoring an isolated noisy pixel", () => 
   expect(sampled(scene, noise, 250, 2000)).toBe(false);
   const packet = baseline.slice();
   for (let row = 0; row < 4; row++) for (let col = 0; col < 8; col++) packet[row * 32 + col] = 200;
-  expect(sampled(scene, packet, 2250, 3500)).toBe(false);
-  expect(scene.sample(packet, 3750)).toBe(true);
+  expect(sampled(scene, packet, 2250, 2750)).toBe(false);
+  expect(scene.sample(packet, 3000)).toBe(true);
 });
 
 it("shows an unexpected unidentified item as orange, matching the comparison verdict", () => {
@@ -298,6 +307,17 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
   expect(orderApi.confirmCamera).toHaveBeenCalledWith(expect.objectContaining({ scene_unchanged: kind === "still" }));
   expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe(kind === "still" ? "green" : "amber");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  if (kind === "hidden") {
+    expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+    await observe(0, 10000);
+    expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+    vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+    await observe(0, 1000);
+    expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+    await observe(0, 5000);
+    expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  }
 });
 
 it("revokes a result if the scene changes during confirmation without spending again", async () => {
