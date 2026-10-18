@@ -9,6 +9,7 @@ import { CameraCheckPanel } from "../src/features/orders/CameraCheckPanel";
 import { SceneGuard, SceneTrigger } from "../src/features/orders/sceneTrigger";
 import { toScreenState } from "../src/features/station/screenState";
 import { readCheckActivity, recordCheckAttempt } from "../src/features/orders/CheckActivity";
+import { readCvLogs } from "../src/features/orders/CvLogs";
 
 vi.mock("../src/api/client", () => ({ orderApi: { cameraConfig: vi.fn(), checkCamera: vi.fn(), confirmCamera: vi.fn() } }));
 
@@ -25,6 +26,7 @@ let onBusyChange: ReturnType<typeof vi.fn>;
 beforeEach(() => {
   vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
   vi.stubGlobal("localStorage", new JSDOM("", { url: "http://localhost/" }).window.localStorage);
+  vi.stubGlobal("sessionStorage", new JSDOM("", { url: "http://localhost/" }).window.sessionStorage);
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
   vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
@@ -119,6 +121,31 @@ it("does not automatically retry failures and stops auto checking on error", asy
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
   await act(async () => vi.advanceTimersByTimeAsync(60000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  expect(readCvLogs()[0].result).toBe("Request failed");
+  expect(readCvLogs()[0].events.at(-1)?.message).toContain("Provider unavailable");
+});
+
+it("records and copies a diagnostic timeline without saving camera images", async () => {
+  const writeText = vi.fn().mockResolvedValue(undefined);
+  Object.assign(navigator, { clipboard: { writeText } });
+  await render(); await camera(); await click("Check order");
+  const log = readCvLogs()[0];
+  expect(log.orderId).toBe("first");
+  expect(log.trigger).toBe("manual");
+  expect(log.result).toBe("Unfulfilled");
+  expect(log.finishedAt).toBeDefined();
+  expect(log.events.map(event => event.message).join(" ")).toContain("Expected: 1× Fries");
+  await click("Copy logs");
+  const exported = writeText.mock.calls[0][0];
+  expect(exported).toContain(log.id);
+  expect(exported).not.toContain("data_base64");
+  expect(exported).not.toContain("cGhvdG8=");
+  await act(async () => root.unmount());
+  root = createRoot(container); await render();
+  expect(readCvLogs()[0].id).toBe(log.id);
+  await click("Clear logs");
+  expect(readCvLogs()).toHaveLength(0);
+  expect(readCheckActivity()).toHaveLength(1);
 });
 
 it("allows checks beyond the old caps without a forced wait and records attempts", async () => {
@@ -341,6 +368,10 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
   expect(orderApi.confirmCamera).toHaveBeenCalledWith(expect.objectContaining({ scene_unchanged: kind === "still" }));
   expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe(kind === "still" ? "green" : "amber");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  const events = readCvLogs()[0].events.map(event => event.message).join(" ");
+  if (kind === "motion") expect(events).toContain("scene_changed");
+  if (kind === "hidden") expect(events).toContain("tab_hidden");
+  if (kind === "closed") expect(events).toContain("camera_stopped");
   if (kind === "hidden") {
     expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
     await observe(0, 10000);

@@ -5,6 +5,7 @@ import { SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
 import { cameraConstraints, cameraPhoto, cropCamera } from "./cameraFraming";
+import { CvLogs, startCvLog, updateCvLog, checkResultDetails, sceneDiagnostic, type CheckTrigger } from "./CvLogs";
 
 interface Props {
   order?: OrderState;
@@ -54,7 +55,7 @@ export function CameraCheckPanel(props: Props) {
   }
 
   function stop() {
-    guard.current?.invalidate();
+    guard.current?.invalidate("camera_stopped");
     generation.current++;
     stream.current?.getTracks().forEach(track => track.stop()); stream.current = null;
     if (video.current) video.current.srcObject = null;
@@ -70,11 +71,11 @@ export function CameraCheckPanel(props: Props) {
     }).catch(() => { if (!controller.signal.aborted) setConfigured(false); });
     const hidden = () => { if (document.hidden) {
       if (inFlight.current) interruptedByTab.current = true;
-      guard.current?.invalidate(); trigger.current.suspend();
+      guard.current?.invalidate("tab_hidden"); trigger.current.suspend();
     } };
     document.addEventListener("visibilitychange", hidden);
     return () => {
-      guard.current?.invalidate();
+      guard.current?.invalidate("page_closed");
       mounted.current = false; generation.current++; controller.abort();
       stream.current?.getTracks().forEach(track => track.stop());
       document.removeEventListener("visibilitychange", hidden);
@@ -82,7 +83,7 @@ export function CameraCheckPanel(props: Props) {
   }, []);
 
   useEffect(() => {
-    guard.current?.invalidate();
+    guard.current?.invalidate("ticket_changed");
     if (lastTicket.current && lastTicket.current !== ticketKey) trigger.current.nextOrder();
     if (ticketKey) lastTicket.current = ticketKey;
     setHandoff(trigger.current.handoff);
@@ -97,7 +98,7 @@ export function CameraCheckPanel(props: Props) {
       const next = await navigator.mediaDevices.getUserMedia(cameraConstraints(id));
       if (!mounted.current || generation.current !== current) { next.getTracks().forEach(track => track.stop()); return; }
       stream.current = next;
-      next.getVideoTracks()[0]?.addEventListener("ended", () => { if (generation.current === current) { stop(); setError("Camera disconnected. Enable it to reconnect."); } });
+      next.getVideoTracks()[0]?.addEventListener("ended", () => { if (generation.current === current) { guard.current?.invalidate("camera_disconnected"); stop(); setError("Camera disconnected. Enable it to reconnect."); } });
       if (video.current) { video.current.srcObject = next; await video.current.play(); }
       const available = await navigator.mediaDevices.enumerateDevices();
       if (mounted.current && generation.current === current) {
@@ -110,38 +111,48 @@ export function CameraCheckPanel(props: Props) {
     }
   }
 
-  async function check() {
+  async function check(source: CheckTrigger = "manual") {
     const { order, disabled } = latest.current;
     if (!order || disabled || isFulfilled(order) || inFlight.current || !video.current || !ready || !configured || document.hidden) return;
     const boundOrder = { id: order.order.order_id, revision: order.order.revision };
+    const attemptId = crypto.randomUUID();
+    startCvLog(attemptId, boundOrder.id, boundOrder.revision, source);
     let photo: MenuPhoto;
     try {
       const frame = sample(video.current);
       photo = cameraPhoto(video.current);
       trigger.current.submitted(frame); setHandoff(null);
       guard.current = new SceneGuard(frame, Date.now());
-    } catch { setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
+    } catch { updateCvLog(attemptId, "Could not capture a camera frame; no request sent.", "Capture failed", true); setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
     inFlight.current = true;
     interruptedByTab.current = false;
     setLastPhoto({ orderId: boundOrder.id, url: `data:image/jpeg;base64,${photo.data_base64}` });
     setBusy(true); setError("");
     latest.current.onBusyChange(true);
-    const attemptId = crypto.randomUUID();
     recordCheckAttempt(attemptId);
+    updateCvLog(attemptId, `Snapshot sent. Expected: ${order.order.lines.map(line => `${line.quantity}× ${line.name}`).join(", ")}.`, "Analyzing");
     try {
       let state = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo }, attemptId);
+      updateCvLog(attemptId, `Server response: ${checkResultDetails(state)}. Check ID: ${state.current_check?.check_id ?? "none"}.`);
       const validateScene = () => {
-        if (!mounted.current || !video.current || !stream.current?.active || document.hidden) guard.current?.invalidate();
-        else { try { guard.current?.sample(sample(video.current), Date.now()); } catch { guard.current?.invalidate(); } }
+        if (!mounted.current) guard.current?.invalidate("page_closed");
+        else if (document.hidden) guard.current?.invalidate("tab_hidden");
+        else if (!video.current || !stream.current?.active) guard.current?.invalidate("camera_unavailable");
+        else { try { guard.current?.sample(sample(video.current), Date.now()); } catch { guard.current?.invalidate("capture_error"); } }
         return guard.current?.unchanged(Date.now()) ?? false;
       };
       if (mounted.current && state.current_check?.execution_status === "awaiting_confirmation") {
         const confirm = (unchanged: boolean) => orderApi.confirmCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, check_id: state.current_check!.check_id, expected_revision: state.order.revision, scene_unchanged: unchanged });
         const unchanged = validateScene();
+        updateCvLog(attemptId, unchanged ? "View unchanged; confirming result." : `Result invalidated by browser: ${sceneDiagnostic(guard.current?.reason)}.`, "Confirming");
         state = await confirm(unchanged);
         // Movement during the final network write also revokes this same result.
-        if (unchanged && !validateScene() && state.current_check?.execution_status === "completed") state = await confirm(false);
+        if (unchanged && !validateScene() && state.current_check?.execution_status === "completed") {
+          updateCvLog(attemptId, `View invalidated during confirmation: ${sceneDiagnostic(guard.current?.reason)}. Revoking result.`);
+          state = await confirm(false);
+        }
       }
+      updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
       if (mounted.current) {
         latest.current.onResult(state);
         if (state.current_check?.execution_status !== "completed") {
@@ -156,6 +167,8 @@ export function CameraCheckPanel(props: Props) {
         }
       }
     } catch (cause) {
+      const status = cause && typeof cause === "object" && "status" in cause && typeof cause.status === "number" ? `HTTP ${cause.status}: ` : "";
+      updateCvLog(attemptId, status + (cause instanceof Error ? cause.message : "Request failed"), "Request failed", true);
       if (mounted.current) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
     } finally {
       nextPeriodicCheck.current = Date.now() + 5000;
@@ -171,9 +184,10 @@ export function CameraCheckPanel(props: Props) {
     const timer = window.setInterval(() => {
       if (inFlight.current) {
         try {
-          if (!video.current || document.hidden || !stream.current?.active) guard.current?.invalidate();
+          if (document.hidden) guard.current?.invalidate("tab_hidden");
+          else if (!video.current || !stream.current?.active) guard.current?.invalidate("camera_unavailable");
           else guard.current?.sample(sample(video.current), Date.now());
-        } catch { guard.current?.invalidate(); }
+        } catch { guard.current?.invalidate("capture_error"); }
         return;
       }
       if (!video.current || document.hidden || !stream.current?.active) return;
@@ -183,7 +197,7 @@ export function CameraCheckPanel(props: Props) {
         const now = Date.now();
         const settled = trigger.current.sample(sample(video.current), now, now >= nextPeriodicCheck.current);
         setHandoff(trigger.current.handoff);
-        if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current();
+        if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current(trigger.current.handoff ? "next order" : now >= nextPeriodicCheck.current ? "periodic" : "scene change");
       } catch { setAuto(false); trigger.current.interrupt(); setError("Camera processing stopped. Reopen the camera to continue."); }
     }, 250);
     return () => window.clearInterval(timer);
@@ -205,6 +219,7 @@ export function CameraCheckPanel(props: Props) {
       {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{lastPhoto.orderId.slice(-8).toUpperCase()}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${lastPhoto.orderId.slice(-8).toUpperCase()}`} /><small>Snapshot used for the check. Kept only in this page.</small></details>}
     </div>}
     <CheckActivity />
+    <CvLogs order={props.order} />
     {configured === false && <p className="camera-hint">AI checks unavailable. Camera preview still works.</p>}
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;

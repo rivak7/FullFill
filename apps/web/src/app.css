@@ -94,6 +94,16 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .check-activity-row select { width: auto; margin-left: 4px; padding: 4px 8px; font-size: 12px; }
 .check-activity-row output { font-weight: 600; color: var(--forest); }
 .check-activity small { font-size: 11px; }
+.cv-logs { margin-top: 12px; font-size: 12px; color: #62695e; }
+.cv-logs summary { cursor: pointer; }
+.cv-log-actions { display: flex; flex-wrap: wrap; align-items: center; gap: 8px; margin: 12px 0 8px; }
+.cv-log-actions button { padding: 6px 10px; font-size: 12px; }
+.cv-log-list { max-height: 320px; overflow: auto; margin-top: 10px; }
+.cv-log-entry { padding: 10px 0; border-top: 1px solid #dedfd4; overflow-wrap: anywhere; }
+.cv-log-entry p { margin: 8px 0; }
+.cv-log-entry ol { padding-left: 22px; margin: 8px 0; }
+.cv-log-entry li { margin: 6px 0; }
+.cv-log-entry li span { font-family: ui-monospace, monospace; }
 .camera-last-photo { width: 100%; font-size: 12px; color: #62695e; }
 .camera-last-photo summary { cursor: pointer; }
 .camera-last-photo img { display: block; max-width: 240px; width: 100%; margin: 10px 0; border-radius: 8px; }
