@@ -52,6 +52,7 @@ export function AccessGate({ children, scope }: { children: ReactNode; scope: "o
     <form className="access-card" onSubmit={signIn}>
       <h1>{required ? "FullFill access" : loading ? "Connecting…" : "Unable to connect"}</h1>
       {required && <>
+        <p>Password: <strong>abc</strong></p>
         <label htmlFor="access-code">Access code</label>
         <input id="access-code" type="password" autoComplete="current-password" value={code} onChange={event => setCode(event.target.value)} required disabled={loading} />
       </>}
