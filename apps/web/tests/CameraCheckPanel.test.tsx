@@ -10,6 +10,7 @@ import { CameraCheckPanel } from "../src/features/orders/CameraCheckPanel";
 import { SceneGuard, SceneTrigger, isEmptyMat } from "../src/features/orders/sceneTrigger";
 import { changeSetting } from "../src/settings";
 import { amberReason, toScreenState } from "../src/features/station/screenState";
+import { StationScreen } from "../src/features/station/StationScreen";
 import { readCheckActivity, recordCheckAttempt } from "../src/features/orders/CheckActivity";
 import { readCvLogs } from "../src/features/orders/CvLogs";
 
@@ -700,6 +701,21 @@ it("always says why an amber screen is unsure", () => {
   expect(amberReason(toScreenState(marked))).toBe("Marked for review by staff.");
   state.current_check!.verdict = "pass";
   expect(amberReason(toScreenState(state))).toBeNull();
+});
+
+it("says why in one short line on amber and red, so the ticket stays in view", async () => {
+  const state = checked(); state.current_check!.verdict = "fail";
+  state.current_check!.discrepancies = [
+    { kind: "missing", message: "Missing 1 Mayo", line_ids: ["line"] },
+    { kind: "unidentified", message: "Unidentified item: Mustard", line_ids: [] },
+    { kind: "unidentified", message: "Unidentified item: Ranch", line_ids: [] },
+  ];
+  const host = document.createElement("div"); document.body.append(host);
+  const screenRoot = createRoot(host);
+  await act(async () => screenRoot.render(<StationScreen state={state} />));
+  expect([...host.querySelectorAll(".status-detail")].map(line => line.textContent)).toEqual(["Missing 1 Mayo (+2 more)"]);
+  expect(host.querySelector(".status li")).toBeNull();
+  await act(async () => screenRoot.unmount()); host.remove();
 });
 
 

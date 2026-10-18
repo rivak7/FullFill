@@ -86,10 +86,15 @@ function toScreenLine(line: OrderLine, discrepancies: Discrepancy[] | null): Scr
   return { line, status: "missing", note: hit.message };
 }
 
-// One line for the queue: why an amber ticket needs a look.
-export function amberReason(screen: ScreenState): string | null {
-  if (screen.tone !== "amber") return null;
+// One short line saying why: the first problem, with a count of the rest. The ticket
+// already marks which lines are off, so the screen never lists every problem.
+export function statusReason(screen: ScreenState): string | null {
   const [first, ...rest] = screen.problems;
   if (!first) return screen.detail;
   return rest.length ? `${first.message} (+${rest.length} more)` : first.message;
+}
+
+// One line for the queue: why an amber ticket needs a look.
+export function amberReason(screen: ScreenState): string | null {
+  return screen.tone === "amber" ? statusReason(screen) : null;
 }
