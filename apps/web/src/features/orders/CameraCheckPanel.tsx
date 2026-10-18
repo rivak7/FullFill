@@ -57,8 +57,10 @@ export function CameraCheckPanel(props: Props) {
   const trigger = useRef(new SceneTrigger());
   const guard = useRef<SceneGuard | null>(null);
   const interruptedByTab = useRef(false);
+  const nextPeriodicCheck = useRef(0);
 
   function setAuto(value: boolean) {
+    if (value) nextPeriodicCheck.current = Date.now() + 5000;
     automaticRef.current = value; setAutomatic(value); trigger.current.reset();
   }
 
@@ -163,13 +165,12 @@ export function CameraCheckPanel(props: Props) {
           else {
             setAuto(false); setError(state.current_check?.error_code === "reference_changed" ? "Menu reference photos changed. Take a new photo." : state.current_check?.execution_status === "superseded" ? "The view changed during the check. Keep the order still and take a new photo." : "The check has not completed. Check manually before starting another.");
           }
-        } else if (state.current_check.verdict === "unsure") {
-          setAuto(false);
         }
       }
     } catch (cause) {
       if (mounted.current) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
     } finally {
+      nextPeriodicCheck.current = Date.now() + 5000;
       guard.current = null;
       inFlight.current = false;
       if (mounted.current) { setBusy(false); latest.current.onBusyChange(false); }
@@ -191,7 +192,8 @@ export function CameraCheckPanel(props: Props) {
       const { order, disabled } = latest.current;
       try {
         // Keep observing handoffs while a claim is loading or the queue is empty.
-        const settled = trigger.current.sample(sample(video.current), Date.now());
+        const now = Date.now();
+        const settled = trigger.current.sample(sample(video.current), now, now >= nextPeriodicCheck.current);
         setHandoff(trigger.current.handoff);
         if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current();
       } catch { setAuto(false); trigger.current.interrupt(); setError("Camera processing stopped. Reopen the camera to continue."); }
@@ -209,6 +211,7 @@ export function CameraCheckPanel(props: Props) {
         <p role="status">{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order from view." : automatic && handoff === "place" ? "Place the next order in view. Checking starts when it settles." : automatic ? "Place the order in view. Checking starts when it settles." : "Automatic checks paused. Check manually or turn them back on."}</p>
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
         <label className="camera-auto"><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Automatic checks</label>
+        {automatic && <small>Rechecks a still view every 5 seconds after the previous check finishes.</small>}
         {props.order?.current_check?.verdict === "unsure" && <p>Inspect the highlighted items, then recheck or fulfill manually.</p>}
       </div>
       {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{lastPhoto.orderId.slice(-8).toUpperCase()}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${lastPhoto.orderId.slice(-8).toUpperCase()}`} /><small>Snapshot used for the check. Kept only in this page.</small></details>}

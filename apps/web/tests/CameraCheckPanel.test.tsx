@@ -55,13 +55,35 @@ async function camera() {
   await act(async () => container.querySelector("video")!.dispatchEvent(new Event("loadeddata")));
 }
 
-it("an unchanged camera preview consumes no AI calls even with automatic checks enabled", async () => {
+it("automatically checks an unchanged view every five seconds", async () => {
   await render(); await camera();
   await act(async () => vi.advanceTimersByTimeAsync(60000));
-  expect(orderApi.checkCamera).not.toHaveBeenCalled();
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(12);
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
   await click("Close camera");
   expect(stopTrack).toHaveBeenCalledTimes(1);
+});
+
+it("waits five seconds after a slow check finishes without overlapping requests", async () => {
+  let resolve!: (state: OrderState) => void;
+  vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  await render(); await camera();
+  await observe(0, 20000);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  await act(async () => resolve(checked()));
+  await observe(0, 4750);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  await observe(0, 250);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+});
+
+it("does not periodically check fulfilled orders, unclaimed orders, or an empty queue", async () => {
+  const fulfilled = ticket(); fulfilled.disposition = "verified";
+  fulfilled.current_check = { ...checked().current_check!, verdict: "pass" };
+  await render(fulfilled); await camera(); await observe(0, 10000);
+  await render(ticket(), true); await observe(0, 10000);
+  await render(null); await observe(0, 10000);
+  expect(orderApi.checkCamera).not.toHaveBeenCalled();
 });
 
 it("binds one snapshot to the captured ticket and never relabels a late result", async () => {
@@ -98,6 +120,7 @@ it("allows checks beyond the old caps without a forced wait and records attempts
 
 it("keeps usage across remounts, includes failed attempts, and expires time windows", async () => {
   await render(); await camera(); await click("Check order");
+  await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   await act(async () => vi.advanceTimersByTimeAsync(10 * 60000));
   vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new Error("Unavailable"));
   await click("Check order");
@@ -235,19 +258,19 @@ it("keeps the exact submitted photo labeled with its ticket after selection chan
   expect(container.querySelector(".camera-last-photo img")?.getAttribute("src")).toBe("data:image/jpeg;base64,cGhvdG8=");
 });
 
-it("pauses automatic spending for uncertain results and manual corrections", async () => {
+it("rechecks uncertain results but respects manual corrections", async () => {
   const state = checked(); state.current_check!.verdict = "unsure";
   vi.mocked(orderApi.checkCamera).mockResolvedValueOnce(state);
   await render(); await camera();
   const automatic = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
   expect(automatic.checked).toBe(true);
   await click("Check order");
-  expect(automatic.checked).toBe(false);
-  await act(async () => automatic.click());
   expect(automatic.checked).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(5000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
   await render(ticket(), false, 1);
   expect(automatic.checked).toBe(false);
-  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
 });
 
 it("failed, malformed, and outdated results cannot display green", () => {
@@ -315,7 +338,7 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
     await observe(0, 1000);
     expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
-    await observe(0, 5000);
+    await observe(0, 4000);
     expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
   }
 });
@@ -365,7 +388,7 @@ it("automatically checks consecutive identical meals without a handoff button or
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
   expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0].order_id).toBe("second");
   await observe(80, 10000);
-  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(4);
 });
 
 it("keeps handoff evidence while waiting for the new ticket claim", async () => {
