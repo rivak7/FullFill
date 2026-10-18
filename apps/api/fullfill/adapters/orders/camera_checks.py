@@ -137,6 +137,7 @@ class SquareCameraChecks:
         record = {
             "k": key,
             "d": image_digest,
+            "b": revision,
             "n": previous.get("n", 0) + 1,
             "t": now,
             "s": "running",

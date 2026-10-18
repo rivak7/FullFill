@@ -23,6 +23,8 @@ export function FulfillmentScreen() {
   const [notice, setNotice] = useState("");
   const [pending, setPending] = useState<StatusAttempt | null>(null);
   const [busy, setBusy] = useState(false);
+  const [scanBusy, setScanBusy] = useState(false);
+  const scanningOrder = useRef<string | null>(null);
   const [refresh, setRefresh] = useState(0);
   const [undo, setUndo] = useState<Undo | null>(null);
   const [cameraPause, setCameraPause] = useState(0);
@@ -42,7 +44,7 @@ export function FulfillmentScreen() {
     async function poll() {
       const started = epoch.current;
       try {
-        if (saving.current) return;
+        if (saving.current || scanningOrder.current) return;
         const snapshot = await orderApi.station(controller.signal);
         if (controller.signal.aborted || started !== epoch.current) return;
         // The API keeps chronological order for cleanup; display newest at top.
@@ -70,7 +72,7 @@ export function FulfillmentScreen() {
     let active = true;
     async function reserve() {
       const state = latestQueue.current.orders.find(item => item.order.order_id === selected);
-      if (!state || isFulfilled(state) || heldByOther(state, workerId) || saving.current) return;
+      if (!state || isFulfilled(state) || heldByOther(state, workerId) || saving.current || scanningOrder.current === selected) return;
       if (ownedBy(state, workerId) && state.claim!.expires_at * 1000 - Date.now() > 60000) return;
       saving.current = true; epoch.current++; setBusy(true);
       try {
@@ -146,10 +148,12 @@ export function FulfillmentScreen() {
   const currentTone = current ? toScreenState(current).tone : null;
   const waiting = orders.filter(state => !isFulfilled(state)).length;
   const locked = busy || !!pending || !!error;
+  const cameraLocked = locked || scanBusy;
 
   function updateStatus(status: OrderStatusEdit["status"]) {
-    if (!current || locked) return;
-    if (status !== "fulfilled") setCameraPause(value => value + 1);
+    if (!current || locked || heldByOther(current, workerId)) return;
+    bagging.current = null;
+    setCameraPause(value => value + 1);
     void submit({ id: current.order.order_id, body: { worker_id: workerId, status, expected_revision: current.order.revision }, key: crypto.randomUUID() });
   }
 
@@ -170,7 +174,7 @@ export function FulfillmentScreen() {
           {!loading && !error && !orders.length && <p className="queue-empty">No orders yet</p>}
           {rail.map(state => {
             const screen = toScreenState(state);
-            return <button className={`queue-ticket queue-${screen.tone}`} key={state.order.order_id} aria-pressed={state.order.order_id === selected} disabled={locked || heldByOther(state, workerId)} title={heldByOther(state, workerId) ? "On another screen" : amberReason(screen) ?? screen.headline} onClick={() => { setQueue(previous => ({ ...previous, selected: state.order.order_id })); setActionError(null); }}>
+            return <button className={`queue-ticket queue-${screen.tone}`} key={state.order.order_id} aria-pressed={state.order.order_id === selected} disabled={cameraLocked || heldByOther(state, workerId)} title={heldByOther(state, workerId) ? "On another screen" : amberReason(screen) ?? screen.headline} onClick={() => { setQueue(previous => ({ ...previous, selected: state.order.order_id })); setActionError(null); }}>
               <span className="queue-ticket-dot" aria-label={screen.headline} />
               <strong>#{orderNumber(state.order.order_id)}</strong>
               {heldByOther(state, workerId) && <span className="queue-ticket-owner">On another screen</span>}
@@ -191,16 +195,16 @@ export function FulfillmentScreen() {
             : current ? <>
               <StationScreen state={current} />
               <div className="fulfillment-actions" aria-label="Manual override">
-                {currentTone !== "green" && <button className="text-button" disabled={locked} onClick={() => setCheckNow(value => value + 1)}>Check now</button>}
+                {currentTone !== "green" && <button className="text-button" disabled={cameraLocked} onClick={() => setCheckNow(value => value + 1)}>Check now</button>}
                 {currentTone !== "red" && <button className="text-button" disabled={locked} onClick={() => updateStatus("unfulfilled")}>Reopen</button>}
                 {currentTone !== "amber" && <button className="text-button" disabled={locked} onClick={() => updateStatus("unsure")}>Needs review</button>}
-                {currentTone !== "green" && <button className="text-button" disabled={locked} onClick={() => updateStatus("fulfilled")}>{busy ? "Saving…" : "Fulfill order"}</button>}
+                {currentTone !== "green" && <button className="text-button" disabled={locked || heldByOther(current, workerId)} onClick={() => updateStatus("fulfilled")}>{busy ? "Saving…" : "Fulfill order"}</button>}
               </div>
             </>
             : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1><p>{waiting ? "Pick an order above." : "New orders show up here on their own."}</p></div>}
         </div>
-          <CameraCheckPanel workerId={workerId} order={current} disabled={locked || !current || !ownedBy(current, workerId)} pauseToken={cameraPause} checkToken={checkNow} onBusyChange={value => {
-            saving.current = value; setBusy(value);
+          <CameraCheckPanel workerId={workerId} order={current} disabled={cameraLocked || !current || !ownedBy(current, workerId)} pauseToken={cameraPause} checkToken={checkNow} onBusyChange={value => {
+            scanningOrder.current = value ? latestQueue.current.selected : null; setScanBusy(value);
             if (value) epoch.current++;
             else setRefresh(count => count + 1);
           }} onResult={(updated, watching) => {

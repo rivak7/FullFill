@@ -147,6 +147,8 @@ export function CameraCheckPanel(props: Props) {
     const { order, disabled } = latest.current;
     if (!order || disabled || isFulfilled(order) || inFlight.current || !video.current || !ready || !configured || document.hidden) return;
     const boundOrder = { id: order.order.order_id, revision: order.order.revision };
+    const decisionToken = latest.current.pauseToken;
+    const manuallySuperseded = () => latest.current.pauseToken !== decisionToken;
     const attemptId = crypto.randomUUID();
     startCvLog(attemptId, boundOrder.id, boundOrder.revision, source); lastAttempt.current = attemptId;
     let photo: MenuPhoto;
@@ -173,6 +175,10 @@ export function CameraCheckPanel(props: Props) {
       const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos, confirmed: true }, attemptId);
       const roundTrip = performance.now() - sentAt;
       if (response.diagnostics) attachCvVisuals(attemptId, { diagnostics: response.diagnostics });
+      if (manuallySuperseded()) {
+        updateCvLog(attemptId, "Manual decision takes priority; ignoring the late camera result.", "Superseded by staff", true);
+        return;
+      }
       const steps = response.diagnostics?.timings_ms;
       // Whatever the server didn't spend is upload, download and function start-up.
       if (steps) updateCvLog(attemptId, `Server steps: ${[...Object.entries(steps), ["network", roundTrip - Object.values(steps).reduce((a, b) => a + b, 0)] as const].map(([step, ms]) => `${step.replace("_", " ")} ${(Math.max(0, ms) / 1000).toFixed(1)} s`).join(", ")}.`);
@@ -197,6 +203,10 @@ export function CameraCheckPanel(props: Props) {
         state = await confirm(unchanged);
         updateCvLog(attemptId, `Confirmed in ${((performance.now() - confirmAt) / 1000).toFixed(1)} s.`);
       }
+      if (manuallySuperseded()) {
+        updateCvLog(attemptId, "Manual decision takes priority; ignoring the late confirmation.", "Superseded by staff", true);
+        return;
+      }
       recheck = source !== "recheck after amber" && state.current_check?.execution_status === "completed" && state.current_check.verdict === "unsure";
       updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
       if (mounted.current) {
@@ -220,6 +230,10 @@ export function CameraCheckPanel(props: Props) {
       }
     } catch (cause) {
       if (cause instanceof ApiError && cause.diagnostics) attachCvVisuals(attemptId, { diagnostics: cause.diagnostics });
+      if (manuallySuperseded()) {
+        updateCvLog(attemptId, "Camera request superseded by a manual decision; no retry needed.", "Superseded by staff", true);
+        return;
+      }
       const status = cause && typeof cause === "object" && "status" in cause && typeof cause.status === "number" ? `HTTP ${cause.status}: ` : "";
       if (cause instanceof ApiError && cause.diagnostics?.raw_answer) updateCvLog(attemptId, `Perceptron answered: ${cause.diagnostics.raw_answer}`);
       // One fresh photo after a failed call (server or network trouble, an answer we
@@ -229,8 +243,8 @@ export function CameraCheckPanel(props: Props) {
       // Auto-check stays on; the next change on the mat (or Check now) starts a new check.
       if (mounted.current && !retry) setError(cause instanceof Error ? cause.message : "Check failed. Press Check now to try again.");
     } finally {
-      if (recheck) extraCheck.current = { at: Date.now() + 5000, reason: "recheck after amber" };
-      if (retry) extraCheck.current = { at: Date.now() + 1500, reason: "retry after error" };
+      if (recheck && !manuallySuperseded()) extraCheck.current = { at: Date.now() + 5000, reason: "recheck after amber" };
+      if (retry && !manuallySuperseded()) extraCheck.current = { at: Date.now() + 1500, reason: "retry after error" };
       guard.current = null;
       inFlight.current = false;
       if (mounted.current) { setBusy(false); latest.current.onBusyChange(false); }
