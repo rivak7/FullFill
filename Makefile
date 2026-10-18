@@ -29,6 +29,7 @@ check:
 	$(UV) run --no-sync pytest -q tests
 	$(MAKE) contracts
 	git diff --exit-code -- packages/contracts/generated apps/web/src/api/generated
+	npm --prefix apps/web test
 	npm --prefix apps/web run build
 	VITE_API_BASE_URL=https://api.example.invalid npm --prefix apps/web run build:order
 	VITE_API_BASE_URL=https://api.example.invalid npm --prefix apps/web run build:fulfill

@@ -28,6 +28,7 @@ async def seed():
             ),
             key,
             verification_mode=item.verification_mode,
+            require_photo=False,  # Legacy demo fixtures; new kitchen items require real photos.
         )
         print(f"Added {item.name}")
     print(f"Shared menu ready: {len((await source.menu()).items)} items.")

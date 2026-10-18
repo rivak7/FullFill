@@ -19,10 +19,13 @@ export interface MenuEntry {
   available: boolean;
   archived: boolean;
   version: number;
+  photo_id: string | null;
+  photo_url: string | null;
 }
 
 export interface MenuSnapshot { revision: string; items: MenuEntry[] }
-export interface MenuEdit { item_id: string; name: string; price_cents: number; available: boolean; archived: boolean; version: number }
+export interface MenuPhoto { data_base64: string }
+export interface MenuEdit { item_id: string; name: string; price_cents: number; available: boolean; archived: boolean; version: number; photo?: MenuPhoto }
 
 export interface CreateOrderInput {
   items: { item_id: string; quantity: number }[];
@@ -52,7 +55,7 @@ export function setAccessKey(value: string) {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), 20000);
+  const timer = window.setTimeout(() => controller.abort(), path === "/menu/items" ? 60000 : 20000);
   const abort = () => controller.abort();
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) controller.abort();

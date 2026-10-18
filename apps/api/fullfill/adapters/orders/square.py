@@ -14,6 +14,7 @@ import httpx
 from fullfill_contracts.orders import OrderLine, OrderSnapshot
 from pydantic import ValidationError
 
+from fullfill.application.menu_photo import MenuPhoto
 from fullfill.application.order_source import (
     CreateOrder,
     MenuEdit,
@@ -46,7 +47,9 @@ class SquareOrders:
         self.location_id = location_id
         self._transport = transport
         self._menu = {item.item_id: item for item in demo_menu()}
-        self.catalog = SquareMenu(self._request, location_id) if catalog else None
+        self.catalog = (
+            SquareMenu(self._request, location_id, self._upload_menu_photo) if catalog else None
+        )
 
     @classmethod
     def from_env(cls):
@@ -62,7 +65,9 @@ class SquareOrders:
             )
         return cls(token, location, catalog=True)
 
-    async def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
+    async def _request(
+        self, method: str, path: str, payload: dict | None = None, *, files: dict | None = None
+    ) -> dict:
         try:
             async with httpx.AsyncClient(
                 base_url=self.base_url,
@@ -71,13 +76,16 @@ class SquareOrders:
                 headers={
                     "Authorization": f"Bearer {self._token}",
                     "Square-Version": "2026-09-16",
-                    "Content-Type": "application/json",
                 },
             ) as client:
-                response = await client.request(method, path, json=payload)
+                response = (
+                    await client.request(method, path, files=files)
+                    if files
+                    else await client.request(method, path, json=payload)
+                )
         except httpx.RequestError:
             raise OrderSourceError(
-                "Cannot reach Square. Check the backend connection and retry the same order.", 503
+                "Cannot reach Square. Check the backend connection and retry.", 503
             ) from None
         # Never forward Square's raw response, request headers, or credentials to browsers/logs.
         if response.status_code in (401, 403):
@@ -86,7 +94,7 @@ class SquareOrders:
                 503,
             )
         if response.status_code == 404:
-            raise OrderSourceError("That order could not be found in Square.", 404)
+            raise OrderSourceError("That item or order could not be found in Square.", 404)
         if response.status_code == 429:
             raise OrderSourceError("Square is busy. Wait a moment and retry.", 503)
         if response.status_code >= 400:
@@ -101,9 +109,7 @@ class SquareOrders:
                     )
             except (ValueError, AttributeError, TypeError):
                 pass
-            raise OrderSourceError(
-                "Square could not process this request. Retry with the same order."
-            )
+            raise OrderSourceError("Square could not process this request. Retry the same change.")
         try:
             result = response.json()
             if not isinstance(result, dict) or result.get("errors"):
@@ -113,6 +119,32 @@ class SquareOrders:
             raise OrderSourceError(
                 "Square returned an unreadable response. Please retry."
             ) from None
+
+    async def _upload_menu_photo(self, photo: MenuPhoto, key: str) -> str:
+        # Upload unattached, then attach with the item's version-checked save. A
+        # failed/stale save must never replace the photo on another screen's item.
+        payload = {
+            "idempotency_key": "ff-photo-"
+            + hashlib.sha256(f"{self.location_id}/{key}".encode()).hexdigest(),
+            "image": {
+                "id": "#photo",
+                "type": "IMAGE",
+                "image_data": {"name": "FullFill menu photo"},
+            },
+        }
+        extension = "jpg" if photo.content_type == "image/jpeg" else "png"
+        result = await self._request(
+            "POST",
+            "/v2/catalog/images",
+            files={
+                "request": (None, json.dumps(payload), "application/json"),
+                "file": (f"menu-photo.{extension}", photo.data, photo.content_type),
+            },
+        )
+        image_id = result.get("image", {}).get("id")
+        if not isinstance(image_id, str) or not image_id or image_id.startswith("#"):
+            raise OrderSourceError("Square did not save the photo. Retry this change.")
+        return image_id
 
     def _snapshot(self, order: dict) -> OrderSnapshot:
         if not isinstance(order, dict):

@@ -24,8 +24,13 @@ The `/` route opens the live fulfillment queue.
 
 ## Edit the shared menu
 
-Open **Menu** on the kitchen site. There is no separate menu editing code. You can add
-items, change names and prices, mark items sold out, and archive or restore items.
+Open **Menu** on the kitchen site. There is no separate menu editing code. New items
+require a name, price, and photo. Choose **Take photo** to capture from a camera, or
+**Upload photo** to choose an existing JPEG, PNG, or WebP. The photo preview is saved
+with the item; **Replace photo** or **Take photo** replaces it on the next save.
+Existing items can be renamed, repriced, marked sold out, or deleted. Deleted items
+leave the ordering menu and can be restored from **Deleted**; past orders are kept.
+Starter items without photos remain editable so their real photos can be added later.
 The ordering screen refreshes every five seconds and when returning to the tab.
 If a selected item changes, checkout pauses until the customer reviews the basket.
 Unavailable items must be removed before placing a new order.
@@ -36,6 +41,18 @@ Each variation's `user_data` holds the stable FullFill item ID, location, availa
 and verification mode. Version checks reject conflicting simultaneous edits.
 New items still need vision reference enrollment; adding a menu item does not train
 the vision checker. Existing burritos retain label verification.
+
+Photos persist as Square Catalog images. Menu entries expose `photo_id` and
+`photo_url` for later vision integration; the checker does not consume them yet.
+The browser resizes to at most 1920 pixels on the longest side, re-encodes to JPEG
+without camera metadata, and keeps uploads below 1.5 MB. The backend validates the
+actual image before uploading. `POST /v1/menu/items` accepts optional
+`photo: {"data_base64": "..."}` (required for creation); omitting it preserves the
+existing photo. Uploads use a separate idempotency key derived from the save key.
+The image is attached only in the version-checked item save, so conflicting edits
+cannot silently overwrite a photo. Replaced images and unsuccessful attachments
+remain in Square's image library; deleting a menu item archives its catalog item.
+See [Square's image API](https://developer.squareup.com/reference/square/catalog-api/create-catalog-image).
 
 The active kitchen queue shows the newest **30** nonempty open orders. When order
 31 arrives, the oldest drops out of every kitchen screen on the next refresh.
@@ -124,15 +141,17 @@ All live tickets currently return `disposition="pending"` and `current_check=nul
 They must not turn green merely because they arrived from Square. The vision
 workflow can fetch `OrderSnapshot` by ID and later supply its actual `CheckResult`
 through the station snapshot. Associate results with the order ID and revision;
-do not reuse a result after the order changes. No camera permission or vision API
-call is triggered by these pages.
+do not reuse a result after the order changes. The menu editor requests camera
+permission only when **Take photo** is clicked, and stops its camera when captured,
+closed, or navigated away from. It does not call the vision API.
 
 ## Verification
 
 `python -m pytest -q tests/test_square_orders.py tests/test_menu_sync.py` covers request validation,
 server-owned prices, idempotency forwarding, independent API instances, pagination,
 location isolation, provider failures, the 30-ticket cap, shared menu editing,
-demo authorization, conflicting edits, safe checkout retries, and pending check state. Run it in the
+demo authorization, conflicting edits, photo validation/replacement, upload retries,
+deletion/restoration, safe checkout retries, and pending check state. Run it in the
 workspace virtual environment. `npm --prefix apps/web run build` checks TypeScript
 and builds both pages. Live Sandbox testing should use an explicitly identified
 test basket and verify that it appears in the other browser's queue.

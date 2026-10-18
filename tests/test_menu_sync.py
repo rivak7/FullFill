@@ -1,17 +1,28 @@
 """Menu persistence, checkout price consistency, and demo authorization."""
 
+import base64
 import copy
 import json
+from email import policy
+from email.parser import BytesParser
+from io import BytesIO
 
 import httpx
 import pytest
 from fastapi.testclient import TestClient
 from fullfill.adapters.orders.square import SquareOrders
 from fullfill.main import create_app
+from PIL import Image
 
 ACCESS = "demo-code-for-tests-at-least-32-characters"
 HEADERS = {"Authorization": "Bearer " + ACCESS}
 EDIT_HEADERS = {**HEADERS, "Idempotency-Key": "edit-1"}
+
+
+def photo(color="orange"):
+    output = BytesIO()
+    Image.new("RGB", (80, 60), color).save(output, format="PNG")
+    return {"data_base64": base64.b64encode(output.getvalue()).decode()}
 
 
 class SquareCatalog:
@@ -20,15 +31,60 @@ class SquareCatalog:
         self.orders = {}
         self.submissions = []
         self.fail_after_order = False
+        self.images = {}
+        self.image_uploads = []
+        self.fail_after_image = False
+        self.fail_after_menu = False
+        self.race_menu_save = False
 
     def __call__(self, request):
         if request.url.path == "/v2/catalog/list":
             return httpx.Response(200, json={"objects": self.objects})
+        if request.url.path == "/v2/catalog/images":
+            message = BytesParser(policy=policy.default).parsebytes(
+                b"Content-Type: "
+                + request.headers["content-type"].encode()
+                + b"\r\n\r\n"
+                + request.content
+            )
+            parts = {
+                part.get_param("name", header="content-disposition"): part
+                for part in message.iter_parts()
+            }
+            body = json.loads(parts["request"].get_payload(decode=True))
+            data = parts["file"].get_payload(decode=True)
+            assert "object_id" not in body  # Never attach before the version-checked save.
+            assert parts["file"].get_content_type() in ("image/jpeg", "image/png")
+            key = body["idempotency_key"]
+            self.image_uploads.append((key, data))
+            if key not in self.images:
+                image_id = f"image-{len(self.images)}"
+                self.images[key] = {
+                    "type": "IMAGE",
+                    "id": image_id,
+                    "image_data": {"url": f"https://images.example.com/{image_id}.png"},
+                }
+            if self.fail_after_image:
+                self.fail_after_image = False
+                raise httpx.ReadTimeout("lost image response", request=request)
+            return httpx.Response(200, json={"image": self.images[key]})
         body = json.loads(request.content)
+        if request.url.path == "/v2/catalog/batch-retrieve":
+            return httpx.Response(
+                200,
+                json={
+                    "objects": [
+                        image for image in self.images.values() if image["id"] in body["object_ids"]
+                    ]
+                },
+            )
         if request.url.path == "/v2/catalog/object":
             obj = copy.deepcopy(body["object"])
             existing = next((item for item in self.objects if item["id"] == obj["id"]), None)
             if existing:
+                if self.race_menu_save:
+                    self.race_menu_save = False
+                    existing["version"] += 1
                 if obj["version"] != existing["version"]:
                     return httpx.Response(400, json={"errors": [{"code": "VERSION_MISMATCH"}]})
                 obj["version"] += 1
@@ -43,6 +99,9 @@ class SquareCatalog:
                 obj["version"] = 1
                 obj["item_data"]["variations"][0]["id"] = "variation-" + obj["id"]
             self.objects.append(obj)
+            if self.fail_after_menu:
+                self.fail_after_menu = False
+                raise httpx.ReadTimeout("lost menu response", request=request)
             return httpx.Response(200, json={"catalog_object": obj})
         assert request.url.path == "/v2/orders"
         key = body["idempotency_key"]
@@ -89,7 +148,7 @@ def edit(name="Fries", **changes):
 
 
 def add_item(client):
-    response = client.post("/v1/menu/items", json=edit(), headers=EDIT_HEADERS)
+    response = client.post("/v1/menu/items", json=edit(photo=photo()), headers=EDIT_HEADERS)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -264,3 +323,108 @@ def test_menu_save_headers_are_allowed_in_browser_preflight():
             },
         )
         assert response.status_code == 200
+
+
+def test_new_items_require_photo_but_existing_legacy_items_can_still_be_edited():
+    square = SquareCatalog()
+    with client_for(square) as client:
+        missing = client.post("/v1/menu/items", json=edit(), headers=EDIT_HEADERS)
+        assert missing.status_code == 422
+        assert not square.objects and not square.image_uploads
+        add_item(client)
+        del square.objects[0]["item_data"]["image_ids"]
+        changed = client.post(
+            "/v1/menu/items", json=edit(price_cents=650, version=1), headers=EDIT_HEADERS
+        )
+        assert changed.status_code == 200
+        assert changed.json()["items"][0]["photo_url"] is None
+        assert len(square.image_uploads) == 1
+
+
+def test_photo_and_price_replacement_persist_and_delete_restore_preserves_photo():
+    square = SquareCatalog()
+    with client_for(square) as client:
+        original = add_item(client)["items"][0]
+        assert original["photo_url"].endswith("image-0.png")
+        replacement = client.post(
+            "/v1/menu/items",
+            json=edit("Fries large", price_cents=700, version=1, photo=photo("green")),
+            headers={**HEADERS, "Idempotency-Key": "replace"},
+        )
+        assert replacement.status_code == 200
+        changed = replacement.json()["items"][0]
+        assert changed["photo_id"] != original["photo_id"]
+        assert changed["photo_url"].endswith("image-1.png")
+        assert changed["price_cents"] == 700
+    with client_for(square) as other_screen:
+        assert other_screen.get("/v1/menu/manage", headers=HEADERS).json()["items"][0] == changed
+        for version, archived in [(2, True), (3, False)]:
+            response = other_screen.post(
+                "/v1/menu/items",
+                json=edit("Fries large", price_cents=700, version=version, archived=archived),
+                headers={**HEADERS, "Idempotency-Key": f"archive-{version}"},
+            )
+            assert response.status_code == 200
+            item = response.json()["items"][0]
+            assert item["archived"] is archived
+            assert item["photo_id"] == changed["photo_id"]
+            assert item["photo_url"] == changed["photo_url"]
+            assert len(other_screen.get("/v1/menu", headers=HEADERS).json()) == (
+                0 if archived else 1
+            )
+    assert len(square.image_uploads) == 2
+
+
+@pytest.mark.parametrize("failure", ["fail_after_image", "fail_after_menu"])
+def test_retry_after_photo_or_item_response_is_lost_does_not_duplicate(failure):
+    square = SquareCatalog()
+    setattr(square, failure, True)
+    body = edit(photo=photo())
+    with client_for(square) as client:
+        assert client.post("/v1/menu/items", json=body, headers=EDIT_HEADERS).status_code == 503
+    with client_for(square) as restarted:
+        retried = restarted.post("/v1/menu/items", json=body, headers=EDIT_HEADERS)
+        assert retried.status_code == 200
+        assert retried.json()["items"][0]["photo_url"].endswith("image-0.png")
+    assert len(square.objects) == len(square.images) == 1
+    assert all(upload == square.image_uploads[0] for upload in square.image_uploads)
+
+
+def test_stale_photo_save_and_square_version_conflict_keep_current_photo():
+    square = SquareCatalog()
+    with client_for(square) as client:
+        original = add_item(client)["items"][0]
+        square.race_menu_save = True
+        body = edit(version=1, photo=photo("green"))
+        response = client.post(
+            "/v1/menu/items", json=body, headers={**HEADERS, "Idempotency-Key": "race"}
+        )
+        assert response.status_code == 409
+        current = client.get("/v1/menu/current", headers=HEADERS).json()["items"][0]
+        assert current["photo_id"] == original["photo_id"]
+        assert current["version"] == 2
+        assert len(square.image_uploads) == 2
+        stale = client.post(
+            "/v1/menu/items", json=body, headers={**HEADERS, "Idempotency-Key": "stale"}
+        )
+        assert stale.status_code == 409
+        assert len(square.image_uploads) == 2  # Reject before uploading a stale edit.
+
+
+@pytest.mark.parametrize(
+    "encoded",
+    [
+        "not base64!",
+        base64.b64encode(b"<svg></svg>").decode(),
+        photo()["data_base64"][:60],
+        "A" * 2_000_004,
+    ],
+)
+def test_invalid_photos_are_rejected_before_calling_square(encoded):
+    square = SquareCatalog()
+    with client_for(square) as client:
+        response = client.post(
+            "/v1/menu/items", json=edit(photo={"data_base64": encoded}), headers=EDIT_HEADERS
+        )
+        assert response.status_code == 422
+    assert not square.objects and not square.image_uploads
