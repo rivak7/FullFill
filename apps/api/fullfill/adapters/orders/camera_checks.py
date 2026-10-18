@@ -159,8 +159,14 @@ class SquareCameraChecks:
             )
             if len(packed) > 510:
                 raise ValueError("Check result exceeds the demo storage limit")
-            for index, result_key in enumerate(RESULT_KEYS):
-                metadata[result_key] = packed[index * 255 : (index + 1) * 255]
+            # Square rejects empty metadata values. Always write both chunks,
+            # reserving the final character for the second on short results;
+            # this also replaces any tail left by a previous longer result.
+            split = min(255, len(packed) - 1)
+            for result_key, chunk in zip(
+                RESULT_KEYS, (packed[:split], packed[split:]), strict=True
+            ):
+                metadata[result_key] = chunk
         record["t"] = int(time.time())
         metadata[CHECK_KEY] = json.dumps(record, separators=(",", ":"))
         # An edit or manual decision while inference runs must win. Never retry
