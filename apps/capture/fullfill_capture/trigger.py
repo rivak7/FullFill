@@ -43,7 +43,7 @@ class TriggerSettings:
     # analysis pixels changed; at 160 px wide a sauce packet covers roughly 50-100.
     min_change_pixels: int = 12
     # Spending guards, matching config.py.
-    min_seconds_between_checks: float = 3.0
+    min_seconds_between_checks: float = 1.0
     max_calls_per_minute: int = 30
     max_calls_per_session: int = 500
     check_on_removal: bool = False

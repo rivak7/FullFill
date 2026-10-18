@@ -51,7 +51,7 @@ def main() -> None:
     parser.add_argument("--preview", action="store_true", help="show a window with state")
     parser.add_argument("--out", default="logs/snapshots", help="where fake checks save JPEGs")
     parser.add_argument("--still", type=float, default=0.5, help="seconds of stillness")
-    parser.add_argument("--cooldown", type=float, default=3.0, help="seconds between calls")
+    parser.add_argument("--cooldown", type=float, default=1.0, help="seconds between calls")
     parser.add_argument("--max-calls", type=int, default=500, help="hard cap for this run")
     parser.add_argument("--check-removals", action="store_true", help="also check removals")
     args = parser.parse_args()

@@ -27,7 +27,7 @@ MAT_ROI = None
 # --- Stillness trigger --------------------------------------------------
 MOTION_THRESHOLD = 12.0    # mean pixel change inside the mat that counts as motion
 STILL_SECONDS = 0.5        # how long the mat must stay still before a check fires
-MIN_SECONDS_BETWEEN_CHECKS = 3.0
+MIN_SECONDS_BETWEEN_CHECKS = 1.0  # at most 1 Perceptron call per second
 
 # --- Image sent to Perceptron -------------------------------------------
 UPLOAD_MAX_SIDE = 1024     # longest side in pixels after downscaling
