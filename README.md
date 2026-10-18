@@ -75,6 +75,15 @@ refreshes and menu visits and includes other tabs on this browser/site. It inclu
 failed requests, so it is not a provider billing total or an all-devices counter.
 Older timestamps are discarded when history is read; clearing browser data resets it.
 Camera images stay in memory; only compact observations and hashes persist in Square.
+Expand **CV logs** for a per-check timeline: order and attempt IDs, trigger, elapsed
+time, result/discrepancies, and scene invalidation or server failure details.
+The latest 50 checks are kept in this tab's session storage across refreshes and
+menu visits, without photos or API keys. **Copy logs** exports the diagnostic text;
+**Clear logs** clears this history without changing the separate activity count.
+Checks made before this feature or in another tab have no local timeline, but the
+selected ticket's latest saved result is shown separately. Technical errors identify
+the failed stage and a safe category (such as provider HTTP status or timeout),
+without returning raw provider responses or credentials.
 Keep the page visible and the computer awake. Preview frames stay local; automatic
 checks send selected snapshots only after the trigger conditions are met.
 

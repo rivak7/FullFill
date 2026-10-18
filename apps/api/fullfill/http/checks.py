@@ -2,6 +2,7 @@
 
 import asyncio
 import hashlib
+import logging
 import os
 import time
 from collections import OrderedDict
@@ -140,6 +141,7 @@ async def check_camera(
     if reserved is None:
         return state
 
+    phase = "reference_photos"
     try:
         targets = targets_for(state.order)
         menu = await source.menu()
@@ -184,6 +186,7 @@ async def check_camera(
             targets=targets,
             references=references,
         )
+        phase = "vision_provider"
         if provider is not None:
             observations = await provider.inspect(vision_input)
         else:
@@ -197,6 +200,7 @@ async def check_camera(
                     client=client,
                     max_output_tokens=min(4000, 400 + 140 * (len(targets) + len(alternatives))),
                 ).inspect(vision_input)
+        phase = "saving_result"
         return await source.finish_camera_check(reserved, observations, reference_fingerprint(menu))
     except OrderSourceError as error:
         # A revision conflict preserves the worker's newer decision.
@@ -215,11 +219,33 @@ async def check_camera(
         KeyError,
         TimeoutError,
         Image.DecompressionBombError,
-    ):
+    ) as error:
+        underlying = error.__cause__ or error
+        status = getattr(underlying, "status_code", None)
+        if isinstance(underlying, httpx.HTTPStatusError):
+            status = underlying.response.status_code
+        if isinstance(status, int) and 400 <= status <= 599:
+            category = f"http_{status}"
+        elif (
+            isinstance(underlying, (TimeoutError, httpx.TimeoutException))
+            or "timeout" in type(underlying).__name__.lower()
+        ):
+            category = "timeout"
+        elif isinstance(error, VisionProviderError) and error.__cause__ is None:
+            category = "invalid_response"
+        elif isinstance(error, (ValueError, KeyError, OSError)):
+            category = "invalid_data"
+        else:
+            category = "unavailable"
+        # Never log raw provider exceptions, request bodies, photos, or credentials.
+        logging.getLogger(__name__).warning(
+            "camera_check_failed phase=%s category=%s attempt=%s", phase, category, idempotency_key
+        )
         await source.finish_camera_check(reserved)
         raise HTTPException(
             502,
-            "The camera check failed. No automatic retry was sent. Check manually or try again.",
+            f"Camera check failed during {phase.replace('_', ' ')} ({phase}.{category}). "
+            "No automatic retry was sent. Check manually or try again.",
         ) from None
 
 

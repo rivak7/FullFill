@@ -109,13 +109,18 @@ export class SceneTrigger {
 
 // A sticky guard: removing and replacing food still invalidates the captured photo.
 export class SceneGuard {
-  private dirty = false;
+  private invalidReason: string | null = null;
   private lastAt: number;
   constructor(private captured: Uint8Array, now: number) { this.lastAt = now; }
-  invalidate() { this.dirty = true; }
+  get reason() { return this.invalidReason; }
+  invalidate(reason = "scene_changed") { this.invalidReason ??= reason; }
   sample(frame: Uint8Array, now: number) {
-    if (now - this.lastAt > 1000 || frameDifference(frame, this.captured) > 8) this.dirty = true;
+    if (now - this.lastAt > 1000) this.invalidate("sampling_gap");
+    if (frameDifference(frame, this.captured) > 8) this.invalidate("scene_changed");
     this.lastAt = now;
   }
-  unchanged(now: number) { return !this.dirty && now - this.lastAt <= 1000; }
+  unchanged(now: number) {
+    if (now - this.lastAt > 1000) this.invalidate("sampling_gap");
+    return this.invalidReason === null;
+  }
 }

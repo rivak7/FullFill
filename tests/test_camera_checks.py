@@ -241,7 +241,7 @@ def test_lost_response_is_recovered_without_another_paid_call():
     assert len(vision.calls) == 1
 
 
-def test_failed_provider_never_goes_green_and_does_not_leak_error_or_retry():
+def test_failed_provider_never_goes_green_and_does_not_leak_error_or_retry(caplog):
     class FailedVision(Vision):
         async def inspect(self, request):
             self.calls.append(request)
@@ -252,10 +252,32 @@ def test_failed_provider_never_goes_green_and_does_not_leak_error_or_retry():
         result = send(client)
         assert result.status_code == 502
         assert "secret-key" not in result.text
+        assert "vision_provider.invalid_response" in result.json()["detail"]
         state = send(client).json()
         assert state["current_check"]["execution_status"] == "failed"
         assert state["disposition"] == "needs_review"
     assert len(vision.calls) == 1
+    assert "phase=vision_provider" in caplog.text
+    assert "secret-key" not in caplog.text
+
+
+@pytest.mark.parametrize("status", [401, 429, 503])
+def test_provider_http_status_is_diagnostic_without_exposing_response(status):
+    class FailedVision(Vision):
+        async def inspect(self, request):
+            response = httpx.Response(
+                status, request=httpx.Request("POST", "https://provider.invalid")
+            )
+            cause = httpx.HTTPStatusError(
+                "secret response", request=response.request, response=response
+            )
+            raise VisionProviderError("secret-key") from cause
+
+    with TestClient(Square().app(FailedVision())) as client:
+        result = send(client)
+        assert result.status_code == 502
+        assert f"vision_provider.http_{status}" in result.json()["detail"]
+        assert "secret" not in result.text
 
 
 def test_duplicate_keys_reject_different_images_but_new_checks_need_no_cooldown():
@@ -314,7 +336,9 @@ def test_unavailable_reference_does_not_call_vision(monkeypatch):
     monkeypatch.setattr("fullfill.http.checks.reference_image", unavailable)
     square, vision = Square(), Vision()
     with TestClient(square.app(vision)) as client:
-        assert send(client).status_code == 502
+        result = send(client)
+        assert result.status_code == 502
+        assert "reference_photos.unavailable" in result.json()["detail"]
     assert not vision.calls
 
 
