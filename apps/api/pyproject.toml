@@ -5,6 +5,7 @@ requires-python = ">=3.13,<3.14"
 dependencies = [
     "fullfill-contracts",
     "fastapi>=0.115,<1",
+    "httpx>=0.28,<1",
     "perceptron>=0.4,<0.5",
     "uvicorn[standard]>=0.34,<1",
 ]

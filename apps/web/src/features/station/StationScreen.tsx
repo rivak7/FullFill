@@ -30,7 +30,7 @@ function Ticket({ orderId, lines }: { orderId: string; lines: ScreenLine[] }) {
     <section className="ticket" aria-label="Order ticket">
       <header className="ticket-header">
         <span className="ticket-label">Order</span>
-        <span className="ticket-id">{orderId}</span>
+        <span className="ticket-id" title={orderId}>{orderId.length > 12 ? orderId.slice(-8).toUpperCase() : orderId}</span>
       </header>
       <ul className="ticket-lines">
         {lines.map(({ line, status, note }) => (

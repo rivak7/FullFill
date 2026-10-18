@@ -1,5 +1,5 @@
 version = 1
-revision = 3
+revision = 5
 requires-python = "==3.13.*"
 
 [manifest]
@@ -92,6 +92,7 @@ source = { editable = "apps/api" }
 dependencies = [
     { name = "fastapi" },
     { name = "fullfill-contracts" },
+    { name = "httpx" },
     { name = "perceptron" },
     { name = "uvicorn", extra = ["standard"] },
 ]
@@ -100,6 +101,7 @@ dependencies = [
 requires-dist = [
     { name = "fastapi", specifier = ">=0.115,<1" },
     { name = "fullfill-contracts", editable = "packages/contracts" },
+    { name = "httpx", specifier = ">=0.28,<1" },
     { name = "perceptron", specifier = ">=0.4,<0.5" },
     { name = "uvicorn", extras = ["standard"], specifier = ">=0.34,<1" },
 ]

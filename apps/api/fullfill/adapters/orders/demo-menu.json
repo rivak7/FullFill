@@ -1,0 +1,21 @@
+[
+  {
+    "item_id": "chicken_burrito",
+    "name": "Chicken burrito",
+    "description": "Chicken, rice and beans in a warm tortilla.",
+    "price_cents": 1000,
+    "verification_mode": "label"
+  },
+  {
+    "item_id": "fries",
+    "name": "Fries",
+    "description": "One portion of golden, salted fries.",
+    "price_cents": 400
+  },
+  {
+    "item_id": "drink",
+    "name": "Drink",
+    "description": "One drink to go with your order.",
+    "price_cents": 300
+  }
+]
