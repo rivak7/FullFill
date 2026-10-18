@@ -39,7 +39,7 @@ export type Discrepancies = Discrepancy[];
 export type Disposition = "pending" | "verified" | "needs_review" | "overridden";
 export type DispositionRevision2 = number;
 export type ErrorCode = string | null;
-export type ExecutionStatus1 = "queued" | "running" | "completed" | "failed" | "superseded";
+export type ExecutionStatus1 = "queued" | "running" | "awaiting_confirmation" | "completed" | "failed" | "superseded";
 export type OrderId2 = string;
 export type OrderRevision2 = number;
 export type SchemaVersion2 = 1;
@@ -108,6 +108,8 @@ export type ItemId2 = string;
 export type Revision1 = number;
 export type EventId = string;
 export type EventType = "check.queued" | "check.completed" | "check.failed" | "order.updated" | "resync_required";
+export type ExpiresAt = number;
+export type WorkerId = string;
 export type Disposition1 = "pending" | "verified" | "needs_review" | "overridden";
 export type DispositionRevision3 = number;
 export type SchemaVersion5 = 1;
@@ -301,10 +303,15 @@ export interface StationEvent {
   station_id: StationId3;
 }
 export interface OrderState {
+  claim?: OrderClaim | null;
   current_check?: CheckResult | null;
   disposition: Disposition1;
   disposition_revision: DispositionRevision3;
   order: OrderSnapshot;
+}
+export interface OrderClaim {
+  expires_at: ExpiresAt;
+  worker_id: WorkerId;
 }
 export interface StationSnapshot {
   event_cursor?: EventCursor;

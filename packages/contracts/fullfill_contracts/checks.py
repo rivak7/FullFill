@@ -6,7 +6,9 @@ from pydantic import AwareDatetime, Field
 
 from .common import Contract, Identifier, PositiveQuantity, Quantity, Revision
 
-ExecutionStatus = Literal["queued", "running", "completed", "failed", "superseded"]
+ExecutionStatus = Literal[
+    "queued", "running", "awaiting_confirmation", "completed", "failed", "superseded"
+]
 Verdict = Literal["pass", "fail", "unsure"]
 Disposition = Literal["pending", "verified", "needs_review", "overridden"]
 

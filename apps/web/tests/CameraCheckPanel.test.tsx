@@ -6,11 +6,11 @@ import { JSDOM } from "jsdom";
 import { orderApi } from "../src/api/client";
 import type { OrderState } from "../src/api/generated/contracts";
 import { CameraCheckPanel } from "../src/features/orders/CameraCheckPanel";
-import { SceneTrigger } from "../src/features/orders/sceneTrigger";
+import { SceneGuard, SceneTrigger } from "../src/features/orders/sceneTrigger";
 import { toScreenState } from "../src/features/station/screenState";
 import { readCheckActivity, recordCheckAttempt } from "../src/features/orders/CheckActivity";
 
-vi.mock("../src/api/client", () => ({ orderApi: { cameraConfig: vi.fn(), checkCamera: vi.fn() } }));
+vi.mock("../src/api/client", () => ({ orderApi: { cameraConfig: vi.fn(), checkCamera: vi.fn(), confirmCamera: vi.fn() } }));
 
 function ticket(id = "first"): OrderState {
   return { order: { schema_version: 1, order_id: id, revision: 3, lines: [{ line_id: "line", item_id: "fries", name: "Fries", quantity: 1, verification_mode: "visible_item" }] }, disposition: "pending", disposition_revision: 3, current_check: null };
@@ -33,7 +33,7 @@ beforeEach(() => {
   vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/jpeg;base64,cGhvdG8=");
   stopTrack = vi.fn();
   const track = { stop: stopTrack, addEventListener: vi.fn(), getSettings: () => ({ deviceId: "camera" }) };
-  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ getTracks: () => [track], getVideoTracks: () => [track] }), enumerateDevices: vi.fn().mockResolvedValue([]) } });
+  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ active: true, getTracks: () => [track], getVideoTracks: () => [track] }), enumerateDevices: vi.fn().mockResolvedValue([]) } });
   vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: true });
   vi.mocked(orderApi.checkCamera).mockResolvedValue(checked());
   onResult = vi.fn(); onBusyChange = vi.fn();
@@ -44,7 +44,7 @@ afterEach(async () => {
   vi.restoreAllMocks(); vi.resetAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
 async function render(order = ticket(), disabled = false, pauseToken = 0) {
-  await act(async () => root.render(<CameraCheckPanel order={order} disabled={disabled} pauseToken={pauseToken} onResult={onResult} onBusyChange={onBusyChange} />));
+  await act(async () => root.render(<CameraCheckPanel workerId="worker" order={order} disabled={disabled} pauseToken={pauseToken} onResult={onResult} onBusyChange={onBusyChange} />));
 }
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(button => button.textContent === label);
@@ -69,7 +69,7 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await click("Check order");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" } });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" } });
   await render(ticket("second"), true);
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -245,4 +245,57 @@ it("keeps uncertain items visible alongside definite shortages", () => {
   const screen = toScreenState(state);
   expect(screen.tone).toBe("red");
   expect(screen.problems).toHaveLength(2);
+});
+
+it("invalidates a photo if food moves away and returns, or sampling stops", () => {
+  const frame = new Uint8Array(1024).fill(80);
+  const guard = new SceneGuard(frame, 0);
+  guard.sample(frame, 250); expect(guard.unchanged(250)).toBe(true);
+  guard.sample(new Uint8Array(1024), 500);
+  guard.sample(frame, 750); expect(guard.unchanged(750)).toBe(false);
+  const stalled = new SceneGuard(frame, 0);
+  stalled.sample(frame, 1500); expect(stalled.unchanged(1500)).toBe(false);
+});
+
+it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene safely: %s", async kind => {
+  let resolve!: (state: OrderState) => void;
+  vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  vi.mocked(orderApi.confirmCamera).mockImplementation(async body => {
+    const state = checked();
+    state.current_check!.execution_status = body.scene_unchanged ? "completed" : "superseded";
+    state.current_check!.verdict = body.scene_unchanged ? "pass" : null;
+    state.disposition = body.scene_unchanged ? "verified" : "needs_review";
+    return state;
+  });
+  await render(); await camera(); await click("Check order");
+  await act(async () => vi.advanceTimersByTimeAsync(1500));
+  if (kind === "motion") {
+    vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(4096).fill(200) }) } as unknown as CanvasRenderingContext2D);
+    await act(async () => vi.advanceTimersByTimeAsync(250));
+  } else if (kind === "hidden") {
+    vi.spyOn(document, "hidden", "get").mockReturnValue(true);
+    await act(async () => document.dispatchEvent(new Event("visibilitychange")));
+  } else if (kind === "closed") await click("Close camera");
+  const pending = checked(); pending.current_check!.execution_status = "awaiting_confirmation"; pending.current_check!.verdict = null;
+  await act(async () => resolve(pending));
+  expect(orderApi.confirmCamera).toHaveBeenCalledWith(expect.objectContaining({ scene_unchanged: kind === "still" }));
+  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe(kind === "still" ? "green" : "amber");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+});
+
+it("revokes a result if the scene changes during confirmation without spending again", async () => {
+  const pending = checked(); pending.current_check!.execution_status = "awaiting_confirmation";
+  vi.mocked(orderApi.checkCamera).mockResolvedValue(pending);
+  let resolve!: (state: OrderState) => void;
+  vi.mocked(orderApi.confirmCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; })).mockImplementationOnce(async () => {
+    const rejected = checked(); rejected.current_check!.execution_status = "superseded"; rejected.disposition = "needs_review";
+    return rejected;
+  });
+  await render(); await camera(); await click("Check order");
+  await click("Close camera");
+  const accepted = checked(); accepted.current_check!.verdict = "pass";
+  await act(async () => resolve(accepted));
+  expect(vi.mocked(orderApi.confirmCamera).mock.calls.map(call => call[0].scene_unchanged)).toEqual([true, false]);
+  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("amber");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
 });

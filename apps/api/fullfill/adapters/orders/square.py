@@ -8,6 +8,7 @@ import json
 import os
 import time
 from decimal import Decimal, InvalidOperation
+from functools import lru_cache
 from pathlib import Path
 from urllib.parse import quote
 
@@ -34,7 +35,9 @@ from .camera_checks import (
     check_result,
     read_record,
 )
+from .claims import CLAIM_KEY, SquareClaims, claim_value, read_claim, require_worker
 from .menu import SquareMenu, menu_snapshot
+from .queue_cache import SquareQueue
 
 
 def demo_menu() -> list[MenuEntry]:
@@ -42,7 +45,7 @@ def demo_menu() -> list[MenuEntry]:
     return [MenuEntry.model_validate(item) for item in data]
 
 
-class SquareOrders(SquareCameraChecks):
+class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
     base_url = "https://connect.squareupsandbox.com"
     queue_limit = 10
 
@@ -53,7 +56,9 @@ class SquareOrders(SquareCameraChecks):
         *,
         transport: httpx.AsyncBaseTransport | None = None,
         catalog: bool = False,
+        queue_cache: bool = False,
     ):
+        self.init_queue_cache(queue_cache)
         self._token = token
         self.location_id = location_id
         self._transport = transport
@@ -74,7 +79,12 @@ class SquareOrders(SquareCameraChecks):
                 "on the backend, then restart it.",
                 503,
             )
-        return cls(token, location, catalog=True)
+        return cls._configured(token, location)
+
+    @classmethod
+    @lru_cache(maxsize=4)
+    def _configured(cls, token, location):
+        return cls(token, location, catalog=True, queue_cache=True)
 
     async def _request(
         self, method: str, path: str, payload: dict | None = None, *, files: dict | None = None
@@ -125,6 +135,8 @@ class SquareOrders(SquareCameraChecks):
             result = response.json()
             if not isinstance(result, dict) or result.get("errors"):
                 raise ValueError
+            if method in ("PUT", "POST") and isinstance(result.get("order"), dict):
+                self._remember_order(result["order"], local=True)
             return result
         except ValueError:
             raise OrderSourceError(
@@ -231,7 +243,7 @@ class SquareOrders(SquareCameraChecks):
         metadata = order.get("metadata") or {}
         status = metadata.get("fullfill_queue_status")
         matches = metadata.get("fullfill_status_fingerprint") == self._ticket_fingerprint(order)
-        check = check_result(snapshot, metadata) if matches else None
+        check = check_result(snapshot, metadata, order.get("line_items", [])) if matches else None
         if not matches:
             status = "unfulfilled"
         return OrderState(
@@ -241,44 +253,8 @@ class SquareOrders(SquareCameraChecks):
             else {"fulfilled": "overridden", "unsure": "needs_review"}.get(status, "pending"),
             disposition_revision=snapshot.revision,
             current_check=check,
+            claim=read_claim(metadata),
         )
-
-    async def _queue_records(self) -> list[dict]:
-        payload = {
-            "location_ids": [self.location_id],
-            "return_entries": False,
-            "limit": 100,
-            "query": {
-                "filter": {"state_filter": {"states": ["OPEN"]}},
-                "sort": {"sort_field": "CREATED_AT", "sort_order": "ASC"},
-            },
-        }
-        orders: dict[str, dict] = {}
-        seen_cursors = set()
-        for _ in range(20):
-            result = await self._request("POST", "/v2/orders/search", payload)
-            page = result.get("orders", [])
-            if not isinstance(page, list) or any(not isinstance(order, dict) for order in page):
-                raise OrderSourceError("Square returned an unreadable queue. Please retry.")
-            for order in page:
-                # Empty orders aren't checkable tickets; terminal orders aren't pending work.
-                if (
-                    order.get("state") == "OPEN"
-                    and order.get("line_items")
-                    and (order.get("metadata") or {}).get("fullfill_queue_archived") != "true"
-                ):
-                    snapshot = self._snapshot(order)
-                    orders[snapshot.order_id] = order
-            cursor = result.get("cursor")
-            if not cursor:
-                return list(orders.values())
-            if not isinstance(cursor, str):
-                raise OrderSourceError("Square returned an unreadable queue cursor. Please retry.")
-            if cursor in seen_cursors:
-                break
-            seen_cursors.add(cursor)
-            payload["cursor"] = cursor
-        raise OrderSourceError("The order queue is too large to load completely. Try again later.")
 
     async def list_orders(self) -> list[OrderSnapshot]:
         return [self._snapshot(order) for order in await self._queue_records()]
@@ -366,6 +342,7 @@ class SquareOrders(SquareCameraChecks):
             raise OrderSourceError(
                 "This order changed on another screen. Refresh and try again.", 409
             )
+        require_worker(order, edit.worker_id)
         if CHECK_KEY in metadata:
             record = read_record(metadata)
             record["s"] = "cancelled"
@@ -382,6 +359,7 @@ class SquareOrders(SquareCameraChecks):
                         "metadata": {
                             **metadata,
                             "fullfill_queue_status": edit.status,
+                            CLAIM_KEY: claim_value(edit.worker_id),
                             COMPLETED_AT_KEY: str(
                                 int(time.time()) if edit.status == "fulfilled" else 0
                             ),

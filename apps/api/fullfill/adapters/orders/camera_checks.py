@@ -8,6 +8,7 @@ lost. Retrying a paid call is always an explicit new attempt.
 import hashlib
 import json
 import time
+import zlib
 from datetime import UTC, datetime
 from urllib.parse import quote
 
@@ -18,8 +19,11 @@ from fullfill.application.order_source import OrderSourceError
 from fullfill.domain.compare_order import compare_order, targets_for
 from fullfill.domain.vision_uncertainty import REASON_CODES, REASONS
 
+from .check_storage import pack_result, unpack_result
+from .claims import CLAIM_KEY, claim_value, require_worker
+
 CHECK_KEY = "fullfill_camera_check"
-RESULT_KEYS = ("fullfill_camera_result_0", "fullfill_camera_result_1")
+CONFIRM_SECONDS = 15
 LEASE_SECONDS = 90
 COMPLETED_AT_KEY = "fullfill_completed_at"
 UNDO_SECONDS = 120
@@ -33,17 +37,19 @@ def read_record(metadata):
         return {}
 
 
-def check_result(order, metadata):
+def check_result(order, metadata, lines=()):
     record = read_record(metadata)
     if not record or record.get("s") == "cancelled":
         return None
     status = record["s"]
     if status == "running" and time.time() - record["t"] > LEASE_SECONDS:
         status = "failed"
+    if status == "awaiting_confirmation" and time.time() - record["t"] > CONFIRM_SECONDS:
+        status = "superseded"
     comparison = None
     if status == "completed":
         try:
-            data = json.loads("".join(metadata.get(key, "") for key in RESULT_KEYS))
+            data = unpack_result(metadata, lines, record.get("r", 2))
             targets = targets_for(order)
             if len(data["o"]) != len(targets):
                 raise ValueError
@@ -62,17 +68,22 @@ def check_result(order, metadata):
                     )
                     for target, entry in zip(targets, data["o"], strict=True)
                 ],
-                unexpected_items=[UnexpectedItem(name=name) for name in data["u"]],
+                unexpected_items=[
+                    UnexpectedItem(name=item)
+                    if isinstance(item, str)
+                    else UnexpectedItem(name=item[0], quantity=item[1])
+                    for item in data["u"]
+                ],
                 scene_uncertainty=data.get("s"),
             )
             comparison = compare_order(order, observations)
-        except (IndexError, KeyError, TypeError, ValueError):
+        except (IndexError, KeyError, TypeError, ValueError, zlib.error):
             status = "failed"
     disposition = (
         {"pass": "verified", "fail": "pending", "unsure": "needs_review"}[comparison.verdict]
         if comparison
         else "needs_review"
-        if status == "failed"
+        if status in ("failed", "superseded")
         else "pending"
     )
     return CheckResult(
@@ -86,16 +97,21 @@ def check_result(order, metadata):
         verdict=comparison.verdict if comparison else None,
         discrepancies=comparison.discrepancies if comparison else [],
         completed_at=datetime.fromtimestamp(record["t"], UTC) if status == "completed" else None,
-        error_code="vision_unavailable" if status == "failed" else None,
+        error_code="scene_changed"
+        if status == "superseded"
+        else "vision_unavailable"
+        if status == "failed"
+        else None,
     )
 
 
 class SquareCameraChecks:
-    async def reserve_camera_check(self, order_id, revision, image_digest, request_key):
+    async def reserve_camera_check(self, order_id, revision, image_digest, request_key, worker_id):
         path = f"/v2/orders/{quote(order_id, safe='')}"
         order = (await self._request("GET", path)).get("order", {})
         state = self._order_state(order)
         metadata = order.get("metadata") or {}
+        require_worker(order, worker_id)
         previous = read_record(metadata)
         key = hashlib.sha256(f"camera:{order_id}:{request_key}".encode()).hexdigest()
         if previous.get("k") == key:
@@ -132,6 +148,7 @@ class SquareCameraChecks:
                     "metadata": {
                         **metadata,
                         CHECK_KEY: json.dumps(record, separators=(",", ":")),
+                        CLAIM_KEY: claim_value(worker_id),
                         "fullfill_queue_status": "unfulfilled",
                         "fullfill_status_fingerprint": self._ticket_fingerprint(order),
                         "fullfill_status_request": key,
@@ -145,10 +162,10 @@ class SquareCameraChecks:
     async def finish_camera_check(self, reserved, observations=None):
         metadata = dict(reserved.get("metadata") or {})
         record = read_record(metadata)
-        record["s"] = "failed" if observations is None else "completed"
-        comparison = None
+        record["s"] = "failed" if observations is None else "awaiting_confirmation"
+        patches = []
         if observations is not None:
-            comparison = compare_order(self._snapshot(reserved), observations)
+            compare_order(self._snapshot(reserved), observations)  # Validate before compacting.
             by_id = {entry.target_id: entry for entry in observations.targets}
             values = []
             for target in targets_for(self._snapshot(reserved)):
@@ -171,33 +188,15 @@ class SquareCameraChecks:
                         )
                     )
                 values.append(value)
-            # Keep within Square's two 255-character values. Names are display
-            # hints only; retaining any unexpected item preserves the verdict.
-            extras = [item.name[:60] for item in observations.unexpected_items[:1]]
-            payload = {"o": values, "u": extras}
+            payload = {
+                "o": values,
+                "u": [[item.name, item.quantity] for item in observations.unexpected_items],
+            }
             if observations.scene_uncertainty:
-                payload["s"] = observations.scene_uncertainty[:80]
-            packed = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-            # Escaped names can grow; shorten display hints, never observations.
-            if len(packed) > 510:
-                payload["u"] = ["Unidentified item"] if extras else []
-                if "s" in payload:
-                    payload["s"] = "Improve the camera view and check again."
-                packed = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
-            if len(packed) > 510:
-                raise ValueError("Check result exceeds the demo storage limit")
-            # Square rejects empty metadata values. Always write both chunks,
-            # reserving the final character for the second on short results;
-            # this also replaces any tail left by a previous longer result.
-            split = min(255, len(packed) - 1)
-            for result_key, chunk in zip(
-                RESULT_KEYS, (packed[:split], packed[split:]), strict=True
-            ):
-                metadata[result_key] = chunk
+                payload["s"] = observations.scene_uncertainty
+            record["r"], patches = pack_result(payload, metadata, reserved.get("line_items", []))
         record["t"] = int(time.time())
-        metadata[COMPLETED_AT_KEY] = str(
-            record["t"] if comparison and comparison.verdict == "pass" else 0
-        )
+        metadata[COMPLETED_AT_KEY] = "0"
         metadata[CHECK_KEY] = json.dumps(record, separators=(",", ":"))
         # An edit or manual decision while inference runs must win. Never retry
         # this write with a fresh revision or re-run the paid model call.
@@ -209,6 +208,53 @@ class SquareCameraChecks:
                 "order": {
                     "location_id": self.location_id,
                     "version": reserved["version"],
+                    **({"line_items": patches} if patches else {}),
+                    "metadata": metadata,
+                },
+            },
+        )
+        return self._order_state(result.get("order", {}))
+
+    async def confirm_camera_check(self, order_id, check_id, revision, worker_id, scene_unchanged):
+        path = f"/v2/orders/{quote(order_id, safe='')}"
+        order = (await self._request("GET", path)).get("order", {})
+        state = self._order_state(order)
+        require_worker(order, worker_id)
+        metadata = dict(order.get("metadata") or {})
+        record = read_record(metadata)
+        if (
+            order.get("state") != "OPEN"
+            or metadata.get("fullfill_queue_archived") == "true"
+            or not state.current_check
+            or record.get("k") != check_id
+        ):
+            raise OrderSourceError("This check is no longer current. Take a new photo.", 409)
+        if record.get("s") == "superseded" or (scene_unchanged and record.get("s") == "completed"):
+            return state
+        if order["version"] != revision or record.get("s") not in (
+            "awaiting_confirmation",
+            "completed",
+        ):
+            raise OrderSourceError("This order changed. Refresh before checking it.", 409)
+        # A missing browser confirmation never becomes a green result.
+        expired = time.time() - record["t"] > CONFIRM_SECONDS
+        record["s"] = "completed" if scene_unchanged and not expired else "superseded"
+        metadata[CHECK_KEY] = json.dumps(record, separators=(",", ":"))
+        candidate = self._order_state({**order, "metadata": metadata})
+        metadata[COMPLETED_AT_KEY] = str(
+            int(time.time()) if candidate.disposition == "verified" else 0
+        )
+        key = hashlib.sha256(
+            f"confirm:{check_id}:{revision}:{scene_unchanged}".encode()
+        ).hexdigest()
+        result = await self._request(
+            "PUT",
+            path,
+            {
+                "idempotency_key": key,
+                "order": {
+                    "location_id": self.location_id,
+                    "version": revision,
                     "metadata": metadata,
                 },
             },

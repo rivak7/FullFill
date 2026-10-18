@@ -45,11 +45,11 @@ export function toScreenState(state: OrderState): ScreenState {
   if (!check) {
     return { tone: "red", headline: "Unfulfilled", detail: null, lines, problems: [], confirmedByStaff: false };
   }
-  if (check.execution_status === "failed") {
+  if (check.execution_status === "failed" || check.execution_status === "superseded") {
     return {
       tone: "amber",
       headline: "Needs review",
-      detail: "Camera check failed. Check manually or take a new photo.",
+      detail: check.execution_status === "superseded" ? "The camera view changed or confirmation expired. Take a new photo." : "Camera check failed. Check manually or take a new photo.",
       lines,
       problems: [],
       confirmedByStaff: false,

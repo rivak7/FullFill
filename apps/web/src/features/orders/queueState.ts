@@ -4,7 +4,10 @@ import { toScreenState } from "../station/screenState";
 export interface QueueState { orders: OrderState[]; selected: string | null }
 export const isFulfilled = (state: OrderState) => toScreenState(state).tone === "green";
 
-export function reconcileQueue(previous: QueueState, incoming: OrderState[]): QueueState {
+export const heldByOther = (state: OrderState, workerId?: string) => !!workerId && !!state.claim && state.claim.expires_at * 1000 > Date.now() && state.claim.worker_id !== workerId;
+export const ownedBy = (state: OrderState, workerId: string) => !!state.claim && state.claim.worker_id === workerId && state.claim.expires_at * 1000 > Date.now();
+
+export function reconcileQueue(previous: QueueState, incoming: OrderState[], workerId?: string): QueueState {
   // Both arrays are displayed newest first, with the oldest ticket at the bottom.
   // A slow read must not overwrite a newer acknowledged status change.
   const orders = incoming.map(state => {
@@ -17,7 +20,7 @@ export function reconcileQueue(previous: QueueState, incoming: OrderState[]): Qu
   const current = orders[currentIndex];
   const justFulfilled = before && !isFulfilled(before) && current && isFulfilled(current);
   // New arrivals never steal focus, and intentionally selected history stays put.
-  if (current && !justFulfilled) return { orders, selected: previous.selected };
+  if (current && !justFulfilled && !heldByOther(current, workerId)) return { orders, selected: previous.selected };
 
   let candidates = orders;
   if (before) {
@@ -33,10 +36,10 @@ export function reconcileQueue(previous: QueueState, incoming: OrderState[]): Qu
   } else if (previous.orders.length && previous.selected === null) {
     // At the top, wait for new work; don't wrap back down on the next poll.
     const knownIds = new Set(previous.orders.map(state => state.order.order_id));
-    candidates = orders.filter(state => !knownIds.has(state.order.order_id));
+    candidates = orders.filter(state => !knownIds.has(state.order.order_id) || previous.orders.some(old => old.order.order_id === state.order.order_id && !!old.claim && old.claim.worker_id !== workerId && !heldByOther(state, workerId)));
   }
 
   // Work upward one unresolved ticket at a time, including orange tickets.
   // On the first load this starts at the oldest unresolved ticket at the bottom.
-  return { orders, selected: [...candidates].reverse().find(state => !isFulfilled(state))?.order.order_id ?? null };
+  return { orders, selected: [...candidates].reverse().find(state => !isFulfilled(state) && !heldByOther(state, workerId))?.order.order_id ?? null };
 }

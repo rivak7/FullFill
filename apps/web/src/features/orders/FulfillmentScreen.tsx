@@ -2,7 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, orderApi, type OrderStatusEdit } from "../../api/client";
 import { StationScreen } from "../station/StationScreen";
 import { toScreenState } from "../station/screenState";
-import { isFulfilled, reconcileQueue, type QueueState } from "./queueState";
+import { heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
 
 type StatusAttempt = { id: string; body: OrderStatusEdit; key: string; restoreSelection?: boolean };
@@ -13,6 +13,7 @@ const initialRetryDelayMs = 3000;
 const maxRetryDelayMs = 30000;
 
 export function FulfillmentScreen() {
+  const [workerId] = useState(() => crypto.randomUUID());
   const [queue, setQueue] = useState<QueueState>(() => ({ orders: [], selected: new URLSearchParams(window.location.search).get("order") }));
   const [loading, setLoading] = useState(true);
   const [error, setError] = useState<string | null>(null);
@@ -27,6 +28,7 @@ export function FulfillmentScreen() {
   const saving = useRef(false);
   const list = useRef<HTMLElement>(null);
   const { orders, selected } = queue;
+  const latestQueue = useRef(queue); latestQueue.current = queue;
 
   useEffect(() => {
     const controller = new AbortController();
@@ -39,7 +41,7 @@ export function FulfillmentScreen() {
         const snapshot = await orderApi.station(controller.signal);
         if (controller.signal.aborted || started !== epoch.current) return;
         // The API keeps chronological order for cleanup; display newest at top.
-        setQueue(previous => reconcileQueue(previous, [...(snapshot.orders ?? [])].reverse()));
+        setQueue(previous => reconcileQueue(previous, [...(snapshot.orders ?? [])].reverse(), workerId));
         setError(null);
         retryDelay = 0;
       } catch (error) {
@@ -57,7 +59,34 @@ export function FulfillmentScreen() {
     }
     void poll();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [refresh]);
+  }, [refresh, workerId]);
+
+  useEffect(() => {
+    let active = true;
+    async function reserve() {
+      const state = latestQueue.current.orders.find(item => item.order.order_id === selected);
+      if (!state || isFulfilled(state) || heldByOther(state, workerId) || saving.current) return;
+      if (ownedBy(state, workerId) && state.claim!.expires_at * 1000 - Date.now() > 60000) return;
+      saving.current = true; epoch.current++; setBusy(true);
+      try {
+        const updated = await orderApi.claim(state.order.order_id, { worker_id: workerId, expected_revision: state.order.revision });
+        if (active) setQueue(previous => ({ ...previous, orders: previous.orders.map(item => item.order.order_id === updated.order.order_id ? updated : item) }));
+      } catch (cause) {
+        if (active) setRefresh(value => value + 1);
+        if (active && !(cause instanceof ApiError && cause.status === 409)) setActionError(cause instanceof Error ? cause.message : "Could not reserve this order.");
+      } finally {
+        saving.current = false;
+        if (active) setBusy(false);
+      }
+    }
+    void reserve();
+    const timer = setInterval(() => void reserve(), 20000);
+    return () => {
+      active = false; clearInterval(timer);
+      const state = latestQueue.current.orders.find(item => item.order.order_id === selected);
+      if (state && !isFulfilled(state) && ownedBy(state, workerId)) void orderApi.claim(state.order.order_id, { worker_id: workerId, expected_revision: state.order.revision, release: true }).catch(() => { /* A disconnected screen's reservation expires. */ });
+    };
+  }, [selected, workerId, loading]);
 
   useEffect(() => {
     const url = new URL(window.location.href);
@@ -82,9 +111,15 @@ export function FulfillmentScreen() {
     saving.current = true; epoch.current++;
     setPending(attempt); setBusy(true); setActionError(null); setNotice("");
     try {
+      const state = latestQueue.current.orders.find(item => item.order.order_id === attempt.id);
+      if (state && !ownedBy(state, workerId)) {
+        const claimed = await orderApi.claim(attempt.id, { worker_id: workerId, expected_revision: attempt.body.expected_revision });
+        attempt = { ...attempt, body: { ...attempt.body, expected_revision: claimed.order.revision } };
+        setPending(attempt);
+      }
       const updated = await orderApi.setStatus(attempt.id, attempt.body, attempt.key);
       setQueue(previous => {
-        const next = reconcileQueue(previous, previous.orders.map(state => state.order.order_id === attempt.id ? updated : state));
+        const next = reconcileQueue(previous, previous.orders.map(state => state.order.order_id === attempt.id ? updated : state), workerId);
         return attempt.restoreSelection ? { ...next, selected: attempt.id } : next;
       });
       if (attempt.body.status === "fulfilled") offerUndo(attempt.id, updated.order.revision);
@@ -110,13 +145,13 @@ export function FulfillmentScreen() {
   function updateStatus(status: OrderStatusEdit["status"]) {
     if (!current || locked) return;
     setCameraPause(value => value + 1);
-    void submit({ id: current.order.order_id, body: { status, expected_revision: current.order.revision }, key: crypto.randomUUID() });
+    void submit({ id: current.order.order_id, body: { worker_id: workerId, status, expected_revision: current.order.revision }, key: crypto.randomUUID() });
   }
 
   function undoFulfillment() {
     if (!undo || locked || Date.now() >= undo.expires) return;
     setCameraPause(value => value + 1);
-    void submit({ id: undo.id, body: { status: "unfulfilled", expected_revision: undo.revision }, key: crypto.randomUUID(), restoreSelection: true });
+    void submit({ id: undo.id, body: { worker_id: workerId, status: "unfulfilled", expected_revision: undo.revision }, key: crypto.randomUUID(), restoreSelection: true });
   }
 
   return (
@@ -136,9 +171,10 @@ export function FulfillmentScreen() {
           {orders.map(state => {
             const screen = toScreenState(state);
             const itemCount = state.order.lines.reduce((sum, line) => sum + line.quantity, 0);
-            return <button className={`queue-ticket queue-${screen.tone}`} key={state.order.order_id} aria-pressed={state.order.order_id === selected} disabled={locked} onClick={() => { setQueue(previous => ({ ...previous, selected: state.order.order_id })); setActionError(null); }}>
+            return <button className={`queue-ticket queue-${screen.tone}`} key={state.order.order_id} aria-pressed={state.order.order_id === selected} disabled={locked || heldByOther(state, workerId)} onClick={() => { setQueue(previous => ({ ...previous, selected: state.order.order_id })); setActionError(null); }}>
               <span className="queue-ticket-top"><strong>#{state.order.order_id.slice(-8).toUpperCase()}</strong><span>{itemCount} {itemCount === 1 ? "item" : "items"}</span></span>
               <span className="queue-ticket-items">{state.order.lines.map(line => `${line.quantity}× ${line.name}`).join(" · ")}</span>
+              {heldByOther(state, workerId) && <span className="queue-ticket-owner">Working on another screen</span>}
               <span className="queue-ticket-status">{screen.tone === "green" ? "✓ " : screen.tone === "amber" ? "? " : "○ "}{screen.headline}</span>
             </button>;
           })}
@@ -156,13 +192,13 @@ export function FulfillmentScreen() {
               </div>
             </>
             : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1>{!!waiting && <p>Select another ticket to continue.</p>}</div>}
-          <CameraCheckPanel order={current} disabled={locked} pauseToken={cameraPause} onBusyChange={value => {
+          <CameraCheckPanel workerId={workerId} order={current} disabled={locked || !current || !ownedBy(current, workerId)} pauseToken={cameraPause} onBusyChange={value => {
             saving.current = value; setBusy(value);
             if (value) epoch.current++;
             else setRefresh(count => count + 1);
           }} onResult={updated => {
             if (isFulfilled(updated)) offerUndo(updated.order.order_id, updated.order.revision);
-            setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === updated.order.order_id ? updated : state)));
+            setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === updated.order.order_id ? updated : state), workerId));
             setNotice(`#${updated.order.order_id.slice(-8).toUpperCase()} · ${toScreenState(updated).headline}`);
           }} />
         </div>
