@@ -224,10 +224,14 @@ export class SceneTrigger {
           : this.empty && settledFor >= CLEARED_FALLBACK_MS && changed() ? "still for 4 s" : null;
         this.lastClearCheck = { left, spots: this.orderSpots ? this.orderSpots.reduce((sum, value) => sum + value, 0) : null, stillMs: settledFor, cleared };
         if (cleared) {
+          // The next order's items may already be on the mat beside this one's: then
+          // wait from the bare mat, so they get checked instead of counting as the
+          // starting scene.
+          const nextAlreadyPlaced = cleared === "empty mat" && !!this.empty && !isEmptyMat(frame, this.empty);
           // A still, changed mat that took the slow route is the mat as it is now
           // (paper turned, new lighting): learn it so the next order clears quickly.
           if (this.empty && (cleared === "still for 4 s" || isEmptyMat(frame, this.empty))) this.empty = frame.slice();
-          this.betweenOrders = frame.slice();
+          this.betweenOrders = (nextAlreadyPlaced ? this.empty! : frame).slice();
           this.orderSpots = null;
           this.reset(frame);
         }

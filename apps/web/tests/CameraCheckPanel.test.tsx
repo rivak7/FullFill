@@ -435,14 +435,15 @@ it("moves on within a quarter second of the order spots showing the bare mat", (
   expect(scene.lastClearCheck).toMatchObject({ left: 0, spots: 144, cleared: "empty mat" });
 });
 
-it("ignores the paper shifting or a cable elsewhere in view when the order is gone", () => {
+it("moves on when the order is gone even if the paper shifted or a cable moved, then takes one look", () => {
   const { scene, bare } = passedOrder();
   const moved = bare.slice();
   for (let row = 0; row < 32; row++) for (let col = 26; col < 32; col++) moved[row * 32 + col] = 40;
   for (const time of [1250, 1375, 1500]) scene.sample(moved, time);
   expect(scene.handoff).toBe("place");
-  // That view is not an order, so it doesn't start a check for the next ticket.
-  expect(sampled(scene, moved, 1750, 3000)).toBe(false);
+  // Pixels can't tell a moved cable from the next order already set down beside this
+  // one, so it gets one look (a check that sees none of the order never advances).
+  expect(sampled(scene, moved, 1750, 3000)).toBe(true);
 });
 
 it("keeps waiting while a packet is left where the order sat, or a hand is still moving", () => {
@@ -457,6 +458,17 @@ it("keeps waiting while a packet is left where the order sat, or a hand is still
   expect(scene.handoff).toBe("remove");
   for (const time of [4625, 4750, 4875]) scene.sample(bare, time);
   expect(scene.handoff).toBe("place");
+});
+
+it("checks the next order's items when they were placed beside the passed order before it was cleared", () => {
+  const { scene, meal } = passedOrder();
+  const both = meal.slice(), next = new Uint8Array(1024).fill(210);
+  for (let row = 22; row < 30; row++) for (let col = 22; col < 30; col++) { both[row * 32 + col] = 40; next[row * 32 + col] = 40; }
+  expect(sampled(scene, both, 1250, 2500)).toBe(false);
+  expect(scene.handoff).toBe("remove");
+  sampled(scene, next, 2750, 3000);
+  expect(scene.handoff).toBe("place");
+  expect(sampled(scene, next, 3250, 4000)).toBe(true);
 });
 
 it("learns the mat as it is now after the slow clear, so the next order clears quickly", () => {
