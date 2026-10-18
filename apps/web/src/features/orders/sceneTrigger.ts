@@ -215,7 +215,7 @@ export class SceneTrigger {
           // A still, changed mat that took the slow route is the mat as it is now
           // (paper turned, new lighting): learn it so the next order clears quickly.
           if (this.empty && (cleared === "still for 4 s" || isEmptyMat(frame, this.empty))) this.empty = frame.slice();
-          this.betweenOrders = frame.slice();
+          this.betweenOrders = (this.empty ?? frame).slice();
           this.orderSpots = null;
           this.reset(frame);
         }
