@@ -1,3 +1,4 @@
+import { orderNumber } from "../../orderNumber";
 import { preferredCamera } from "./preferredCamera";
 import { isDevMode } from "../../devMode";
 import { useEffect, useRef, useState } from "react";
@@ -7,7 +8,6 @@ import { SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
 import { cameraPhoto, cameraThumbnail } from "./cameraFraming";
-import { shortOrderId } from "../station/StationScreen";
 import { CvLogs, attachCvVisuals, startCvLog, updateCvLog, checkResultDetails, sceneDiagnostic, type CheckTrigger } from "./CvLogs";
 
 interface Props {
@@ -231,7 +231,7 @@ export function CameraCheckPanel(props: Props) {
         <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto</label>
         {devices.length > 1 && <select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select>}
       </div>
-      {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{shortOrderId(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${shortOrderId(lastPhoto.orderId)}`} /></details>}
+      {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{orderNumber(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${orderNumber(lastPhoto.orderId)}`} /></details>}
     </div>}
     </div>
     <div role="tabpanel" id="logs-panel" aria-labelledby="logs-tab" hidden={tab !== "logs"}><CheckActivity /><CvLogs order={props.order} /></div>

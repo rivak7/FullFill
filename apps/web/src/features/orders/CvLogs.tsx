@@ -1,3 +1,4 @@
+import { orderNumber } from "../../orderNumber";
 import { useEffect, useState } from "react";
 import { AnnotatedPhoto } from "./AnnotatedPhoto";
 import type { CameraDiagnostics } from "../../api/client";
@@ -125,7 +126,7 @@ export function CvLogs({ order }: { order?: OrderState }) {
     <div className="cv-log-list" tabIndex={0} aria-label="Check history">{logs.map(log => <details key={log.id} className={`cv-log-entry cv-tone-${resultTone(log.result)}`}>
       <summary>
         <span className="cv-chip">{log.result}</span>
-        <strong>#{log.orderId.slice(-8).toUpperCase()}</strong>
+        <strong>#{orderNumber(log.orderId)}</strong>
         <span className="cv-log-trigger">{log.trigger[0].toUpperCase() + log.trigger.slice(1)}</span>
         <span className="cv-log-time"><time dateTime={new Date(log.startedAt).toISOString()}>{new Date(log.startedAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit", second: "2-digit" })}</time>{log.finishedAt !== undefined && ` · ${seconds(log.finishedAt - log.startedAt)}`}{modelMs(log) !== undefined && ` (model ${seconds(modelMs(log)!)})`}</span>
       </summary>

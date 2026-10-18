@@ -1,6 +1,7 @@
 // @vitest-environment jsdom
 import { act } from "react";
 import { createRoot, type Root } from "react-dom/client";
+import { orderNumber } from "../src/orderNumber";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
 import { orderApi } from "../src/api/client";
@@ -305,7 +306,7 @@ it("shows an unexpected unidentified item as orange, matching the comparison ver
 it("keeps the exact submitted photo labeled with its ticket after selection changes", async () => {
   await render(); await camera(); await click("Check order");
   await render(ticket("second"));
-  expect(container.querySelector(".camera-last-photo summary")?.textContent).toContain("FIRST");
+  expect(container.querySelector(".camera-last-photo summary")?.textContent).toContain(orderNumber("first"));
   expect(container.querySelector(".camera-last-photo img")?.getAttribute("src")).toBe("data:image/jpeg;base64,cGhvdG8=");
 });
 

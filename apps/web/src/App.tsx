@@ -22,9 +22,9 @@ export function App() {
   if (siteScreen === "combined" && path === "/demo") return <DemoScreen />;
   const kitchenPath = siteScreen === "combined" ? "/fulfill" : "/";
   return (
-    <div className={`app-shell${ordering ? "" : " theme-kds"}`}>
+    <div className="app-shell">
       <header className="app-header">
-        <a className="brand" href={homePath}><img className="brand-logo" src={ordering ? "/fullfill-wordmark.svg" : "/fullfill-wordmark-dark.svg"} alt="FullFill" /></a>
+        <a className="brand" href={homePath}><img className="brand-logo" src="/fullfill-wordmark.svg" alt="FullFill" /></a>
         {siteScreen !== "order" && <nav aria-label="Main navigation">
           {siteScreen === "combined" && <a href="/order" aria-current={ordering ? "page" : undefined}>Order</a>}
           <a href={kitchenPath} aria-current={!ordering && valid && !menu ? "page" : undefined}>Kitchen</a>

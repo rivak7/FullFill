@@ -1,6 +1,7 @@
+import { orderNumber } from "../../orderNumber";
 import { useEffect, useRef, useState } from "react";
 import { ApiError, orderApi, type OrderStatusEdit } from "../../api/client";
-import { StationScreen, shortOrderId, toneMarks } from "../station/StationScreen";
+import { StationScreen, toneMarks } from "../station/StationScreen";
 import { amberReason, toScreenState } from "../station/screenState";
 import { heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
@@ -126,7 +127,7 @@ export function FulfillmentScreen() {
       if (attempt.body.status === "fulfilled") offerUndo(attempt.id, updated.order.revision);
       else setUndo(previous => previous?.id === attempt.id ? null : previous);
       setPending(null);
-      setNotice(`#${shortOrderId(attempt.id)} · ${toScreenState(updated).headline}`);
+      setNotice(`#${orderNumber(attempt.id)} · ${toScreenState(updated).headline}`);
     } catch (error) {
       if (error instanceof ApiError && [400, 401, 403, 404, 409, 422].includes(error.status)) {
         setPending(null);
@@ -175,7 +176,7 @@ export function FulfillmentScreen() {
       {error && <div className="connection-error" role="alert">{error}</div>}
       {actionError && <div className="connection-error" role="alert">{actionError}{pending && <button className="secondary-button" disabled={busy} onClick={() => void submit(pending)}>{busy ? "Saving…" : "Retry status"}</button>}</div>}
       <div className="queue-announcement" role="status">{notice}</div>
-      {undo && <div className="fulfillment-undo" role="status"><span>#{shortOrderId(undo.id)} fulfilled</span><button className="secondary-button" disabled={locked} onClick={undoFulfillment}>Undo</button></div>}
+      {undo && <div className="fulfillment-undo" role="status"><span>#{orderNumber(undo.id)} fulfilled</span><button className="secondary-button" disabled={locked} onClick={undoFulfillment}>Undo</button></div>}
       <div className="fulfillment-layout">
         <aside ref={list} className="order-queue" aria-label="Orders, newest first" tabIndex={0}>
           {!loading && !error && !orders.length && <p className="queue-empty">No orders yet.</p>}
@@ -183,7 +184,7 @@ export function FulfillmentScreen() {
             const screen = toScreenState(state);
             const reason = amberReason(screen);
             return <button className={`queue-ticket queue-${screen.tone}`} key={state.order.order_id} aria-pressed={state.order.order_id === selected} disabled={locked || heldByOther(state, workerId)} onClick={() => { setQueue(previous => ({ ...previous, selected: state.order.order_id })); setActionError(null); }}>
-              <span className="queue-ticket-top"><strong>#{shortOrderId(state.order.order_id)}</strong><span className="queue-ticket-mark" aria-label={screen.headline} title={screen.headline}>{toneMarks[screen.tone]}</span></span>
+              <span className="queue-ticket-top"><strong>#{orderNumber(state.order.order_id)}</strong><span className="queue-ticket-mark" aria-label={screen.headline} title={screen.headline}>{toneMarks[screen.tone]}</span></span>
               <span className="queue-ticket-items">{state.order.lines.map(line => `${line.quantity} ${line.name}`).join(" · ")}</span>
               {heldByOther(state, workerId) && <span className="queue-ticket-owner">On another screen</span>}
               {reason && <span className="queue-ticket-reason">{reason}</span>}
@@ -210,7 +211,7 @@ export function FulfillmentScreen() {
           }} onResult={updated => {
             if (isFulfilled(updated)) offerUndo(updated.order.order_id, updated.order.revision);
             setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === updated.order.order_id ? updated : state), workerId));
-            setNotice(`#${shortOrderId(updated.order.order_id)} · ${toScreenState(updated).headline}`);
+            setNotice(`#${orderNumber(updated.order.order_id)} · ${toScreenState(updated).headline}`);
           }} />
         </div>
       </div>
