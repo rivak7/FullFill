@@ -36,7 +36,8 @@ manual statuses leave Square's payment and native fulfillment state unchanged.
 Deleted menu items are archived in Square and hidden from the menu, with no
 restore option in the UI. Existing starter items can be edited without photos;
 new items require one. Camera checks include saved photos for ticket items and
-up to six alternative menu items selected using local image and name similarity.
+lookalike menu items, up to 12 photos in total and at most six lookalikes. Lookalikes
+are ranked mainly by name similarity (TSSS vs. TSSSS), with photo similarity as a tiebreak.
 
 The capture package still contains interfaces and TODOs for camera/replay sources,
 stillness triggering, QR decoding, cropping, and uploading. The browser uses its
@@ -58,7 +59,7 @@ capture with no separate handoff confirmation.
 For subsequent tickets, the browser observes two transitions: the previous view
 changes and stays stable for at least 750 ms, then a replacement view changes
 again and settles for 750 ms. The intermediate view makes no model call, and
-periodic checks cannot bypass this handoff guard.
+automatic rechecks cannot bypass this handoff guard.
 Clear the packing area briefly between orders. This allows identical meals to be
 checked separately while suppressing untouched food and brief hand waves. It is
 a motion heuristic, not proof that the area is empty: a prolonged obstruction or
@@ -105,7 +106,7 @@ staff activity; both sites use the same shared demo access code.
 
 ### Camera decisions and corrections
 
-The browser handles camera preview, cropping, movement detection, and stillness
+The browser handles camera preview, downscaling, movement detection, and stillness
 without installing Python or OpenCV. Only a selected still image is uploaded to
 the Vercel API, which calls Perceptron with the server-side key. Reference photos
 identify menu items; they do not train the model or prove hidden ingredients.
@@ -150,7 +151,8 @@ actions pause automatic checks; fulfilling a ticket keeps automatic mode running
 for the next ticket. Manual decisions take precedence over an in-flight result; conflicting edits
 from another screen require refresh instead of silently overwriting them.
 
-Uncertain and mismatched results continue periodic automatic checks. Technical
+An amber result gets one automatic recheck five seconds later; red and green stand
+until the scene changes. Every amber screen says why it is unsure. Technical
 failures pause automatic mode; they are not automatically retried. Each new check
 uses a fresh photo and request ID. Each result describes the captured moment, not continuous proof of
 the order's contents: keep one order entirely visible until the check finishes.
