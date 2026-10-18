@@ -78,7 +78,12 @@ Camera images stay in memory; only compact observations and hashes persist in Sq
 Open the **CV logs** tab for a scrollable per-check timeline, order/attempt IDs,
 trigger, elapsed time, and final decision. Each new check includes the exact normalized
 order image and selected reference images sent to Perceptron, plus its structured
-item counts, uncertainty, readable labels, and unexpected items. These model reports
+item counts, uncertainty, readable labels, and unexpected items. New checks request
+normalized object boxes in the same model call and draw valid locations on the
+exact order image, with a toggle to hide them. Boxes label present/unsure/unexpected
+objects; they do not decide fulfillment. Invalid or absent geometry is omitted
+without invalidating a usable recognition result. Logs also show reported input and
+output tokens, model time, and the model name; no confidence percentages are invented. These model reports
 are separate from the final decision, which can reject a result after movement.
 The latest 50 text reports persist in this browser tab's session; photos for the
 last 10 checks stay in memory until reload. **Copy logs** excludes photos, and

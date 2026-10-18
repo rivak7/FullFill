@@ -1,4 +1,5 @@
 import { useEffect, useState } from "react";
+import { AnnotatedPhoto } from "./AnnotatedPhoto";
 import type { CameraDiagnostics } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
 
@@ -121,7 +122,7 @@ function VisualDetails({ log }: { log: CvLog }) {
   const image = visual?.diagnostics?.image ?? visual?.capture;
   return <div className="cv-visuals">
     <div className="cv-photo-grid">
-      <figure>{image ? <img src={image} alt="Captured order for this check" /> : <p>Photo unavailable after reload or history expiry.</p>}
+      <figure>{image ? <AnnotatedPhoto image={image} observations={observation} targets={diagnostic?.targets} modelInput={!!visual?.diagnostics?.image} /> : <p>Photo unavailable after reload or history expiry.</p>}
         <figcaption>{visual?.diagnostics?.image ? "Order image sent to Perceptron" : "Browser capture · model input not available"}</figcaption></figure>
       {diagnostic?.references.map(ref => <figure key={ref.item_id}>
         {ref.image ? <img src={ref.image} alt={`Reference: ${ref.name}`} /> : <p>Reference image unavailable in this log.</p>}
@@ -138,7 +139,12 @@ function VisualDetails({ log }: { log: CvLog }) {
       </tbody></table>
       <p>Unexpected items: {observation.unexpected_items?.length ? observation.unexpected_items.map(item => `${item.quantity ?? "Unknown count"} × ${item.name}`).join(", ") : "None reported"}</p>
       {observation.scene_uncertainty && <p>Scene uncertainty: {observation.scene_uncertainty}</p>}
-      {observation.provider && <small>{observation.provider.model} · {observation.provider.latency_ms} ms</small>}
+      {observation.provider && <dl className="cv-model-stats">
+        <div><dt>Model</dt><dd>{observation.provider.model}</dd></div>
+        <div><dt>Model time</dt><dd>{(observation.provider.latency_ms / 1000).toFixed(2)} s</dd></div>
+        <div><dt>Input tokens</dt><dd>{observation.provider.prompt_tokens?.toLocaleString() ?? "Unavailable"}</dd></div>
+        <div><dt>Output tokens</dt><dd>{observation.provider.completion_tokens?.toLocaleString() ?? "Unavailable"}</dd></div>
+      </dl>}
       <details><summary>Structured model result</summary><pre>{JSON.stringify(observation, null, 2)}</pre></details>
     </>}
     <small>Model reports are separate from the final result above.</small>
