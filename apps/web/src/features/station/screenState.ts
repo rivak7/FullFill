@@ -33,16 +33,16 @@ export function toScreenState(state: OrderState): ScreenState {
     const accepted = lines.map((l) =>
       l.status === "unsure" ? { ...l, status: "accepted" as const, note: "Confirmed by staff" } : l,
     );
-    return { tone: "green", headline: "Order fulfilled", detail: "Confirmed by staff", lines: accepted, problems: [], confirmedByStaff: true };
+    return { tone: "green", headline: "Fulfilled", detail: "Confirmed by staff", lines: accepted, problems: [], confirmedByStaff: true };
   }
   if (!check) {
-    return { tone: "waiting", headline: "Lay out the order", detail: "Place every item on the mat", lines, problems: [], confirmedByStaff: false };
+    return { tone: "waiting", headline: "Awaiting check", detail: null, lines, problems: [], confirmedByStaff: false };
   }
   if (check.execution_status === "failed") {
     return {
       tone: "error",
-      headline: "Couldn't check this order",
-      detail: "The camera check failed. Check the order by hand or try again.",
+      headline: "Check failed",
+      detail: "Check manually or retry.",
       lines,
       problems: [],
       confirmedByStaff: false,
@@ -56,19 +56,19 @@ export function toScreenState(state: OrderState): ScreenState {
   const unsure = discrepancies.filter((d) => d.kind === "unsure");
 
   if (check.verdict === "fail" || definite.length > 0) {
-    return { tone: "red", headline: "Order unfulfilled", detail: null, lines, problems: definite, confirmedByStaff: false };
+    return { tone: "red", headline: "Unfulfilled", detail: null, lines, problems: definite, confirmedByStaff: false };
   }
   if (check.verdict === "unsure" || unsure.length > 0) {
     return {
       tone: "amber",
-      headline: "Needs a quick look",
-      detail: "The camera isn't sure. You make the call.",
+      headline: "Needs review",
+      detail: null,
       lines,
       problems: unsure,
       confirmedByStaff: false,
     };
   }
-  return { tone: "green", headline: "Order fulfilled", detail: null, lines, problems: [], confirmedByStaff: false };
+  return { tone: "green", headline: "Fulfilled", detail: null, lines, problems: [], confirmedByStaff: false };
 }
 
 function toScreenLine(line: OrderLine, discrepancies: Discrepancy[] | null): ScreenLine {

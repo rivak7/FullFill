@@ -1,0 +1,97 @@
+* { box-sizing: border-box; }
+:root { --forest: #173e32; --muted: #74776c; }
+body { background: #f4f3ee; color: #202a23; }
+button, a, input { -webkit-tap-highlight-color: transparent; }
+button { font: inherit; cursor: pointer; }
+button:disabled { cursor: not-allowed; opacity: .45; }
+a { color: inherit; }
+button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offset: 4px; }
+.app-header { min-height: 76px; padding: 12px 4vw; background: #fffef9; border-bottom: 1px solid #dedfd5; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
+.brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-size: 25px; font-weight: 800; letter-spacing: -1px; }
+.brand-mark { width: 40px; height: 40px; border-radius: 12px 12px 12px 2px; display: grid; place-items: center; color: white; background: var(--forest); font-style: italic; font-size: 26px; }
+.app-header nav { display: flex; gap: 6px; background: #eceee6; border-radius: 9px; padding: 4px; }
+.app-header nav a { text-decoration: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 650; color: #62695e; }
+.app-header nav a[aria-current="page"] { background: white; color: var(--forest); box-shadow: 0 1px 3px #0001; }
+.environment-label { color: #62695e; font-size: 12px; display: flex; align-items: center; gap: 7px; }
+.environment-label > span { width: 6px; height: 6px; border-radius: 50%; background: #b48337; }
+.ordering-page { max-width: 1180px; padding: 40px 40px 64px; margin: auto; }
+.ordering-layout { display: grid; grid-template-columns: minmax(0, 1.6fr) minmax(300px, 1fr); gap: 40px; align-items: start; }
+.section-heading { display: flex; align-items: center; justify-content: space-between; margin-bottom: 12px; }
+.section-heading h1 { font-size: 22px; margin: 0; }
+.menu-card { background: #fffef9; border: 1px solid #dedfd4; border-radius: 12px; padding: 22px 24px; display: flex; align-items: center; gap: 20px; margin-bottom: 12px; }
+.menu-copy { flex: 1; min-width: 0; }
+.menu-copy h2 { margin: 0 0 6px; font-size: 19px; font-weight: 650; }
+.menu-copy > span { font-size: 15px; color: #62695e; }
+.quantity-picker { display: flex; gap: 6px; align-items: center; background: #f1f3ea; border: 1px solid #dde2d3; border-radius: 8px; padding: 4px; }
+.quantity-picker button { border: 0; background: transparent; width: 36px; height: 36px; font-size: 21px; color: var(--forest); border-radius: 5px; }
+.quantity-picker button:not(:disabled):hover { background: #e0e7d7; }
+.quantity-picker output { min-width: 22px; text-align: center; font-size: 15px; font-weight: 700; }
+.basket { padding: 24px; border-radius: 12px; border: 1px solid #dedfd4; background: #fffef9; margin-top: 38px; }
+.basket h2 { font-size: 22px; margin: 0 0 20px; letter-spacing: -.4px; }
+.basket-empty { font-size: 14px; line-height: 1.6; color: var(--muted); padding: 12px 0; }
+.basket-lines { list-style: none; margin: 0; padding: 0; }
+.basket-lines li { display: flex; justify-content: space-between; gap: 16px; padding: 11px 0; font-size: 14px; }
+.basket-lines b { margin-right: 8px; color: var(--forest); }
+.basket-total { display: flex; justify-content: space-between; align-items: center; gap: 16px; border-top: 2px dashed #d9dcd0; margin: 22px 0; padding-top: 20px; }
+.basket-total strong { font-size: 26px; }
+.primary-button { background: var(--forest); color: white; border: 0; width: 100%; padding: 16px; border-radius: 8px; font-weight: 650; }
+.primary-button:not(:disabled):hover { background: #245844; }
+.success-banner { display: flex; justify-content: space-between; align-items: center; gap: 20px; padding: 20px 24px; border: 1px solid #b8ccad; background: #e7efdf; border-radius: 10px; margin: 0 0 28px; color: #29412c; }
+.success-banner a { font-size: 14px; font-weight: 700; white-space: nowrap; }
+.error-banner { padding: 14px; background: #fff0e8; color: #823318; border-radius: 8px; font-size: 14px; line-height: 1.5; }
+.error-banner button { margin-left: 8px; }
+.pending-note { color: #80601f; font-size: 13px; line-height: 1.6; }
+.queue-toolbar { min-height: 60px; display: flex; align-items: center; justify-content: space-between; gap: 16px; padding: 14px 24px; background: #fffef9; border-bottom: 1px solid #dedfd4; }
+.queue-toolbar > div { display: flex; align-items: center; gap: 10px; }
+.queue-toolbar strong { font-size: 14px; }
+.connection-dot { width: 7px; height: 7px; border-radius: 50%; background: #45884f; }
+.connection-dot.offline { background: #c74d36; }
+.connection-dot.loading { background: #b48337; }
+.queue-count { color: var(--muted); font-size: 12px; border-left: 1px solid #ddd; padding-left: 10px; }
+.queue-toolbar button { background: transparent; border: 1px solid #d7dace; border-radius: 5px; padding: 6px 10px; font-size: 12px; }
+.connection-error { padding: 14px 24px; font-size: 14px; background: #fae5db; color: #75341e; }
+.fulfillment-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: calc(100vh - 136px); }
+.order-queue { padding: 24px 14px; border-right: 1px solid #daddd0; background: #eeefe7; }
+.queue-heading { padding: 0 6px 20px; display: flex; justify-content: space-between; align-items: baseline; }
+.queue-heading h2 { font-size: 15px; margin: 0; }
+.queue-ticket { display: block; text-align: left; width: 100%; padding: 16px 13px; margin-bottom: 10px; background: #fafbf5; color: #303b2e; border: 1px solid #d9decf; border-radius: 8px; }
+.queue-ticket[aria-pressed="true"] { background: var(--forest); border-color: var(--forest); color: #fff; }
+.queue-ticket-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
+.queue-ticket-top strong { font-size: 15px; font-family: ui-monospace, monospace; }
+.queue-ticket-top > span { font-size: 11px; opacity: .8; }
+.queue-ticket-items { display: block; margin-top: 10px; font-size: 12px; line-height: 1.7; opacity: .85; }
+.queue-ticket-status { display: inline-block; margin-top: 14px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; opacity: .7; }
+.queue-empty { font-size: 14px; line-height: 1.7; margin: 0 6px; color: var(--muted); }
+.active-ticket { min-width: 0; position: relative; display: flex; flex-direction: column; }
+.active-ticket .station { min-height: calc(100vh - 174px); flex: 1; grid-template-columns: minmax(260px, 1fr) minmax(0, 1fr); }
+.active-ticket .ticket { padding: 30px 24px; }
+.active-ticket .ticket-id { font-size: clamp(23px, 2.3vw, 38px); overflow-wrap: anywhere; }
+.active-ticket .ticket-line { font-size: 24px; grid-template-columns: 46px 1fr 28px; gap: 8px; }
+.active-ticket .status { padding: 32px; }
+.active-ticket .status-headline { font-size: clamp(32px, 4.8vw, 72px); }
+.active-ticket .status-detail { font-size: 20px; line-height: 1.5; }
+.vision-note { padding: 12px 24px; background: #e5e8df; color: #5f695a; margin: 0; font-size: 11px; }
+.empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 50vh; padding: 40px; text-align: center; }
+.empty-state h1 { font-size: 36px; letter-spacing: -1px; margin: 12px 0; }
+.demo-bar a { color: white; align-self: center; font-size: 12px; padding: 0 8px; white-space: nowrap; }
+@media (max-width: 1000px) {
+  .ordering-page { padding: 36px 24px; }
+  .ordering-layout { gap: 20px; }
+  .menu-card { gap: 12px; padding: 20px 16px; }
+  .fulfillment-layout { grid-template-columns: 210px minmax(0, 1fr); }
+  .active-ticket .station { grid-template-columns: 1fr; }
+  .active-ticket .status { order: -1; min-height: 260px; }
+}
+@media (max-width: 680px) {
+  .app-header { padding: 14px 18px; gap: 10px; flex-wrap: wrap; }
+  .brand { font-size: 21px; }
+  .app-header nav { order: 3; width: 100%; }
+  .app-header nav a { flex: 1; text-align: center; }
+  .ordering-layout { grid-template-columns: 1fr; }
+  .basket { margin-top: 0; }
+  .queue-toolbar { padding: 12px 16px; }
+  .fulfillment-layout { grid-template-columns: 1fr; }
+  .order-queue { border-right: 0; border-bottom: 1px solid #daddd0; max-height: 260px; overflow-y: auto; }
+  .active-ticket .station { min-height: auto; }
+  .success-banner { align-items: start; flex-direction: column; }
+}

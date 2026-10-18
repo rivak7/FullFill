@@ -7,7 +7,7 @@ setup:
 	npm --prefix apps/web ci
 
 dev-api:
-	$(UV) run --no-sync uvicorn fullfill.main:create_app --factory --reload --host 127.0.0.1 --port 8000
+	$(UV) run --no-sync uvicorn fullfill.main:create_app --factory --reload $(if $(wildcard .env),--env-file .env,) --host 127.0.0.1 --port 8000
 
 dev-web:
 	npm --prefix apps/web run dev
