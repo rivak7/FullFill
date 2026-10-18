@@ -124,7 +124,8 @@ it("retains only recent timestamps and deduplicates an attempt ID", () => {
   localStorage.setItem("fullfill.check-attempt.v1.expired", String(Date.now() - 86400000));
   localStorage.setItem("fullfill.check-attempt.v1.future", String(Date.now() + 100));
   expect(readCheckActivity()).toHaveLength(1);
-  expect(localStorage.length).toBe(1);
+  expect(localStorage.length).toBe(2);
+  expect(readCheckActivity(Date.now() + 100)).toHaveLength(2);
 });
 
 it("pauses automatic checks when the page is hidden", async () => {

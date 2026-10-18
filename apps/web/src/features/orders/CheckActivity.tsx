@@ -6,15 +6,16 @@ const day = 24 * 60 * 60 * 1000;
 let storageFailed = false;
 
 // One key per attempt avoids lost increments when two tabs check simultaneously.
-// Only timestamps are retained, for at most 24 hours; no images or ticket details.
+// Keep a rolling 24-hour history, pruning on reads; no images or ticket details.
 export function readCheckActivity(now = Date.now()): number[] | null {
   try {
     const timestamps: number[] = [];
     for (const key of Object.keys(localStorage)) {
       if (!key.startsWith(prefix)) continue;
       const time = Number(localStorage.getItem(key));
-      if (Number.isFinite(time) && time > now - day && time <= now) timestamps.push(time);
-      else localStorage.removeItem(key);
+      if (!Number.isFinite(time) || time <= now - day) localStorage.removeItem(key);
+      else if (time <= now) timestamps.push(time);
+      // Another tab may write just after this read's `now`; keep that entry.
     }
     return storageFailed ? null : timestamps;
   } catch { return null; }
