@@ -1,5 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import type { MenuPhoto } from "../../api/client";
+import { cameraConstraints, cameraPhoto } from "./cameraFraming";
 
 function photoFrom(source: CanvasImageSource, width: number, height: number): MenuPhoto {
   if (!width || !height) throw new Error("The photo isn't ready yet. Try again.");
@@ -63,7 +64,7 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
     if (video.current) video.current.srcObject = null;
     setCameraOpen(true); setReady(false);
     try {
-      const next = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...(id ? { deviceId: { exact: id } } : { facingMode: { ideal: "environment" } }), width: { ideal: 1920 } } });
+      const next = await navigator.mediaDevices.getUserMedia(cameraConstraints(id));
       if (generation.current !== current) { next.getTracks().forEach(track => track.stop()); return; }
       stream.current = next;
       setDeviceId(next.getVideoTracks()[0]?.getSettings().deviceId ?? id);
@@ -85,7 +86,7 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
   function capture() {
     if (!video.current) return;
     try {
-      onChange(photoFrom(video.current, video.current.videoWidth, video.current.videoHeight));
+      onChange(cameraPhoto(video.current));
       stopCamera(); setError(null);
     } catch (error) { setError(error instanceof Error ? error.message : "Couldn't take the photo."); }
   }
@@ -110,7 +111,7 @@ export function MenuPhotoPicker({ photo, savedUrl, disabled, onChange, onBusyCha
     <div className="photo-label"><span>Photo</span><span>{preview ? "" : "Required for new items"}</span></div>
     {cameraOpen ? <div className="camera-panel">
       {devices.length > 1 && <label>Camera<select aria-label="Menu photo camera" value={deviceId} disabled={disabled} onChange={event => { setDeviceId(event.target.value); void openCamera(event.target.value); }}>{devices.map((device, index) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Camera ${index + 1}`}</option>)}</select></label>}
-      <video ref={video} autoPlay playsInline muted onLoadedData={() => setReady(true)} aria-label="Menu item camera preview" />
+      <video className="camera-preview" ref={video} autoPlay playsInline muted onLoadedData={() => setReady(true)} aria-label="Menu item camera preview" />
       {!ready && <p role="status">Opening camera…</p>}
       <div className="photo-actions"><button type="button" className="secondary-button" onClick={stopCamera}>Close camera</button><button type="button" className="primary-button" disabled={!ready || disabled} onClick={capture}>Capture photo</button></div>
     </div> : <>
