@@ -1,4 +1,4 @@
-"""Read the shared menu; protect catalog writes with a separate staff code."""
+"""Read and edit the shared menu within the existing demo session."""
 
 from typing import Annotated
 
@@ -6,7 +6,6 @@ from fastapi import APIRouter, Depends, Header
 
 from fullfill.application.order_source import MenuEdit, MenuSnapshot, OrderSource
 
-from .access import require_menu_access
 from .order_source import get_order_source
 
 router = APIRouter(prefix="/menu", tags=["catalog"])
@@ -18,12 +17,12 @@ async def current_menu(source: Source):
     return await source.menu()
 
 
-@router.get("/manage", dependencies=[Depends(require_menu_access)], response_model=MenuSnapshot)
+@router.get("/manage", response_model=MenuSnapshot)
 async def managed_menu(source: Source):
     return await source.menu()
 
 
-@router.post("/items", dependencies=[Depends(require_menu_access)], response_model=MenuSnapshot)
+@router.post("/items", response_model=MenuSnapshot)
 async def save_item(
     edit: MenuEdit,
     source: Source,

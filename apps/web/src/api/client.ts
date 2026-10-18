@@ -40,19 +40,7 @@ export class ApiError extends Error {
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const accessStorageKey = "fullfill.access.v1";
 let accessKey = "";
-let menuKey = "";
 try { accessKey = sessionStorage.getItem(accessStorageKey) ?? ""; } catch { /* In-memory access still works. */ }
-try { menuKey = sessionStorage.getItem("fullfill.menu-access.v1") ?? ""; } catch { /* In-memory access still works. */ }
-
-export function setMenuKey(value: string) {
-  menuKey = value;
-  try {
-    if (value) sessionStorage.setItem("fullfill.menu-access.v1", value);
-    else sessionStorage.removeItem("fullfill.menu-access.v1");
-  } catch { /* Keep the code in memory when storage is unavailable. */ }
-}
-
-export const hasMenuKey = () => !!menuKey;
 
 export function setAccessKey(value: string) {
   accessKey = value;
@@ -100,9 +88,9 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 export const orderApi = {
   session: (signal?: AbortSignal) => request<{ required: boolean; authenticated: boolean }>("/session", { signal }),
   menu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/current", { signal }),
-  managedMenu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/manage", { signal, headers: { "X-Menu-Key": menuKey } }),
+  managedMenu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/manage", { signal }),
   saveMenu: (body: MenuEdit, key: string) => request<MenuSnapshot>("/menu/items", {
-    method: "POST", headers: { "X-Menu-Key": menuKey, "Idempotency-Key": key }, body: JSON.stringify(body),
+    method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
   }),
   station: (signal?: AbortSignal) => request<StationSnapshot>("/stations/main/refresh", { method: "POST", signal }),
   prepare: (body: CreateOrderInput, key: string) => request<CreateOrderInput>("/orders/prepare", {

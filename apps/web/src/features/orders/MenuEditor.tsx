@@ -1,13 +1,11 @@
 import { useEffect, useState, type FormEvent } from "react";
-import { ApiError, hasMenuKey, orderApi, setMenuKey, type MenuEdit, type MenuEntry, type MenuSnapshot } from "../../api/client";
+import { ApiError, orderApi, type MenuEdit, type MenuEntry, type MenuSnapshot } from "../../api/client";
 
 type Draft = Omit<MenuEdit, "price_cents"> & { price: string };
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
 const draftFor = (item: MenuEntry): Draft => ({ item_id: item.item_id, name: item.name, price: (item.price_cents / 100).toFixed(2), available: item.available, archived: item.archived, version: item.version });
 
 export function MenuEditor() {
-  const [unlocked, setUnlocked] = useState(hasMenuKey);
-  const [code, setCode] = useState("");
   const [menu, setMenu] = useState<MenuSnapshot | null>(null);
   const [draft, setDraft] = useState<Draft | null>(null);
   const [pending, setPending] = useState<{ body: MenuEdit; key: string } | null>(null);
@@ -18,7 +16,6 @@ export function MenuEditor() {
   const [refresh, setRefresh] = useState(0);
 
   useEffect(() => {
-    if (!unlocked) return;
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
     async function poll() {
@@ -27,7 +24,6 @@ export function MenuEditor() {
         if (!controller.signal.aborted) setMenu(next);
       } catch (error) {
         if (!controller.signal.aborted) {
-          if (error instanceof ApiError && error.status === 403) { setMenuKey(""); setUnlocked(false); }
           setError(error instanceof Error ? error.message : "Could not load the menu.");
         }
       } finally {
@@ -36,15 +32,7 @@ export function MenuEditor() {
     }
     void poll();
     return () => { controller.abort(); clearTimeout(timer); };
-  }, [unlocked, refresh]);
-
-  async function unlock(event: FormEvent) {
-    event.preventDefault();
-    setBusy(true); setError(null); setMenuKey(code.trim());
-    try { setMenu(await orderApi.managedMenu()); setUnlocked(true); setCode(""); }
-    catch (error) { setMenuKey(""); setError(error instanceof Error ? error.message : "Could not unlock menu editing."); }
-    finally { setBusy(false); }
-  }
+  }, [refresh]);
 
   function select(item: MenuEntry) { setDraft(draftFor(item)); setPending(null); setError(null); setNotice(""); }
   function add() {
@@ -63,25 +51,17 @@ export function MenuEditor() {
       setMenu(next); setPending(null); setDraft(null); setNotice("Menu saved. Ordering screens update automatically.");
     } catch (error) {
       if (error instanceof ApiError && [403, 409, 422].includes(error.status)) setPending(null);
-      if (error instanceof ApiError && error.status === 403) { setMenuKey(""); setUnlocked(false); }
       setError(error instanceof Error ? error.message : "Could not save. Retry this change.");
       setRefresh(value => value + 1);
     } finally { setBusy(false); }
   }
-
-  if (!unlocked) return <main className="access-page"><form className="access-card" onSubmit={unlock}>
-    <h1>Edit menu</h1><label htmlFor="menu-code">Menu editing code</label>
-    <input id="menu-code" type="password" autoComplete="current-password" value={code} onChange={event => setCode(event.target.value)} required disabled={busy} />
-    {error && <p className="error-banner" role="alert">{error}</p>}
-    <button className="primary-button" disabled={busy || !code.trim()}>{busy ? "Connecting…" : "Unlock menu"}</button>
-  </form></main>;
 
   const visible = menu?.items.filter(item => item.archived === showArchived) ?? [];
   const latest = menu?.items.find(item => item.item_id === draft?.item_id);
   const changedElsewhere = latest && draft && latest.version !== draft.version;
   return <main className="menu-management">
     <div className="menu-management-heading"><div><h1>Menu</h1><p>Changes appear on the ordering screen.</p></div>
-      <div className="menu-actions"><button className="secondary-button" disabled={busy || !!pending} onClick={() => { setMenuKey(""); setUnlocked(false); }}>Lock editing</button><button className="primary-button" disabled={busy || !!pending || !!draft} onClick={add}>+ Add item</button></div>
+      <div className="menu-actions"><button className="primary-button" disabled={busy || !!pending || !!draft} onClick={add}>+ Add item</button></div>
     </div>
     {notice && <p className="success-banner" role="status">{notice}</p>}
     {!draft && error && <p className="error-banner" role="alert">{error}</p>}

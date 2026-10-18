@@ -11,8 +11,7 @@ not charge payments, run camera checks, or mark orders fulfilled.
 2. Set `SQUARE_ENVIRONMENT=sandbox`, `SQUARE_ACCESS_TOKEN`, and
    `SQUARE_LOCATION_ID` in the root `.env`. `SQUARE_APPLICATION_ID` may stay there
    for future integrations; these server-side order calls don't require it.
-3. Set `FULLFILL_MENU_KEY` to a separate random code of at least 32 characters.
-   Run `uv run python scripts/seed_square_menu.py` once to add missing starter items
+3. Run `uv run python scripts/seed_square_menu.py` once to add missing starter items
    to Square Catalog. This preserves any existing edits, including archived items.
 4. Run `make dev-api`. It reads `.env`; restart it after changing credentials.
 5. In another terminal run `make dev-web`.
@@ -25,7 +24,7 @@ The `/` route opens the live fulfillment queue.
 
 ## Edit the shared menu
 
-Open **Menu** on the kitchen site and enter the menu editing code. Staff can add
+Open **Menu** on the kitchen site. There is no separate menu editing code. You can add
 items, change names and prices, mark items sold out, and archive or restore items.
 The ordering screen refreshes every five seconds and when returning to the tab.
 If a selected item changes, checkout pauses until the customer reviews the basket.
@@ -68,8 +67,8 @@ is not authentication. The local servers do not need to be exposed publicly.
 | Route | Behavior |
 | --- | --- |
 | `GET /v1/menu/current` | Returns the shared catalog menu and its revision |
-| `GET /v1/menu/manage` | Reads the menu with staff authorization |
-| `POST /v1/menu/items` | Saves an item; requires `X-Menu-Key` and `Idempotency-Key` |
+| `GET /v1/menu/manage` | Reads the editable menu using the existing demo session |
+| `POST /v1/menu/items` | Saves an item; requires the demo session and `Idempotency-Key` |
 | `POST /v1/orders/prepare` | Validates the menu revision and returns a signed checkout |
 | `POST /v1/orders` | Creates an order from that checkout with the same `Idempotency-Key` |
 | `GET /v1/orders` | Lists the newest 30 open, nonempty orders at the configured location |
@@ -133,7 +132,7 @@ call is triggered by these pages.
 `python -m pytest -q tests/test_square_orders.py tests/test_menu_sync.py` covers request validation,
 server-owned prices, idempotency forwarding, independent API instances, pagination,
 location isolation, provider failures, the 30-ticket cap, shared menu editing,
-staff authorization, conflicting edits, safe checkout retries, and pending check state. Run it in the
+demo authorization, conflicting edits, safe checkout retries, and pending check state. Run it in the
 workspace virtual environment. `npm --prefix apps/web run build` checks TypeScript
 and builds both pages. Live Sandbox testing should use an explicitly identified
 test basket and verify that it appears in the other browser's queue.

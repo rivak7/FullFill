@@ -1,4 +1,4 @@
-"""Menu persistence, checkout price consistency, and staff authorization."""
+"""Menu persistence, checkout price consistency, and demo authorization."""
 
 import copy
 import json
@@ -10,9 +10,8 @@ from fullfill.adapters.orders.square import SquareOrders
 from fullfill.main import create_app
 
 ACCESS = "demo-code-for-tests-at-least-32-characters"
-STAFF = "staff-code-for-tests-at-least-32-characters"
 HEADERS = {"Authorization": "Bearer " + ACCESS}
-STAFF_HEADERS = {**HEADERS, "X-Menu-Key": STAFF, "Idempotency-Key": "edit-1"}
+EDIT_HEADERS = {**HEADERS, "Idempotency-Key": "edit-1"}
 
 
 class SquareCatalog:
@@ -74,7 +73,6 @@ def client_for(square):
 @pytest.fixture(autouse=True)
 def environment(monkeypatch):
     monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS)
-    monkeypatch.setenv("FULLFILL_MENU_KEY", STAFF)
     monkeypatch.setenv("FULLFILL_WEB_ORIGINS", "https://kitchen.example.com")
 
 
@@ -91,7 +89,7 @@ def edit(name="Fries", **changes):
 
 
 def add_item(client):
-    response = client.post("/v1/menu/items", json=edit(), headers=STAFF_HEADERS)
+    response = client.post("/v1/menu/items", json=edit(), headers=EDIT_HEADERS)
     assert response.status_code == 200, response.text
     return response.json()
 
@@ -125,7 +123,7 @@ def test_edits_persist_across_api_instances_and_old_orders_keep_their_details():
         response = kitchen.post(
             "/v1/menu/items",
             json=edit("Large fries", price_cents=500, version=1),
-            headers={**STAFF_HEADERS, "Idempotency-Key": "edit-2"},
+            headers={**EDIT_HEADERS, "Idempotency-Key": "edit-2"},
         )
         assert response.status_code == 200
         updated = response.json()
@@ -147,7 +145,7 @@ def test_stale_basket_requires_review_and_sold_out_or_archived_items_cannot_chec
             latest = client.post(
                 "/v1/menu/items",
                 json=edit(version=version, **changes),
-                headers={**STAFF_HEADERS, "Idempotency-Key": f"edit-{version + 1}"},
+                headers={**EDIT_HEADERS, "Idempotency-Key": f"edit-{version + 1}"},
             ).json()
             for revision, status in ((initial["revision"], 409), (latest["revision"], 422)):
                 response = client.post(
@@ -177,7 +175,7 @@ def test_timeout_retry_after_price_change_sends_identical_square_payload():
             client.post(
                 "/v1/menu/items",
                 json=edit("Changed fries", price_cents=900, available=False, version=1),
-                headers={**STAFF_HEADERS, "Idempotency-Key": "edit-2"},
+                headers={**EDIT_HEADERS, "Idempotency-Key": "edit-2"},
             ).status_code
             == 200
         )
@@ -191,7 +189,7 @@ def test_timeout_retry_after_price_change_sends_identical_square_payload():
     assert len(square.orders) == 1
 
 
-def test_menu_writes_require_staff_code_and_do_not_touch_unrelated_catalog_items():
+def test_menu_uses_demo_session_and_does_not_touch_unrelated_catalog_items():
     square = SquareCatalog()
     unrelated = {
         "id": "unrelated",
@@ -202,14 +200,12 @@ def test_menu_writes_require_staff_code_and_do_not_touch_unrelated_catalog_items
     with client_for(square) as client:
         assert (
             client.post(
-                "/v1/menu/items", json=edit(), headers={**HEADERS, "Idempotency-Key": "no-access"}
+                "/v1/menu/items", json=edit(), headers={"Idempotency-Key": "no-access"}
             ).status_code
-            == 403
+            == 401
         )
-        assert (
-            client.get("/v1/menu/manage", headers={**HEADERS, "X-Menu-Key": ACCESS}).status_code
-            == 403
-        )
+        assert client.get("/v1/menu/manage").status_code == 401
+        assert client.get("/v1/menu/manage", headers=HEADERS).status_code == 200
         assert client.get("/v1/menu/current", headers=HEADERS).json()["items"] == []
         add_item(client)
     assert square.objects[0] == unrelated
@@ -219,18 +215,18 @@ def test_concurrent_item_edit_is_rejected_and_identical_retry_is_safe():
     square = SquareCatalog()
     with client_for(square) as client:
         add_item(client)
-        assert client.post("/v1/menu/items", json=edit(), headers=STAFF_HEADERS).status_code == 200
+        assert client.post("/v1/menu/items", json=edit(), headers=EDIT_HEADERS).status_code == 200
         assert len(square.objects) == 1
         changed = client.post(
             "/v1/menu/items",
             json=edit(price_cents=500, version=1),
-            headers={**STAFF_HEADERS, "Idempotency-Key": "edit-2"},
+            headers={**EDIT_HEADERS, "Idempotency-Key": "edit-2"},
         )
         assert changed.status_code == 200
         response = client.post(
             "/v1/menu/items",
             json=edit(price_cents=600, version=1),
-            headers={**STAFF_HEADERS, "Idempotency-Key": "edit-3"},
+            headers={**EDIT_HEADERS, "Idempotency-Key": "edit-3"},
         )
         assert response.status_code == 409
         assert (
@@ -257,14 +253,14 @@ def test_checkout_cannot_change_signed_prices_items_or_identity(tampering):
     assert not square.orders
 
 
-def test_staff_header_is_allowed_in_browser_preflight():
+def test_menu_save_headers_are_allowed_in_browser_preflight():
     with client_for(SquareCatalog()) as client:
         response = client.options(
             "/v1/menu/items",
             headers={
                 "Origin": "https://kitchen.example.com",
                 "Access-Control-Request-Method": "POST",
-                "Access-Control-Request-Headers": "authorization,content-type,idempotency-key,x-menu-key",
+                "Access-Control-Request-Headers": "authorization,content-type,idempotency-key",
             },
         )
         assert response.status_code == 200
