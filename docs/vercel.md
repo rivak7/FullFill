@@ -79,7 +79,12 @@ GitHub repository secrets:
 These are dedicated Vercel tokens, scoped to the corresponding project within
 `iceberg-projects`. Project/team IDs are identifiers stored in the workflow, not
 credentials. Update the corresponding repository secret when rotating a token.
+The initial deployment tokens expire one year after creation; replace them in
+GitHub before expiration to keep automatic deployments running.
 The workflow uses Vercel CLI 64.5.0 and GitHub's read-only repository token.
+It passes project/team IDs through `VERCEL_PROJECT_ID` and `VERCEL_ORG_ID`.
+Do not add `--scope` to these CI commands: that triggers an account lookup that
+project-scoped tokens cannot perform.
 
 Repository ownership transfer and Vercel's native GitHub integration are not
 required. See the [official GitHub Actions guide](https://vercel.com/kb/guide/how-can-i-use-github-actions-with-vercel).

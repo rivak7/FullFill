@@ -33,6 +33,7 @@ jobs:
       group: fullfill-production
       cancel-in-progress: false
     env:
+      # Explicit IDs avoid account lookups that project-scoped tokens cannot use.
       VERCEL_ORG_ID: team_WhFivTmKGIsgmTagqxCvoZoK
     steps:
       - uses: actions/checkout@v4
@@ -77,7 +78,6 @@ jobs:
           VERCEL_PROJECT_ID: prj_psFAtet3Akkbr5c6I4BRfQumva2l
         run: >-
           vercel deploy --prod --yes --no-color
-          --scope "$VERCEL_ORG_ID" --project "$VERCEL_PROJECT_ID" --token "$VERCEL_TOKEN"
           --meta fullfillCommitSha="$GITHUB_SHA" --meta fullfillWorkflowRun="$GITHUB_RUN_ID"
       - name: Deploy ordering site
         if: steps.target.outputs.current == 'true'
@@ -86,7 +86,6 @@ jobs:
           VERCEL_PROJECT_ID: prj_mpw9VYBtvcGYbLlcdqGQgApXwW31
         run: >-
           vercel deploy --prod --yes --no-color
-          --scope "$VERCEL_ORG_ID" --project "$VERCEL_PROJECT_ID" --token "$VERCEL_TOKEN"
           --meta fullfillCommitSha="$GITHUB_SHA" --meta fullfillWorkflowRun="$GITHUB_RUN_ID"
       - name: Deploy kitchen site
         if: steps.target.outputs.current == 'true'
@@ -95,7 +94,6 @@ jobs:
           VERCEL_PROJECT_ID: prj_rRfVZgfsxaEJ9cw30hTrHN41zc6N
         run: >-
           vercel deploy --prod --yes --no-color
-          --scope "$VERCEL_ORG_ID" --project "$VERCEL_PROJECT_ID" --token "$VERCEL_TOKEN"
           --meta fullfillCommitSha="$GITHUB_SHA" --meta fullfillWorkflowRun="$GITHUB_RUN_ID"
       - name: Check live endpoints
         if: steps.target.outputs.current == 'true'
