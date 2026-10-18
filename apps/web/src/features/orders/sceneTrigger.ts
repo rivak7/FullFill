@@ -112,6 +112,10 @@ export class SceneTrigger {
   // Where the passed order sat: pixels of its photo that differ from the bare mat.
   private orderSpots: Uint8Array | null = null;
   lastClearCheck: ClearCheck | null = null;
+  // Where the last photo's order sat, while it has no pass: clearing it means the worker
+  // bagged it anyway (see `clearedAfterWarning`).
+  private sentSpots: Uint8Array | null = null;
+  clearedAfterWarning = false;
 
   get handoff(): "remove" | "place" | null {
     return this.handoffFrom ? this.betweenOrders ? "place" : "remove" : null;
@@ -125,7 +129,7 @@ export class SceneTrigger {
   }
 
   learnEmptyMat() {
-    this.empty = null; this.learning = true; this.orderSpots = null;
+    this.empty = null; this.learning = true; this.orderSpots = null; this.sentSpots = null;
   }
 
   nextOrder() {
@@ -138,8 +142,16 @@ export class SceneTrigger {
     this.orderSpots = null; this.lastClearCheck = null;
     // Nothing on the mat to clear: go straight to waiting for the next order.
     if (this.handoffFrom && !this.betweenOrders && this.empty && isEmptyMat(this.handoffFrom, this.empty)) this.betweenOrders = this.handoffFrom;
-    this.lastSent = null;
+    this.lastSent = null; this.sentSpots = null;
     this.reset(this.previous ?? this.handoffFrom ?? undefined);
+  }
+
+  // The worker bagged an amber or red order anyway: wait for the next order, as after a pass.
+  bagged(frame: Uint8Array) {
+    this.retryPending = false; this.clearedAfterWarning = false;
+    this.handoffFrom = (this.lastSent ?? frame).slice(); this.betweenOrders = frame.slice();
+    this.lastSent = null; this.sentSpots = null;
+    this.reset(frame);
   }
 
   interrupt() {
@@ -165,7 +177,7 @@ export class SceneTrigger {
 
   submitted(frame: Uint8Array) {
     this.retryPending = false;
-    this.handoffFrom = null; this.betweenOrders = null; this.orderSpots = null;
+    this.handoffFrom = null; this.betweenOrders = null; this.orderSpots = null; this.sentSpots = null;
     this.lastSent = frame.slice(); this.reset(frame);
   }
 
@@ -213,6 +225,16 @@ export class SceneTrigger {
       // meals can pass this gate after the observed removal-and-replacement sequence.
       return settledFor >= SETTLE_MS && sceneChanged(frame, this.betweenOrders)
         && !(this.empty && isEmptyMat(frame, this.empty));
+    }
+    // The last photo's order is gone from the mat (same test as after a pass): never
+    // check the bare mat; the panel decides whether this counts as bagging past a warning.
+    this.clearedAfterWarning = false;
+    if (this.lastSent && this.empty) {
+      this.sentSpots ??= changedMask(this.lastSent, this.empty);
+      if (changedPixels(frame, this.empty, 2, this.sentSpots) < 2 && this.sentSpots.some(Boolean)) {
+        this.clearedAfterWarning = settledFor >= QUICK_CLEAR_MS;
+        return false;
+      }
     }
     return settledFor >= SETTLE_MS && (extraDue || this.retryPending || sceneChanged(frame, this.baseline))
       && (extraDue || !this.lastSent || sceneChanged(frame, this.lastSent));

@@ -777,3 +777,50 @@ it("advances a passed order as soon as the mat is bare, and logs each clear chec
   expect(events).toContain("Clear check: 144 of 144 order pixels still differ from the bare mat.");
   expect(events).toContain("Mat clear (empty mat): moving to the next order.");
 });
+
+it("sees an amber or red order bagged anyway once its spots show the bare mat, without checking the bare mat", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(210), meal = bare.slice(), half = bare.slice();
+  for (let row = 8; row < 20; row++) for (let col = 8; col < 20; col++) meal[row * 32 + col] = 70;
+  for (let row = 8; row < 14; row++) for (let col = 8; col < 20; col++) half[row * 32 + col] = 70;
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  scene.submitted(meal);
+  // Taking one item off (fixing an extra) still checks again.
+  expect(sampled(scene, half, 1250, 2000)).toBe(true);
+  expect(scene.clearedAfterWarning).toBe(false);
+  scene.submitted(half);
+  scene.sample(bare, 2125);
+  expect(scene.clearedAfterWarning).toBe(false);
+  expect(scene.sample(bare, 2250)).toBe(false);
+  expect(scene.sample(bare, 2375)).toBe(false);
+  expect(scene.clearedAfterWarning).toBe(true);
+  scene.bagged(bare);
+  expect(scene.handoff).toBe("place");
+  expect(sampled(scene, bare, 2500, 4000)).toBe(false);
+  expect(sampled(scene, meal, 4250, 5000)).toBe(true);
+});
+
+it("moves past a red order when the worker bags it anyway, keeping it red", async () => {
+  const red = checked(); red.disposition = "unfulfilled";
+  vi.mocked(orderApi.checkCamera).mockResolvedValue(red);
+  const onBaggedWithWarning = vi.fn();
+  const show = (meal: boolean) => vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({
+    data: Uint8ClampedArray.from({ length: 4096 }, (_, i) => { const p = i >> 2, row = p >> 5, col = p & 31; return i % 4 === 3 ? 255 : meal && row >= 8 && row < 20 && col >= 8 && col < 20 ? 70 : 210; }),
+  }) } as unknown as CanvasRenderingContext2D);
+  show(false);
+  const render = (order: OrderState) => act(async () => root.render(<CameraCheckPanel workerId="worker" order={order} pauseToken={0} checkToken={0} onResult={onResult} onBusyChange={onBusyChange} onBaggedWithWarning={onBaggedWithWarning} />));
+  await render(ticket());
+  await camera();
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  show(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  await render(onResult.mock.calls[0][0]);
+  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("red");
+  show(false);
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  expect(onBaggedWithWarning).toHaveBeenCalledWith("first");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  expect(readCvLogs()[0].events.map(event => event.message)).toContain("Mat cleared without a pass: warning overridden by bagging, order left unfulfilled. Moving to the next order.");
+});

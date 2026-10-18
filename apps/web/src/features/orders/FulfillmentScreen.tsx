@@ -191,7 +191,6 @@ export function FulfillmentScreen() {
             : current ? <>
               <StationScreen state={current} />
               <div className="fulfillment-actions" aria-label="Manual override">
-                <span>Override</span>
                 {currentTone !== "green" && <button className="text-button" disabled={locked} onClick={() => setCheckNow(value => value + 1)}>Check now</button>}
                 {currentTone !== "red" && <button className="text-button" disabled={locked} onClick={() => updateStatus("unfulfilled")}>Reopen</button>}
                 {currentTone !== "amber" && <button className="text-button" disabled={locked} onClick={() => updateStatus("unsure")}>Needs review</button>}
@@ -212,6 +211,11 @@ export function FulfillmentScreen() {
           }} onMatCleared={orderId => {
             if (bagging.current !== orderId) return;
             bagging.current = null;
+            setQueue(previous => previous.selected === orderId ? advancePastHeld(previous, workerId) : previous);
+          }} onBaggedWithWarning={orderId => {
+            // The worker overrode the warning by bagging: the ticket keeps its red or amber
+            // verdict in the queue, and the station moves on.
+            setNotice(`#${orderNumber(orderId)} bagged with a warning`);
             setQueue(previous => previous.selected === orderId ? advancePastHeld(previous, workerId) : previous);
           }} />
       </div>

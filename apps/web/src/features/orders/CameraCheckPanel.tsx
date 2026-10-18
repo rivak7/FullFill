@@ -6,6 +6,7 @@ import { orderApi, ApiError, type MenuPhoto } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
 import { SAMPLE_MS, SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
+import { toScreenState } from "../station/screenState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
 import { cameraPhoto, cameraThumbnail } from "./cameraFraming";
 import { CvLogs, attachCvVisuals, startCvLog, updateCvLog, checkResultDetails, sceneDiagnostic, type CheckTrigger } from "./CvLogs";
@@ -20,6 +21,8 @@ interface Props {
   // `bagging` is true when the camera will watch this passed order get cleared off the mat.
   onResult: (state: OrderState, bagging: boolean) => void;
   onMatCleared?: (orderId: string) => void;
+  // The worker bagged an amber or red order anyway (cleared the mat): it keeps its verdict.
+  onBaggedWithWarning?: (orderId: string) => void;
   onBusyChange: (busy: boolean) => void;
 }
 
@@ -59,6 +62,7 @@ export function CameraCheckPanel(props: Props) {
   const bagging = useRef<string | null>(null);
   // The passed check's log, where each clear-check decision is written.
   const clearLog = useRef<{ id: string; at: number; text: string; lines: number } | null>(null);
+  const lastAttempt = useRef<string | null>(null);
   const guard = useRef<SceneGuard | null>(null);
   const interruptedByTab = useRef(false);
   // One unprompted look when automatic checks start, and one recheck after an amber
@@ -144,7 +148,7 @@ export function CameraCheckPanel(props: Props) {
     if (!order || disabled || isFulfilled(order) || inFlight.current || !video.current || !ready || !configured || document.hidden) return;
     const boundOrder = { id: order.order.order_id, revision: order.order.revision };
     const attemptId = crypto.randomUUID();
-    startCvLog(attemptId, boundOrder.id, boundOrder.revision, source);
+    startCvLog(attemptId, boundOrder.id, boundOrder.revision, source); lastAttempt.current = attemptId;
     let photo: MenuPhoto;
     let recheck = false;
     let retry = false;
@@ -263,7 +267,13 @@ export function CameraCheckPanel(props: Props) {
         // Keep observing handoffs while a claim is loading or the queue is empty.
         const now = Date.now();
         const extra = extraCheck.current && now >= extraCheck.current.at ? extraCheck.current.reason : null;
-        const settled = trigger.current.sample(sample(video.current), now, extra !== null);
+        const frame = sample(video.current);
+        const settled = trigger.current.sample(frame, now, extra !== null);
+        if (trigger.current.clearedAfterWarning && order && !disabled && ["red", "amber"].includes(toScreenState(order).tone)) {
+          trigger.current.bagged(frame); extraCheck.current = null;
+          if (lastAttempt.current) updateCvLog(lastAttempt.current, `Mat cleared without a pass: warning overridden by bagging, order left ${toScreenState(order).tone === "red" ? "unfulfilled" : "for review"}. Moving to the next order.`);
+          latest.current.onBaggedWithWarning?.(order.order.order_id);
+        }
         setHandoff(trigger.current.handoff);
         if (bagging.current) logClearCheck(now);
         if (bagging.current && trigger.current.handoff === "place") {
