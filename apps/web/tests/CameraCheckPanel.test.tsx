@@ -283,6 +283,43 @@ it("preserves a clear-and-replace sequence through queue and claim updates", () 
   expect(sampled(scene, meal, 1250, 2750)).toBe(true);
 });
 
+it("ends a passed order only once the mat is back to the empty mat seen at camera start", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(200), meal = bare.slice(), half = bare.slice();
+  for (let i = 0; i < 300; i++) meal[i] = 60;
+  for (let i = 0; i < 100; i++) half[i] = 60;
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  scene.submitted(meal); scene.nextOrder();
+  // Half the bag packed, then a pause: still waiting for the mat to clear.
+  sampled(scene, half, 1250, 4000);
+  expect(scene.handoff).toBe("remove");
+  // A brighter room still reads as the empty mat.
+  sampled(scene, bare.map(value => value + 20), 4250, 6000);
+  expect(scene.handoff).toBe("place");
+});
+
+it("falls back to any settled change when the camera started with an order on the mat", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(200), meal = bare.slice(), half = bare.slice();
+  for (let i = 0; i < 300; i++) meal[i] = 60;
+  for (let i = 0; i < 100; i++) half[i] = 60;
+  scene.learnEmptyMat();
+  sampled(scene, meal, 0, 1000);
+  scene.submitted(meal); scene.nextOrder();
+  sampled(scene, half, 1250, 4000);
+  expect(scene.handoff).toBe("place");
+});
+
+it("goes straight to the next order when the ticket changes on an empty mat", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(200);
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  scene.nextOrder();
+  expect(scene.handoff).toBe("place");
+});
+
 it("detects a small added packet while ignoring an isolated noisy pixel", () => {
   const scene = new SceneTrigger();
   const baseline = new Uint8Array(1024).fill(80);

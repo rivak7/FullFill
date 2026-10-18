@@ -103,7 +103,7 @@ export function CameraCheckPanel(props: Props) {
   useEffect(() => { setAuto(false); }, [props.pauseToken]);
 
   async function start(id = chosenDevice.current) {
-    stop(); setError(""); setOpen(true); setAuto(true);
+    stop(); setError(""); setOpen(true); setAuto(true); trigger.current.learnEmptyMat();
     const current = generation.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera access requires HTTPS and a supported browser.");

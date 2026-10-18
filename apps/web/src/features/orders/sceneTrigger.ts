@@ -19,6 +19,16 @@ export function frameDifference(a: Uint8Array, b: Uint8Array): number {
   return difference;
 }
 
+// Pixels that differ from the empty mat once a whole-frame exposure shift is removed.
+// A 32-px preview makes a sauce packet only a pixel or two, so two pixels count.
+export function isEmptyMat(frame: Uint8Array, empty: Uint8Array): boolean {
+  if (frame.length !== empty.length) return false;
+  const shift = Array.from(frame, (value, i) => value - empty[i]).sort((a, b) => a - b)[frame.length >> 1];
+  let changed = 0;
+  for (let i = 0; i < frame.length; i++) if (Math.abs(frame[i] - empty[i] - shift) > 25 && ++changed >= 2) return false;
+  return true;
+}
+
 export class SceneTrigger {
   private previous: Uint8Array | null = null;
   private baseline: Uint8Array | null = null;
@@ -29,6 +39,10 @@ export class SceneTrigger {
   private stableSince = 0;
   private lastAt: number | null = null;
   private retryPending = false;
+  // The bare mat, learned from the first settled scene after the camera opens (like
+  // apps/capture's trigger). With it, an order only ends once the mat is empty again.
+  private empty: Uint8Array | null = null;
+  private learning = false;
 
   get handoff(): "remove" | "place" | null {
     return this.handoffFrom ? this.betweenOrders ? "place" : "remove" : null;
@@ -41,11 +55,19 @@ export class SceneTrigger {
     this.lastAt = null;
   }
 
+  learnEmptyMat() {
+    this.empty = null; this.learning = true;
+  }
+
   nextOrder() {
     this.retryPending = false;
+    // A checked order was on the "empty" mat, so it was learned with items on it.
+    if (this.empty && this.lastSent && isEmptyMat(this.lastSent, this.empty)) this.empty = null;
     // Preserve an unfinished handoff through an empty queue or another selection.
     // A still frame from the previous ticket must never automatically check the next.
     this.handoffFrom ??= (this.lastSent ?? this.previous)?.slice() ?? null;
+    // Nothing on the mat to clear: go straight to waiting for the next order.
+    if (this.handoffFrom && !this.betweenOrders && this.empty && isEmptyMat(this.handoffFrom, this.empty)) this.betweenOrders = this.handoffFrom;
     this.lastSent = null;
     this.reset(this.previous ?? this.handoffFrom ?? undefined);
   }
@@ -88,11 +110,19 @@ export class SceneTrigger {
     }
     this.previous = frame.slice();
     const settledFor = now - this.stableSince;
+    if (this.learning && settledFor >= 750) {
+      this.learning = false;
+      // The previous order is still on the mat; without a bare mat, fall back below.
+      if (!this.handoffFrom || frameDifference(frame, this.handoffFrom) > 12) this.empty = frame.slice();
+    }
     if (this.handoffFrom) {
       if (!this.betweenOrders) {
-        // Observe a changed intermediate scene for 750 ms before accepting a
-        // second transition. This is a visual heuristic, not proof of emptiness.
-        if (frameDifference(frame, this.handoffFrom) > 12 && settledFor >= 750) {
+        // Observe a changed scene for 750 ms before accepting a second transition.
+        // With a learned bare mat that scene must be the empty mat; without one this
+        // is only a heuristic for removal.
+        if (frameDifference(frame, this.handoffFrom) > 12 && settledFor >= 750
+          && (!this.empty || isEmptyMat(frame, this.empty))) {
+          if (this.empty) this.empty = frame.slice(); // follow slow lighting drift
           this.betweenOrders = frame.slice();
           this.reset(frame);
         }
