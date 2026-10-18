@@ -1,0 +1,15 @@
+{
+  "menu": {
+    "tsss": {"name": "TSSS (tofu, spicy sunrise sauce)", "description": "black takeout container, clear lid, sesame seeds on top"},
+    "tssss": {"name": "TSSSS (tofu, super spicy sunrise sauce)", "description": "black takeout container, clear lid, green onions on top"},
+    "chicken_burrito": {"name": "Chicken burrito", "description": "burrito in red and white checkered paper, letter C written on it in marker", "label": ["C"]},
+    "steak_burrito": {"name": "Steak burrito", "description": "burrito in red and white checkered paper, letter S written on it in marker", "label": ["S"]},
+    "ketchup": {"name": "Ketchup packet", "description": "small red packet"},
+    "ranch": {"name": "Buttermilk ranch packet"},
+    "mayo": {"name": "Mayo packet", "description": "small white packet; on the white paper only its printing and edges show"},
+    "mustard": {"name": "Mustard packet", "description": "small yellow packet"},
+    "salt": {"name": "Salt packet"},
+    "pepper": {"name": "Pepper packet"}
+  },
+  "order": {"tsss": 1, "ketchup": 2}
+}

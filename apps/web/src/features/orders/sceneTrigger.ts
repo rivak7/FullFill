@@ -77,7 +77,7 @@ export class SceneTrigger {
     this.lastSent = frame.slice(); this.reset(frame);
   }
 
-  sample(frame: Uint8Array, now: number, periodicDue = false): boolean {
+  sample(frame: Uint8Array, now: number, extraDue = false): boolean {
     if (this.lastAt !== null && now - this.lastAt > 1000) this.interrupt();
     this.lastAt = now;
     this.previous ??= frame.slice();
@@ -102,8 +102,8 @@ export class SceneTrigger {
       // can pass this gate after the observed removal-and-replacement sequence.
       return frameDifference(frame, this.betweenOrders) > 12 && settledFor >= 750;
     }
-    return (periodicDue || this.retryPending || frameDifference(frame, this.baseline) > 12) && settledFor >= 750
-      && (periodicDue || !this.lastSent || frameDifference(frame, this.lastSent) > 12);
+    return (extraDue || this.retryPending || frameDifference(frame, this.baseline) > 12) && settledFor >= 750
+      && (extraDue || !this.lastSent || frameDifference(frame, this.lastSent) > 12);
   }
 }
 

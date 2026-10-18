@@ -91,9 +91,9 @@ class VisionProviderError(RuntimeError):
 
 
 class CallLimiter:
-    """Cooldown between calls and a hard cap, so a misfiring trigger can't burn credits."""
+    """Cooldown between call starts and an optional hard cap (``max_calls=None`` for none)."""
 
-    def __init__(self, max_calls: int, cooldown_s: float, clock=time.monotonic):
+    def __init__(self, max_calls: int | None, cooldown_s: float, clock=time.monotonic):
         self.max_calls = max_calls
         self.cooldown_s = cooldown_s
         self.calls = 0
@@ -103,7 +103,7 @@ class CallLimiter:
 
     async def acquire(self) -> None:
         async with self._lock:
-            if self.calls >= self.max_calls:
+            if self.max_calls is not None and self.calls >= self.max_calls:
                 raise VisionCallRejected(f"call cap of {self.max_calls} reached")
             if self._last is not None:
                 wait = self.cooldown_s - (self._clock() - self._last)
@@ -324,8 +324,8 @@ def parse_answer(
         elif reason or count is None:
             status = "unsure"
             reason = reason or REASONS["count"]
-        if scene != "clear":
-            status, reason = "unsure", SCENES[scene]
+        # A poor whole-scene view is reported once as scene_uncertainty and turns the
+        # result amber in compare_order; it doesn't rewrite the item counts.
         seen[target_id] = TargetObservation(
             target_id=target_id,
             status=status,

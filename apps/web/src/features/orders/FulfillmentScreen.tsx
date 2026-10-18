@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, orderApi, type OrderStatusEdit } from "../../api/client";
 import { StationScreen } from "../station/StationScreen";
-import { toScreenState } from "../station/screenState";
+import { amberReason, toScreenState } from "../station/screenState";
 import { heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
 
@@ -176,6 +176,7 @@ export function FulfillmentScreen() {
               <span className="queue-ticket-items">{state.order.lines.map(line => `${line.quantity}× ${line.name}`).join(" · ")}</span>
               {heldByOther(state, workerId) && <span className="queue-ticket-owner">Working on another screen</span>}
               <span className="queue-ticket-status">{screen.tone === "green" ? "✓ " : screen.tone === "amber" ? "? " : "○ "}{screen.headline}</span>
+              {amberReason(screen) && <span className="queue-ticket-reason">{amberReason(screen)}</span>}
             </button>;
           })}
         </aside>

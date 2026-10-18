@@ -174,7 +174,7 @@ def test_label_required_cannot_pass_without_a_matching_readable_label(label):
 
 
 @pytest.mark.parametrize("scene", ["obscured", "blurry", "out_of_frame", "mixed_orders"])
-def test_poor_scene_never_becomes_a_confident_count(scene):
+def test_poor_scene_is_reported_once_without_rewriting_counts(scene):
     client = FakeClient(
         {
             "items": [entry("chicken_burrito", label="C"), entry("mayo", "missing", 0)],
@@ -184,7 +184,8 @@ def test_poor_scene_never_becomes_a_confident_count(scene):
     )
     obs = run(vision(client).inspect(REQUEST))
     assert obs.scene_uncertainty
-    assert all(target.status == "unsure" for target in obs.targets)
+    # The verdict (amber, or red if something is definitely missing) is compare_order's job.
+    assert [target.status for target in obs.targets] == ["present", "missing"]
 
 
 @pytest.mark.parametrize(
@@ -373,3 +374,20 @@ def test_missing_items_never_get_boxes():
         REQUEST,
     )
     assert observed[1].boxes == []
+
+
+def test_rate_limit_spaces_calls_one_second_apart_without_a_cap(monkeypatch):
+    now = [100.0]
+    waits = []
+
+    async def fake_sleep(seconds):
+        waits.append(seconds)
+        now[0] += seconds
+
+    monkeypatch.setattr(asyncio, "sleep", fake_sleep)
+    limiter = CallLimiter(max_calls=None, cooldown_s=1.0, clock=lambda: now[0])
+    for _ in range(3):
+        run(limiter.acquire())
+        now[0] += 0.25  # the next request arrives a quarter second later
+    assert waits == [0.75, 0.75]
+    assert limiter.calls == 3

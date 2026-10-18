@@ -19,7 +19,7 @@ frames, the backend calls Perceptron, and compact results persist in Square.
 | Shared state | Orders and menu edits persist in Square across browsers and API instances using the same Sandbox account and location. Conflicting menu edits require a refresh. |
 | Vision adapter | Send an order photo and labeled reference photos to Perceptron Mk1.5; validate structured observations. Browser checks require a reference for every ticket item. Expected quantities are kept out of the model prompt. |
 | Browser camera | Enable a local video preview, then check the selected ticket manually or opt into checks after movement settles. No Python camera installation is needed. Preview makes no Perceptron calls. |
-| Comparison rules | Exact, clearly visible counts pass; definite shortages/excesses fail; ambiguous identity/counts, unreadable required labels, unknown extras, poor camera views, and failed checks require review. A clear mismatch takes precedence over uncertainty about another item; an unusable whole-scene view invalidates all counts. |
+| Comparison rules | Red: a ticket item is definitely short or over, or a known menu item not on the ticket is present. Amber: anything else to look at (unsure or uncounted items, unreadable required labels, unidentified objects, lines needing manual review, a poor camera view) or a failed check. Green: every count matches and nothing is uncertain. Red wins over amber. Follows docs/system-design.md; the only implementation is `apps/api/fullfill/domain/compare_order.py`. |
 | Station preview | Explore hardcoded checking, pass, fail, unsure, and error states at `/demo` in the combined frontend. |
 | Evaluation | Run photo-based latency, order-accuracy, and lookalike/label checks, including names-only versus reference-photo comparisons and JSONL logging. |
 
@@ -36,7 +36,8 @@ manual statuses leave Square's payment and native fulfillment state unchanged.
 Deleted menu items are archived in Square and hidden from the menu, with no
 restore option in the UI. Existing starter items can be edited without photos;
 new items require one. Camera checks include saved photos for ticket items and
-up to six alternative menu items selected using local image and name similarity.
+lookalike menu items, up to 12 photos in total and at most six lookalikes. Lookalikes
+are ranked mainly by name similarity (TSSS vs. TSSSS), with photo similarity as a tiebreak.
 
 The capture package still contains interfaces and TODOs for camera/replay sources,
 stillness triggering, QR decoding, cropping, and uploading. The browser uses its
@@ -58,7 +59,7 @@ capture with no separate handoff confirmation.
 For subsequent tickets, the browser observes two transitions: the previous view
 changes and stays stable for at least 750 ms, then a replacement view changes
 again and settles for 750 ms. The intermediate view makes no model call, and
-periodic checks cannot bypass this handoff guard.
+automatic rechecks cannot bypass this handoff guard.
 Clear the packing area briefly between orders. This allows identical meals to be
 checked separately while suppressing untouched food and brief hand waves. It is
 a motion heuristic, not proof that the area is empty: a prolonged obstruction or
@@ -67,7 +68,7 @@ checks remain available if the transition was missed. Hidden tabs, sampling gaps
 and camera stops discard incomplete handoff evidence. Switching tabs preserves
 automatic mode and resumes visible settling when the page returns. Initial startup
 also checks a still view after five seconds, including an empty packing area.
-There are no application spending caps or forced waits for manual checks.
+Perceptron calls are limited to one per second per API process; there is no total cap.
 Only one check runs at a time for a ticket, duplicate requests remain idempotent,
 and failures are not automatically retried. Expand **Check activity** to count
 attempts over the last 5 minutes, hour, or 24 hours. Timestamp-only history survives
@@ -105,7 +106,7 @@ staff activity; both sites use the same shared demo access code.
 
 ### Camera decisions and corrections
 
-The browser handles camera preview, cropping, movement detection, and stillness
+The browser handles camera preview, downscaling, movement detection, and stillness
 without installing Python or OpenCV. Only a selected still image is uploaded to
 the Vercel API, which calls Perceptron with the server-side key. Reference photos
 identify menu items; they do not train the model or prove hidden ingredients.
@@ -120,11 +121,10 @@ special instructions require staff confirmation even when the counts match.
 Perceptron reports observed counts and uncertainty; application rules decide the
 status. The expected counts remain outside the model prompt. Green means a clear
 snapshot match and advances upward in the queue. Red names definite shortages or
-excesses, or a confidently identified wrong menu item. A clear substitution can
-show both the missing item and what appeared instead. Unknown objects remain
-explicitly unidentified, without forcing a menu match. Orange names uncertain
-items or gives an instruction for improving the
-camera view. An API error is orange, never evidence that food is missing. Partial,
+excesses of ticket items, or a menu item that isn't on the ticket, and stays red
+even if something else is uncertain. A clear substitution shows both the missing
+item and what appeared instead. Unknown objects stay unidentified and are orange,
+as are uncertain items and a poor camera view (with an instruction for improving it). An API error is orange, never evidence that food is missing. Partial,
 contradictory, malformed, or stale results cannot produce a green screen.
 
 Camera results first persist as `awaiting_confirmation`. The capturing browser
@@ -151,7 +151,8 @@ actions pause automatic checks; fulfilling a ticket keeps automatic mode running
 for the next ticket. Manual decisions take precedence over an in-flight result; conflicting edits
 from another screen require refresh instead of silently overwriting them.
 
-Uncertain and mismatched results continue periodic automatic checks. Technical
+An amber result gets one automatic recheck five seconds later; red and green stand
+until the scene changes. Every amber screen says why it is unsure. Technical
 failures pause automatic mode; they are not automatically retried. Each new check
 uses a fresh photo and request ID. Each result describes the captured moment, not continuous proof of
 the order's contents: keep one order entirely visible until the check finishes.

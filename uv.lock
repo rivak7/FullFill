@@ -114,6 +114,7 @@ version = "0.1.0"
 source = { editable = "apps/capture" }
 dependencies = [
     { name = "fullfill-contracts" },
+    { name = "numpy" },
 ]
 
 [package.optional-dependencies]
@@ -124,6 +125,7 @@ camera = [
 [package.metadata]
 requires-dist = [
     { name = "fullfill-contracts", editable = "packages/contracts" },
+    { name = "numpy", specifier = ">=2,<3" },
     { name = "opencv-python", marker = "extra == 'camera'", specifier = ">=4.11,<5" },
 ]
 provides-extras = ["camera"]

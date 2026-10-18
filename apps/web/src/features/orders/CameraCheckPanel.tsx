@@ -5,7 +5,7 @@ import type { OrderState } from "../../api/generated/contracts";
 import { SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
-import { cameraPhoto, cropCamera } from "./cameraFraming";
+import { cameraPhoto, cameraThumbnail } from "./cameraFraming";
 import { CvLogs, attachCvVisuals, startCvLog, updateCvLog, checkResultDetails, sceneDiagnostic, type CheckTrigger } from "./CvLogs";
 
 interface Props {
@@ -18,7 +18,7 @@ interface Props {
 }
 
 function sample(video: HTMLVideoElement): Uint8Array {
-  const canvas = cropCamera(video, 32);
+  const canvas = cameraThumbnail(video, 32);
   const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
   const gray = new Uint8Array(data.length / 4);
   for (let i = 0; i < gray.length; i++) gray[i] = (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2]) / 3;
@@ -50,10 +50,12 @@ export function CameraCheckPanel(props: Props) {
   const trigger = useRef(new SceneTrigger());
   const guard = useRef<SceneGuard | null>(null);
   const interruptedByTab = useRef(false);
-  const nextPeriodicCheck = useRef(0);
+  // One unprompted look when automatic checks start, and one recheck after an amber
+  // result. Green and red stand until the scene changes.
+  const extraCheck = useRef<{ at: number; reason: CheckTrigger } | null>(null);
 
   function setAuto(value: boolean) {
-    if (value) nextPeriodicCheck.current = Date.now() + 5000;
+    extraCheck.current = value ? { at: Date.now() + 5000, reason: "first look" } : null;
     automaticRef.current = value; setAutomatic(value); trigger.current.reset();
   }
 
@@ -122,6 +124,8 @@ export function CameraCheckPanel(props: Props) {
     const attemptId = crypto.randomUUID();
     startCvLog(attemptId, boundOrder.id, boundOrder.revision, source);
     let photo: MenuPhoto;
+    let recheck = false;
+    extraCheck.current = null;
     try {
       const frame = sample(video.current);
       photo = cameraPhoto(video.current);
@@ -159,6 +163,7 @@ export function CameraCheckPanel(props: Props) {
           state = await confirm(false);
         }
       }
+      recheck = source !== "recheck after amber" && state.current_check?.execution_status === "completed" && state.current_check.verdict === "unsure";
       updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
       if (mounted.current) {
         latest.current.onResult(state);
@@ -179,7 +184,7 @@ export function CameraCheckPanel(props: Props) {
       updateCvLog(attemptId, status + (cause instanceof Error ? cause.message : "Request failed"), "Request failed", true);
       if (mounted.current) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
     } finally {
-      nextPeriodicCheck.current = Date.now() + 5000;
+      if (recheck) extraCheck.current = { at: Date.now() + 5000, reason: "recheck after amber" };
       guard.current = null;
       inFlight.current = false;
       if (mounted.current) { setBusy(false); latest.current.onBusyChange(false); }
@@ -203,9 +208,10 @@ export function CameraCheckPanel(props: Props) {
       try {
         // Keep observing handoffs while a claim is loading or the queue is empty.
         const now = Date.now();
-        const settled = trigger.current.sample(sample(video.current), now, now >= nextPeriodicCheck.current);
+        const extra = extraCheck.current && now >= extraCheck.current.at ? extraCheck.current.reason : null;
+        const settled = trigger.current.sample(sample(video.current), now, extra !== null);
         setHandoff(trigger.current.handoff);
-        if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current(trigger.current.handoff ? "next order" : now >= nextPeriodicCheck.current ? "periodic" : "scene change");
+        if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current(trigger.current.handoff ? "next order" : extra ?? "scene change");
       } catch { setAuto(false); trigger.current.interrupt(); setError("Camera processing stopped. Reopen the camera to continue."); }
     }, 250);
     return () => window.clearInterval(timer);
@@ -226,7 +232,7 @@ export function CameraCheckPanel(props: Props) {
         <p role="status">{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order from view." : automatic && handoff === "place" ? "Place the next order in view. Checking starts when it settles." : automatic ? "Place the order in view. Checking starts when it settles." : "Automatic checks paused. Check manually or turn them back on."}</p>
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
         <label className="camera-auto"><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Automatic checks</label>
-        {automatic && <small>Rechecks a still view every 5 seconds after the previous check finishes.</small>}
+        {automatic && <small>Checks when the order changes and settles. An amber result gets one recheck.</small>}
         {props.order?.current_check?.verdict === "unsure" && <p>Inspect the highlighted items, then recheck or fulfill manually.</p>}
       </div>
       {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{lastPhoto.orderId.slice(-8).toUpperCase()}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${lastPhoto.orderId.slice(-8).toUpperCase()}`} /><small>Snapshot used for the check. Kept only in this page.</small></details>}

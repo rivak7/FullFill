@@ -22,7 +22,7 @@ comparison = compare_order(order, observations)  # fullfill_contracts.checks.Com
 
 - Send an image that is already cropped to the mat and downscaled to about 1024 px. The adapter doesn't resize.
 - `inspect` raises `VisionProviderError` when Perceptron fails or answers out of format, and `VisionCallRejected` when the spending guard refuses the call. Show either one as a failed check. Never show it as green.
-- No default spending cap or cooldown. The website uses one in-flight check per ticket and idempotency. Offline evaluation callers can explicitly pass `limiter=CallLimiter(...)` when running a budgeted experiment.
+- Rate limit: the website's checks share one `CallLimiter` that starts at most one Perceptron call per second per API process (`apps/api/fullfill/http/checks.py`); a call that arrives early waits instead of failing. There is no total cap. Offline evaluation callers can pass their own `limiter=CallLimiter(...)`.
 
 ## Screen states
 
@@ -30,11 +30,13 @@ comparison = compare_order(order, observations)  # fullfill_contracts.checks.Com
 
 | verdict | screen | when |
 | --- | --- | --- |
-| `pass` | green, order fulfilled | every item's count matches and nothing is uncertain |
-| `fail` | red, order unfulfilled | something is definitely missing or there are too many of an item. Red wins even if something else is uncertain. |
-| `unsure` | amber, worker decides | an item the model couldn't see or tell apart, an unlabeled lookalike, or something not on the ticket |
+| `pass` | green, order fulfilled | every item's count matches and nothing below applies |
+| `fail` | red, order unfulfilled | a ticket item is definitely short or over, or a known menu item that isn't on the ticket is there. Red wins even if something else is uncertain or the view is poor. |
+| `unsure` | amber, worker decides | an item the model couldn't see, count or tell apart, an unlabeled lookalike, an object it can't identify, a line needing manual review, or a poor view of the scene |
 
-Each entry in `Comparison.discrepancies` has a ready-to-show `message`: "Missing: 1 Ketchup packet", "Extra: 1 Mayo packet", "Check Chicken burrito: 1 unlabeled item(s) look like Chicken burrito", or "Not on the ticket: Celsius can". Its `kind` is `missing`, `unexpected` or `unsure`, and `target_id` is the item id (empty for something not on the ticket).
+These follow the comparison rules in `docs/system-design.md`. `compare_order` is the only place they live. The adapter, Square storage and the screens report or display its verdict; they never re-decide it.
+
+Each entry in `Comparison.discrepancies` has a ready-to-show `message`: "Missing: 1 Ketchup packet", "Extra: 1 Mayo packet", "Check Chicken burrito: …", "Wrong item: expected TSSS; detected TSSSS" (a swap, red because TSSS is missing), "Wrong item: Mayo packet is not on this ticket" (red), or "Unidentified item: can" (amber). Its `kind` is `missing`, `unexpected`, `wrong_item`, `unidentified` or `unsure`.
 
 ## Label-only items (the unlabeled burrito)
 

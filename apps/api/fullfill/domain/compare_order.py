@@ -1,10 +1,16 @@
 """Decision rules: turn an order plus vision observations into green / red / amber.
 
-- pass (green): every target's count matches and nothing is uncertain.
-- fail (red): a definite shortfall, excess, or identified wrong menu item. A red stays red even if something else is unsure.
-- unsure (amber): something the worker should look at, such as a target the model couldn't
-  see or tell apart, an unlabeled item that might be a labeled one, or an item that isn't
-  identifiable from the references. The worker decides.
+This is the only place verdicts are decided. Adapters and storage report what was seen.
+
+Matches the comparison rules in docs/system-design.md:
+
+- fail (red): a ticket item is definitely short or over its quantity, or a known menu item
+  that isn't on the ticket is on the mat. Red wins: it stays red even if something else is
+  unsure or the view is poor.
+- unsure (amber): anything else the worker should look at: an item the model couldn't see,
+  count or tell apart, an unlabeled lookalike, an object it can't identify, a line that
+  needs manual review, or a poor view of the scene. The worker decides.
+- pass (green): every count matches and nothing above applies.
 """
 
 import hashlib
@@ -73,22 +79,16 @@ def compare_order(
     if len(seen) != len(observations.targets) or set(seen) != {t.target_id for t in targets}:
         raise ValueError("observations must cover each target exactly once")
 
-    # A poor whole-scene view invalidates counts, including apparent shortages.
-    # It must never turn missing evidence into a confident red or green result.
-    if observations.scene_uncertainty:
-        return Comparison(
-            verdict="unsure",
-            discrepancies=[
-                Discrepancy(
-                    kind="unsure",
-                    line_ids=[line.line_id for line in order.lines],
-                    message=observations.scene_uncertainty,
-                )
-            ],
-        )
-
     discrepancies: list[Discrepancy] = []
     definite = False
+    if observations.scene_uncertainty:
+        discrepancies.append(
+            Discrepancy(
+                kind="unsure",
+                line_ids=[line.line_id for line in order.lines],
+                message=observations.scene_uncertainty,
+            )
+        )
     for target in targets:
         obs = seen[target.target_id]
         expected, observed = target.expected_quantity, obs.observed_quantity
@@ -144,7 +144,7 @@ def compare_order(
 
     for item in observations.unexpected_items:
         if item.item_id:
-            definite = True
+            definite = True  # confirmed as a known menu item that isn't on the ticket
             target = next(
                 (target for target in targets if target.target_id == item.instead_of_target_id),
                 None,

@@ -20,6 +20,7 @@ from PIL import Image
 from pydantic import Field, ValidationError
 
 from fullfill.adapters.vision.perceptron import (
+    CallLimiter,
     PerceptronVision,
     VisionCallRejected,
     VisionProviderError,
@@ -33,6 +34,9 @@ from .camera_diagnostics import CameraResponse, input_diagnostics
 from .order_source import get_order_source
 
 router = APIRouter(prefix="/checks", tags=["checks"])
+# Every browser check in this process shares one limit: at most one Perceptron call
+# starts per second. An early call waits its turn; nothing is rejected.
+PERCEPTRON_RATE = CallLimiter(max_calls=None, cooldown_s=1.0)
 
 
 class CameraCheck(Contract):
@@ -205,6 +209,7 @@ async def check_camera(
             ) as client:
                 observations = await PerceptronVision(
                     client=client,
+                    limiter=PERCEPTRON_RATE,
                     max_output_tokens=min(6000, 1600 + 200 * (len(targets) + len(alternatives))),
                 ).inspect(vision_input)
         if diagnostics is not None:

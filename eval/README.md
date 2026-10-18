@@ -10,9 +10,12 @@ The key is read from `PERCEPTRON_API_KEY`, either exported in the shell or in th
 
 ```sh
 export PERCEPTRON_API_KEY=ak....
-pip install -r requirements.txt
-python -m pytest eval/test_eval.py # offline, spends nothing
+uv sync --inexact --all-packages --extra camera   # Python 3.13 + every package, incl. OpenCV
+source .venv/bin/activate                         # once per terminal
+python -m pytest eval/test_eval.py                # offline, spends nothing
 ```
+
+With the venv active, every `python -m eval...` command below works as written. Without it, put `uv run --no-sync` in front, e.g. `uv run --no-sync python -m eval.live --fake`.
 
 ## Quick smoke test (3 calls)
 
@@ -41,7 +44,7 @@ Copy `eval/manifest.example.json` to `eval/manifest.json` and list the menu and 
 
 - `order`: what the ticket says, `{item_id: quantity}`.
 - `actual`: what is really on the mat, when it differs (an error case). Leave it out for a correct order.
-- `extras`: items on the mat that aren't on the ticket (the wrong drink in a swap).
+- `extras`: items on the mat that aren't on the ticket (the wrong sauce in a swap).
 - T3 cases need `kind`: `lookalike` (scored on exact counts) or `label` (with `labels`, the marker text to read).
 
 T2 needs 20 error orders and 10 correct ones. T1 uses the first `t1` case; give it 5 items so the call carries 5 reference photos.
@@ -85,3 +88,15 @@ when the photos are ready and the planned call count is acceptable. Automated
 fake-provider tests verify software behavior; they do not establish camera
 accuracy. Browser handoff, stale references, and simultaneous workers are tested
 separately in `tests/` and `apps/web/tests/`.
+
+## Live demo on the mount (no POS needed)
+
+`python -m eval.live` runs the real loop: the camera trigger sends one photo each time the mat settles after a change, Perceptron checks it against a hardcoded ticket, and a window shows green, red or amber with the reasons. Start with the mat clear so it learns the empty mat.
+
+```sh
+cp eval/live_order.example.json eval/live_order.json    # edit the menu and the ticket
+python -m eval.live --fake                               # no calls: checks the trigger and window
+python -m eval.live --order chicken_burrito=1,ketchup=3  # real calls, capped at 50 per run
+```
+
+Keys: `r` drag a box around the mat, `e` re-learn the empty mat, `c` check now, `q` quit. Each check's photo and result go to `logs/live/`. Reference photos come from `data/references/<item_id>/` as above. Up to 2 per item are sent (`--refs-per-item`), the first ones by file name. For lookalikes, take the label-visible photo first (`ref_01.jpg`), then cover the label and take `ref_02.jpg`, so the model learns the food and not only the sticker.

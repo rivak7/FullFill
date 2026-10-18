@@ -3,7 +3,7 @@ import { AnnotatedPhoto } from "./AnnotatedPhoto";
 import type { CameraDiagnostics } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
 
-export type CheckTrigger = "manual" | "scene change" | "periodic" | "next order";
+export type CheckTrigger = "manual" | "scene change" | "first look" | "recheck after amber" | "next order";
 interface LogEvent { at: number; message: string }
 export interface CvLog {
   id: string;

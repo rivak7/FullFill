@@ -111,17 +111,21 @@ def test_item_not_on_the_ticket_is_amber():
     assert result.discrepancies[0].message == "Unidentified item: Celsius can"
 
 
-@pytest.mark.parametrize("ketchup", [("present", 3), ("missing", 0)])
-def test_whole_scene_uncertainty_requires_review_even_with_apparent_matches_or_missing_items(
-    ketchup,
-):
-    observations = seen(ketchup=ketchup).model_copy(
-        update={"scene_uncertainty": "Open the closed bag."}
-    )
+def test_poor_scene_view_is_amber_when_counts_match():
+    observations = seen().model_copy(update={"scene_uncertainty": "Open the closed bag."})
     result = compare_order(ORDER, observations)
     assert result.verdict == "unsure"
     assert result.discrepancies[0].message == "Open the closed bag."
     assert result.discrepancies[0].line_ids == ["l1", "l2", "l3"]
+
+
+def test_red_wins_over_a_poor_scene_view():
+    observations = seen(ketchup=("missing", 0)).model_copy(
+        update={"scene_uncertainty": "Open the closed bag."}
+    )
+    result = compare_order(ORDER, observations)
+    assert result.verdict == "fail"
+    assert {d.kind for d in result.discrepancies} == {"unsure", "missing"}
 
 
 def test_duplicate_observations_do_not_silently_replace_each_other():

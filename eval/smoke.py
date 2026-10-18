@@ -19,7 +19,7 @@ MENU = {
     "chicken_burrito": {"name": "Chicken burrito", "description": "red checkered paper wrap", "label": ["C"]},
     "steak_burrito": {"name": "Steak burrito", "description": "red checkered paper wrap", "label": ["S"]},
 }
-OPEN_QUESTION = ("List each food item you can see on the brown cardboard, and read out exactly any handwritten "
+OPEN_QUESTION = ("List each food item you can see on the white paper, and read out exactly any handwritten "
                  "letters or words on it. Ignore the chair and the table.")
 
 

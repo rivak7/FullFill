@@ -1,13 +1,19 @@
 from io import BytesIO
 
 from fullfill.application.order_source import MenuEntry, MenuSnapshot
-from fullfill.domain.reference_selection import choose_alternatives, reference_fingerprint
+from fullfill.domain.reference_selection import (
+    MAX_REFERENCES,
+    choose_alternatives,
+    reference_fingerprint,
+)
 from fullfill_contracts.vision import ImageInput
 from PIL import Image
 
 
-def item(identity, **changes):
-    return MenuEntry(item_id=identity, name=identity, description="", price_cents=100, **changes)
+def item(identity, name=None, **changes):
+    return MenuEntry(
+        item_id=identity, name=name or identity, description="", price_cents=100, **changes
+    )
 
 
 def image(color):
@@ -44,6 +50,32 @@ def test_larger_menu_uses_visual_neighbors_and_covers_each_ordered_item():
     assert len(selected) == len(set(selected)) == 6
     assert selected[:2] == ["near-black", "near-white"]
     assert not {"white", "black"} & set(selected)
+
+
+def test_similar_names_win_over_similar_photos():
+    names = {
+        "tsss": "TSSS",
+        "tssss": "TSSSS",
+        "chicken": "Chicken burrito",
+        "steak": "Steak burrito",
+        **{f"packet-{i}": f"Packet {i}" for i in range(8)},
+    }
+    menu = MenuSnapshot(revision="1", items=[item(key, name) for key, name in names.items()])
+    # Every photo looks the same: one white mat.
+    images = {key: image("white") for key in names}
+    selected = [entry.item_id for entry in choose_alternatives(menu, {"tsss", "chicken"}, images)]
+    assert selected[:2] == ["steak", "tssss"]
+
+
+def test_total_references_stay_under_the_cap():
+    names = [f"item-{i:02d}" for i in range(30)]
+    menu = MenuSnapshot(revision="1", items=[item(name) for name in names])
+    images = {name: image("white") for name in names}
+    for ordered in (1, 6, 9, 12, 15):
+        wanted = set(names[:ordered])
+        alternatives = choose_alternatives(menu, wanted, images)
+        assert len(alternatives) == min(6, max(0, MAX_REFERENCES - ordered))
+        assert not wanted & {entry.item_id for entry in alternatives}
 
 
 def test_reference_fingerprint_ignores_order_but_detects_replacements_and_modes():
