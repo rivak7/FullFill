@@ -349,6 +349,18 @@ it("invalidates a photo if food moves away and returns, or sampling stops", () =
   stalled.sample(frame, 1500); expect(stalled.unchanged(1500)).toBe(false);
 });
 
+it("ignores auto-exposure and small noise during a check, but not a moved item", () => {
+  const frame = new Uint8Array(1024).fill(80);
+  const guard = new SceneGuard(frame, 0);
+  guard.sample(new Uint8Array(1024).fill(110), 250); // whole frame brightened
+  guard.sample(frame.map((value, i) => value + (i % 7) - 3), 500); // sensor noise
+  expect(guard.unchanged(500)).toBe(true);
+  const moved = frame.slice();
+  for (let row = 0; row < 8; row++) moved.fill(200, row * 32, row * 32 + 8); // one corner changed
+  guard.sample(moved, 750);
+  expect(guard.unchanged(750)).toBe(false);
+});
+
 it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene safely: %s", async kind => {
   let resolve!: (state: OrderState) => void;
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));

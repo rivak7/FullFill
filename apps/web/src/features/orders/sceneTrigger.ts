@@ -107,6 +107,18 @@ export class SceneTrigger {
   }
 }
 
+// Phone auto-exposure brightens or darkens the whole frame during a check. Remove that
+// shared shift before comparing, so only a local change (food moved) counts. A huge
+// shift still counts: the lens was covered or the camera was pointed elsewhere.
+export function sceneChanged(a: Uint8Array, b: Uint8Array): boolean {
+  if (a.length !== b.length || !a.length) return true;
+  const diffs = Array.from(a, (value, i) => value - b[i]).sort((x, y) => x - y);
+  const shift = diffs[diffs.length >> 1];
+  if (Math.abs(shift) > 60) return true;
+  const shifted = Uint8Array.from(a, value => Math.max(0, Math.min(255, value - shift)));
+  return frameDifference(shifted, b) > 12;
+}
+
 // A sticky guard: removing and replacing food still invalidates the captured photo.
 export class SceneGuard {
   private invalidReason: string | null = null;
@@ -116,7 +128,7 @@ export class SceneGuard {
   invalidate(reason = "scene_changed") { this.invalidReason ??= reason; }
   sample(frame: Uint8Array, now: number) {
     if (now - this.lastAt > 1000) this.invalidate("sampling_gap");
-    if (frameDifference(frame, this.captured) > 8) this.invalidate("scene_changed");
+    if (sceneChanged(frame, this.captured)) this.invalidate("scene_changed");
     this.lastAt = now;
   }
   unchanged(now: number) {
