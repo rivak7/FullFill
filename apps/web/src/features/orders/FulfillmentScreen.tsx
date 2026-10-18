@@ -6,6 +6,10 @@ import { isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 
 type StatusAttempt = { id: string; body: OrderStatusEdit; key: string };
 
+const refreshDelayMs = 1000;
+const initialRetryDelayMs = 3000;
+const maxRetryDelayMs = 30000;
+
 export function FulfillmentScreen() {
   const [queue, setQueue] = useState<QueueState>(() => ({ orders: [], selected: new URLSearchParams(window.location.search).get("order") }));
   const [loading, setLoading] = useState(true);
@@ -23,6 +27,7 @@ export function FulfillmentScreen() {
   useEffect(() => {
     const controller = new AbortController();
     let timer: ReturnType<typeof setTimeout>;
+    let retryDelay = 0;
     async function poll() {
       const started = epoch.current;
       try {
@@ -32,12 +37,17 @@ export function FulfillmentScreen() {
         // The API keeps chronological order for cleanup; display newest at top.
         setQueue(previous => reconcileQueue(previous, [...(snapshot.orders ?? [])].reverse()));
         setError(null);
+        retryDelay = 0;
       } catch (error) {
-        if (!controller.signal.aborted && started === epoch.current) setError(error instanceof Error ? error.message : "Could not refresh orders.");
+        if (!controller.signal.aborted && started === epoch.current) {
+          setError(error instanceof Error ? error.message : "Could not refresh orders.");
+          retryDelay = Math.min(retryDelay ? retryDelay * 2 : initialRetryDelayMs, maxRetryDelayMs);
+        }
       } finally {
         if (!controller.signal.aborted) {
           setLoading(false);
-          timer = setTimeout(poll, 3000);
+          // Wait until this request finishes so slow responses never pile up.
+          timer = setTimeout(poll, retryDelay || refreshDelayMs);
         }
       }
     }

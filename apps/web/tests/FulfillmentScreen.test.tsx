@@ -40,7 +40,47 @@ async function click(text: string) {
   expect(button).toBeDefined(); await act(async () => button!.click());
 }
 const selected = () => container.querySelector('.queue-ticket[aria-pressed="true"]')?.textContent;
-async function poll() { await act(async () => vi.advanceTimersByTimeAsync(3000)); }
+async function poll() { await act(async () => vi.advanceTimersByTimeAsync(1000)); }
+
+it("shows another screen's changes on the next one-second refresh", async () => {
+  await render();
+  orders[0] = ticket("first", "overridden", 2);
+  await act(async () => vi.advanceTimersByTimeAsync(999));
+  expect(selected()).toContain("#FIRST");
+  expect(orderApi.station).toHaveBeenCalledTimes(1);
+  await act(async () => vi.advanceTimersByTimeAsync(1));
+  expect(selected()).toContain("#SECOND");
+  expect(container.querySelector(".queue-green")?.textContent).toContain("#FIRST");
+});
+
+it("waits for a slow refresh before starting another request", async () => {
+  let resolve!: (snapshot: StationSnapshot) => void;
+  vi.mocked(orderApi.station).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  await render();
+  await act(async () => vi.advanceTimersByTimeAsync(10000));
+  expect(orderApi.station).toHaveBeenCalledTimes(1);
+  await act(async () => resolve(snapshot(orders)));
+  await poll();
+  expect(orderApi.station).toHaveBeenCalledTimes(2);
+});
+
+it("backs off repeated failures up to thirty seconds and resumes fast refresh after recovery", async () => {
+  vi.mocked(orderApi.station).mockRejectedValue(new Error("Square is busy."));
+  await render();
+  let calls = 1;
+  for (const delay of [3000, 6000, 12000, 24000, 30000, 30000]) {
+    await act(async () => vi.advanceTimersByTimeAsync(delay - 1));
+    expect(orderApi.station).toHaveBeenCalledTimes(calls);
+    await act(async () => vi.advanceTimersByTimeAsync(1));
+    expect(orderApi.station).toHaveBeenCalledTimes(++calls);
+  }
+  vi.mocked(orderApi.station).mockImplementation(async () => snapshot(orders));
+  await act(async () => vi.advanceTimersByTimeAsync(30000));
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(orderApi.station).toHaveBeenCalledTimes(++calls);
+  await poll();
+  expect(orderApi.station).toHaveBeenCalledTimes(++calls);
+});
 
 it("colors the queue, advances to orange work, and keeps completed tickets selectable", async () => {
   await render();
