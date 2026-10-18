@@ -244,6 +244,7 @@ async def check_camera(
         )
         diagnostics = input_diagnostics(vision_input, images=body.photos or body.diagnostics)
         diagnostics["provider_called"] = True
+        diagnostics["reasoning"] = reasoning
         phase = "vision_provider"
         if provider is not None:
             observations = await provider.inspect(vision_input)

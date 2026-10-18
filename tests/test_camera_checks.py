@@ -890,6 +890,7 @@ def test_every_check_returns_model_answer_and_timings_but_no_photos_by_default()
     assert all(ref["image"] is None for ref in diagnostic["references"])
     assert diagnostic["observations"]["targets"][0]["status"] == "unsure"
     assert "perceptron" in diagnostic["timings_ms"]
+    assert diagnostic["reasoning"] == "none"
     assert len(result.content) < 20_000
 
 

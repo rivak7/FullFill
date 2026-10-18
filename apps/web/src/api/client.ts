@@ -47,6 +47,7 @@ export interface CameraDiagnostics {
   observations: Observations | null;
   timings_ms?: Record<string, number>;
   raw_answer?: string;
+  reasoning?: "none" | "low" | "high";
 }
 export type CameraResponse = OrderState & { diagnostics?: CameraDiagnostics | null };
 

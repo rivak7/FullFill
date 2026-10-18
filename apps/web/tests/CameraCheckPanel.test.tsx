@@ -105,13 +105,15 @@ it("does not periodically check fulfilled orders, unclaimed orders, or an empty 
 });
 
 it("asks for boxes and model input only when they are turned on in settings", async () => {
-  vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: { provider_called: true, image: null, targets: [], references: [], observations: null, timings_ms: { square_order: 400, perceptron: 2100 } } });
+  vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: { provider_called: true, image: null, targets: [], references: [], observations: null, timings_ms: { square_order: 400, perceptron: 2100 }, reasoning: "low" } });
   changeSetting("boxes", true);
   await render(); await camera(); await checkNow();
   expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toMatchObject({ boxes: true, photos: false, reasoning: "auto" });
   changeSetting("reasoning", "low"); await checkNow();
   expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0]).toMatchObject({ reasoning: "low" });
   expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain("Server steps: square order 0.4 s, perceptron 2.1 s, network 0.0 s.");
+  expect(readCvLogs()[0].events.map(event => event.message)).toContain("Perceptron reasoning: low (set in Settings).");
+  expect(readCvLogs()[1].events.map(event => event.message)).toContain("Perceptron reasoning: low (auto: low for orders of 4+ items).");
 });
 
 it("binds one snapshot to the captured ticket and never relabels a late result", async () => {
