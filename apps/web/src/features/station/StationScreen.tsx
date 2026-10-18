@@ -1,5 +1,5 @@
 import type { OrderState } from "../../api/generated/contracts";
-import { toScreenState, type ScreenLine, type ScreenState } from "./screenState";
+import { toScreenState, type ScreenLine, type ScreenState, type Tone } from "./screenState";
 import "./station.css";
 
 interface Props {
@@ -25,21 +25,30 @@ const lineMarks: Record<ScreenLine["status"], string> = {
   unsure: "?",
 };
 
+export const toneMarks: Record<Tone, string> = {
+  waiting: "…",
+  checking: "…",
+  green: "✓",
+  red: "✗",
+  amber: "?",
+  error: "!",
+};
+
+export function shortOrderId(orderId: string): string {
+  return orderId.slice(-8).toUpperCase();
+}
+
 function Ticket({ orderId, lines }: { orderId: string; lines: ScreenLine[] }) {
   return (
     <section className="ticket" aria-label="Order ticket">
       <header className="ticket-header">
-        <span className="ticket-label">Order</span>
-        <span className="ticket-id" title={orderId}>{orderId.length > 12 ? orderId.slice(-8).toUpperCase() : orderId}</span>
+        <span className="ticket-id" title={orderId}>#{shortOrderId(orderId)}</span>
       </header>
       <ul className="ticket-lines">
-        {lines.map(({ line, status, note }) => (
+        {lines.map(({ line, status }) => (
           <li key={line.line_id} className={`ticket-line line-${status}`}>
-            <span className="line-qty">{line.quantity}×</span>
-            <span className="line-name">
-              {line.name}
-              {note && <span className="line-note">{note}</span>}
-            </span>
+            <span className="line-qty">{line.quantity}</span>
+            <span className="line-name">{line.name}</span>
             <span className="line-mark" aria-label={status}>
               {lineMarks[status]}
             </span>
@@ -50,18 +59,19 @@ function Ticket({ orderId, lines }: { orderId: string; lines: ScreenLine[] }) {
   );
 }
 
+// The ticket marks which lines are off; this panel says why, once.
 function Status({ screen }: { screen: ScreenState }) {
   return (
     <section className="status" aria-live="polite">
+      <span className="status-mark" aria-hidden="true">{toneMarks[screen.tone]}</span>
       <h1 className="status-headline">{screen.headline}</h1>
-      {screen.detail && <p className="status-detail">{screen.detail}</p>}
-      {screen.problems.length > 0 && (
+      {screen.problems.length > 0 ? (
         <ul className="status-problems">
           {screen.problems.map((p, i) => (
             <li key={`${p.target_id ?? "scene"}:${p.kind}:${i}`}>{p.message}</li>
           ))}
         </ul>
-      )}
+      ) : screen.detail && <p className="status-detail">{screen.detail}</p>}
     </section>
   );
 }

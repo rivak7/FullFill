@@ -94,7 +94,7 @@ it("colors the queue, advances to orange work, and keeps completed tickets selec
   await render();
   expect(selected()).toContain("#FIRST");
   expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual(["#THIRD", "#SECOND", "#FIRST"]);
-  expect(container.querySelector(".queue-heading")?.textContent).toContain("Newest first");
+  expect(container.querySelector(".order-queue")?.getAttribute("aria-label")).toBe("Orders, newest first");
   expect(container.querySelector(".queue-amber")?.textContent).toContain("#SECOND");
   await click("Fulfill order");
   expect(selected()).toContain("#SECOND");
@@ -249,7 +249,7 @@ it("skips another screen's reservation and marks that ticket in the queue", asyn
   expect(selected()).toContain("#SECOND");
   const held = [...container.querySelectorAll<HTMLButtonElement>(".queue-ticket")].find(card => card.textContent?.includes("#FIRST"))!;
   expect(held.disabled).toBe(true);
-  expect(held.textContent).toContain("Working on another screen");
+  expect(held.textContent).toContain("On another screen");
   expect(orderApi.claim).toHaveBeenCalledWith("second", expect.objectContaining({ worker_id: expect.any(String) }));
 });
 

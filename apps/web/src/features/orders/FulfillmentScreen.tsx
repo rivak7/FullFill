@@ -1,6 +1,6 @@
 import { useEffect, useRef, useState } from "react";
 import { ApiError, orderApi, type OrderStatusEdit } from "../../api/client";
-import { StationScreen } from "../station/StationScreen";
+import { StationScreen, shortOrderId, toneMarks } from "../station/StationScreen";
 import { amberReason, toScreenState } from "../station/screenState";
 import { heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
@@ -126,7 +126,7 @@ export function FulfillmentScreen() {
       if (attempt.body.status === "fulfilled") offerUndo(attempt.id, updated.order.revision);
       else setUndo(previous => previous?.id === attempt.id ? null : previous);
       setPending(null);
-      setNotice(`#${attempt.id.slice(-8).toUpperCase()} · ${toScreenState(updated).headline}`);
+      setNotice(`#${shortOrderId(attempt.id)} · ${toScreenState(updated).headline}`);
     } catch (error) {
       if (error instanceof ApiError && [400, 401, 403, 404, 409, 422].includes(error.status)) {
         setPending(null);
@@ -167,29 +167,26 @@ export function FulfillmentScreen() {
   return (
     <div className="fulfillment-page">
       <div className="queue-toolbar">
-        <div><span className={`connection-dot ${error ? "offline" : loading ? "loading" : ""}`} /><strong>{error ? "Disconnected" : loading ? "Connecting…" : "Kitchen queue"}</strong>{!error && !loading && <span className="queue-count">{waiting} to do · {orders.length - waiting} fulfilled</span>}</div>
-        <div>
-          {isDevMode() && <button disabled={busy} onClick={() => void startFresh()}>Start fresh</button>}
-          <button disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
-        </div>
+        <span className={`connection-dot ${error ? "offline" : loading ? "loading" : ""}`} />
+        <strong>{error ? "Reconnecting…" : loading ? "Connecting…" : waiting ? `${waiting} to check` : "All caught up"}</strong>
+        {isDevMode() && <button className="secondary-button" disabled={busy} onClick={() => void startFresh()}>Start fresh</button>}
+        <button className="icon-button" disabled={busy} onClick={() => setRefresh(value => value + 1)} aria-label="Refresh" title="Refresh">↻</button>
       </div>
       {error && <div className="connection-error" role="alert">{error}</div>}
       {actionError && <div className="connection-error" role="alert">{actionError}{pending && <button className="secondary-button" disabled={busy} onClick={() => void submit(pending)}>{busy ? "Saving…" : "Retry status"}</button>}</div>}
       <div className="queue-announcement" role="status">{notice}</div>
-      {undo && <div className="fulfillment-undo" role="status"><span>#{undo.id.slice(-8).toUpperCase()} fulfilled</span><button className="secondary-button" disabled={locked} onClick={undoFulfillment}>Undo</button></div>}
+      {undo && <div className="fulfillment-undo" role="status"><span>#{shortOrderId(undo.id)} fulfilled</span><button className="secondary-button" disabled={locked} onClick={undoFulfillment}>Undo</button></div>}
       <div className="fulfillment-layout">
-        <aside ref={list} className="order-queue" aria-label="Incoming orders" tabIndex={0}>
-          <div className="queue-heading"><h2>Orders</h2><span>Newest first</span></div>
+        <aside ref={list} className="order-queue" aria-label="Orders, newest first" tabIndex={0}>
           {!loading && !error && !orders.length && <p className="queue-empty">No orders yet.</p>}
           {orders.map(state => {
             const screen = toScreenState(state);
-            const itemCount = state.order.lines.reduce((sum, line) => sum + line.quantity, 0);
+            const reason = amberReason(screen);
             return <button className={`queue-ticket queue-${screen.tone}`} key={state.order.order_id} aria-pressed={state.order.order_id === selected} disabled={locked || heldByOther(state, workerId)} onClick={() => { setQueue(previous => ({ ...previous, selected: state.order.order_id })); setActionError(null); }}>
-              <span className="queue-ticket-top"><strong>#{state.order.order_id.slice(-8).toUpperCase()}</strong><span>{itemCount} {itemCount === 1 ? "item" : "items"}</span></span>
-              <span className="queue-ticket-items">{state.order.lines.map(line => `${line.quantity}× ${line.name}`).join(" · ")}</span>
-              {heldByOther(state, workerId) && <span className="queue-ticket-owner">Working on another screen</span>}
-              <span className="queue-ticket-status">{screen.tone === "green" ? "✓ " : screen.tone === "amber" ? "? " : "○ "}{screen.headline}</span>
-              {amberReason(screen) && <span className="queue-ticket-reason">{amberReason(screen)}</span>}
+              <span className="queue-ticket-top"><strong>#{shortOrderId(state.order.order_id)}</strong><span className="queue-ticket-mark" aria-label={screen.headline} title={screen.headline}>{toneMarks[screen.tone]}</span></span>
+              <span className="queue-ticket-items">{state.order.lines.map(line => `${line.quantity} ${line.name}`).join(" · ")}</span>
+              {heldByOther(state, workerId) && <span className="queue-ticket-owner">On another screen</span>}
+              {reason && <span className="queue-ticket-reason">{reason}</span>}
             </button>;
           })}
         </aside>
@@ -198,14 +195,14 @@ export function FulfillmentScreen() {
             : loading ? <div className="empty-state" role="status"><h1>Loading orders…</h1></div>
             : current ? <>
               <StationScreen state={current} />
-              <div className="fulfillment-actions" aria-label="Order status">
-                <span>Manual check</span>
+              <div className="fulfillment-actions" aria-label="Manual override">
+                <span>Override</span>
                 {currentTone !== "red" && <button className="secondary-button" disabled={locked} onClick={() => updateStatus("unfulfilled")}>Reopen</button>}
-                {currentTone !== "amber" && <button className="review-button" disabled={locked} onClick={() => updateStatus("unsure")}>Needs review</button>}
-                {currentTone !== "green" && <button className="primary-button" disabled={locked} onClick={() => updateStatus("fulfilled")}>{busy ? "Saving…" : "Fulfill order"}</button>}
+                {currentTone !== "amber" && <button className="secondary-button" disabled={locked} onClick={() => updateStatus("unsure")}>Needs review</button>}
+                {currentTone !== "green" && <button className="secondary-button" disabled={locked} onClick={() => updateStatus("fulfilled")}>{busy ? "Saving…" : "Fulfill order"}</button>}
               </div>
             </>
-            : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1>{!!waiting && <p>Select another ticket to continue.</p>}</div>}
+            : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1>{!!waiting && <p>Pick a ticket on the left.</p>}</div>}
           <CameraCheckPanel workerId={workerId} order={current} disabled={locked || !current || !ownedBy(current, workerId)} pauseToken={cameraPause} onBusyChange={value => {
             saving.current = value; setBusy(value);
             if (value) epoch.current++;
@@ -213,7 +210,7 @@ export function FulfillmentScreen() {
           }} onResult={updated => {
             if (isFulfilled(updated)) offerUndo(updated.order.order_id, updated.order.revision);
             setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === updated.order.order_id ? updated : state), workerId));
-            setNotice(`#${updated.order.order_id.slice(-8).toUpperCase()} · ${toScreenState(updated).headline}`);
+            setNotice(`#${shortOrderId(updated.order.order_id)} · ${toScreenState(updated).headline}`);
           }} />
         </div>
       </div>

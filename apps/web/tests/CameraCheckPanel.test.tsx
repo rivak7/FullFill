@@ -496,7 +496,8 @@ it("always says why an amber screen is unsure", () => {
     { kind: "unidentified", message: "Unidentified item: Container", line_ids: [] },
   ];
   const screen = toScreenState(state);
-  expect(screen.detail).toBe("FullFill isn't sure about this order. Take a look:");
+  expect(screen.detail).toBeNull();
+  expect(screen.problems).toHaveLength(2);
   expect(amberReason(screen)).toBe("Check Ketchup packet: cannot count the items reliably (+1 more)");
   state.current_check!.discrepancies = [];
   expect(amberReason(toScreenState(state))).toBe("No reliable result. Check manually or take a new photo.");

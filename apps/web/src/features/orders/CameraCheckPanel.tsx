@@ -7,6 +7,7 @@ import { SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
 import { cameraPhoto, cameraThumbnail } from "./cameraFraming";
+import { shortOrderId } from "../station/StationScreen";
 import { CvLogs, attachCvVisuals, startCvLog, updateCvLog, checkResultDetails, sceneDiagnostic, type CheckTrigger } from "./CvLogs";
 
 interface Props {
@@ -212,28 +213,28 @@ export function CameraCheckPanel(props: Props) {
   }, [open, ready]);
 
   const canCheck = ready && configured && !!props.order && !isFulfilled(props.order) && !props.disabled && !busy;
+  const status = busy ? "Checking… hold still" : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order" : automatic && handoff === "place" ? "Place the next order" : automatic ? "Watching the mat" : "Auto checks off";
   return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check">
-    <div className="cv-tabs" role="tablist" aria-label="Camera and diagnostics">
-      <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
-      <button type="button" role="tab" id="logs-tab" aria-controls="logs-panel" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>CV logs</button>
+    <div className="dock-bar">
+      <div className="cv-tabs" role="tablist" aria-label="Camera and diagnostics">
+        <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
+        <button type="button" role="tab" id="logs-tab" aria-controls="logs-panel" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>CV logs</button>
+      </div>
+      {open && <span className={`camera-state${busy ? " camera-state-busy" : automatic && ready ? " camera-state-live" : ""}`} role="status">{status}</span>}
+      {open ? <button className="secondary-button" onClick={stop}>Close camera</button> : <button className="secondary-button" onClick={() => void start()}>Enable camera</button>}
     </div>
     <div role="tabpanel" id="camera-panel" aria-labelledby="camera-tab" hidden={tab !== "camera"}>
-    <div className="camera-check-heading"><strong>Camera check</strong>{open ? <button className="secondary-button" onClick={stop}>Close camera</button> : <button className="secondary-button" onClick={() => void start()}>Enable camera</button>}</div>
     {open && <div className="camera-check-body">
       <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
       <div className="camera-check-controls">
-        {devices.length > 1 && <label>Camera<select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select></label>}
-        <p role="status">{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order from view." : automatic && handoff === "place" ? "Place the next order in view. Checking starts when it settles." : automatic ? "Place the order in view. Checking starts when it settles." : "Automatic checks paused. Check manually or turn them back on."}</p>
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
-        <label className="camera-auto"><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Automatic checks</label>
-        {automatic && <small>Checks when the order changes and settles. An amber result gets one recheck.</small>}
-        {props.order?.current_check?.verdict === "unsure" && <p>Inspect the highlighted items, then recheck or fulfill manually.</p>}
+        <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto</label>
+        {devices.length > 1 && <select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select>}
       </div>
-      {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{lastPhoto.orderId.slice(-8).toUpperCase()}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${lastPhoto.orderId.slice(-8).toUpperCase()}`} /><small>Snapshot used for the check. Kept only in this page.</small></details>}
+      {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{shortOrderId(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${shortOrderId(lastPhoto.orderId)}`} /></details>}
     </div>}
-    <CheckActivity />
     </div>
-    <div role="tabpanel" id="logs-panel" aria-labelledby="logs-tab" hidden={tab !== "logs"}><CvLogs order={props.order} /></div>
+    <div role="tabpanel" id="logs-panel" aria-labelledby="logs-tab" hidden={tab !== "logs"}><CheckActivity /><CvLogs order={props.order} /></div>
     {configured === false && <p className="camera-hint">AI checks unavailable. Camera preview still works.</p>}
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;

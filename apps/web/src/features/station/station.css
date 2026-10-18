@@ -1,49 +1,43 @@
 /* Sized to be read from an arm's length away in a busy kitchen. */
 :root {
-  --green: #1f9d55;
+  --green: #2f9e5a;
   --red: #d64545;
   --amber: #f0a500;
-  --grey: #4a5160;
-  --ink: #111418;
-  --paper: #fbfaf6;
+  --night: #141813;
+  --panel: #1c211b;
+  --panel-line: #30372d;
+  --chalk: #eef0e8;
+  --dim: #9aa092;
 }
 
 body {
   margin: 0;
   font-family: system-ui, -apple-system, "Segoe UI", sans-serif;
-  background: var(--ink);
+  background: var(--night);
 }
 
 .station {
   display: grid;
-  grid-template-columns: minmax(320px, 2fr) 3fr;
+  grid-template-columns: minmax(300px, 2fr) 3fr;
   min-height: 100vh;
+  background: var(--night);
 }
 
-/* Ticket: always light so it reads like the paper ticket it replaces. */
+/* Ticket: dark like the KDS it sits next to; only the off lines light up. */
 .ticket {
-  background: var(--paper);
-  color: var(--ink);
-  padding: 32px 32px 80px;
+  background: var(--panel);
+  color: var(--chalk);
+  padding: 28px 28px 80px;
   overflow-y: auto;
 }
 .ticket-header {
-  display: flex;
-  align-items: baseline;
-  gap: 12px;
-  border-bottom: 3px dashed #c9c4b5;
-  padding-bottom: 16px;
-  margin-bottom: 8px;
-}
-.ticket-label {
-  font-size: 20px;
-  text-transform: uppercase;
-  letter-spacing: 0.08em;
-  color: #6b675c;
+  padding-bottom: 14px;
+  margin-bottom: 6px;
+  border-bottom: 2px dashed var(--panel-line);
 }
 .ticket-id {
-  font-size: 40px;
-  font-weight: 800;
+  font: 800 40px/1.1 ui-monospace, "SF Mono", Menlo, monospace;
+  letter-spacing: -0.02em;
 }
 .ticket-lines {
   list-style: none;
@@ -52,75 +46,93 @@ body {
 }
 .ticket-line {
   display: grid;
-  grid-template-columns: 64px 1fr 48px;
+  grid-template-columns: 56px 1fr 44px;
   align-items: center;
   gap: 12px;
-  padding: 16px 8px;
+  padding: 14px 10px;
   font-size: 30px;
-  border-bottom: 1px solid #e6e2d6;
+  border-bottom: 1px solid var(--panel-line);
+  border-radius: 8px;
 }
 .line-qty {
   font-weight: 800;
+  color: var(--dim);
+  font-variant-numeric: tabular-nums;
 }
-.line-name {
-  display: flex;
-  flex-direction: column;
-}
-.line-note {
-  font-size: 18px;
-  color: #6b675c;
-  margin-top: 4px;
-}
+.line-name { font-weight: 600; }
 .line-mark {
-  font-size: 34px;
-  font-weight: 800;
+  font-size: 32px;
+  font-weight: 900;
   text-align: center;
 }
 .line-ok .line-mark,
 .line-accepted .line-mark { color: var(--green); }
-.line-missing { background: #fde8e8; }
-.line-missing .line-mark { color: var(--red); }
-.line-unsure { background: #fff4d6; }
-.line-unsure .line-mark { color: #b07900; }
+.line-missing { background: color-mix(in srgb, var(--red) 22%, transparent); border-color: transparent; }
+.line-missing .line-mark { color: #ff8a80; }
+.line-unsure { background: color-mix(in srgb, var(--amber) 22%, transparent); border-color: transparent; }
+.line-unsure .line-mark { color: var(--amber); }
 
 /* Status: the whole panel is the color, so it reads at a glance. */
 .status {
   display: flex;
   flex-direction: column;
   justify-content: center;
+  align-items: flex-start;
+  gap: 18px;
   padding: 48px;
   color: #fff;
-  background: var(--grey);
+  background: #3a4036;
 }
 .tone-green .status { background: var(--green); }
 .tone-red .status { background: var(--red); }
-.tone-amber .status { background: var(--amber); color: var(--ink); }
+.tone-amber .status { background: var(--amber); color: var(--night); }
 .tone-error .status { background: #2b2f38; }
 
+.status-mark {
+  display: grid;
+  place-items: center;
+  width: 1.6em;
+  height: 1.6em;
+  border-radius: 50%;
+  font-size: clamp(44px, 6vw, 84px);
+  font-weight: 900;
+  line-height: 1;
+  background: rgba(255, 255, 255, 0.2);
+}
+.tone-amber .status-mark { background: rgba(0, 0, 0, 0.12); }
 .status-headline {
   margin: 0;
   font-size: clamp(48px, 7vw, 96px);
-  line-height: 1.05;
+  line-height: 1;
   font-weight: 900;
-  text-transform: uppercase;
+  letter-spacing: -0.02em;
 }
 .status-detail {
-  font-size: 28px;
-  margin: 16px 0 0;
+  margin: 0;
+  font-size: 26px;
+  font-weight: 500;
+  opacity: 0.85;
 }
 .status-problems {
-  margin: 24px 0 0;
-  padding-left: 28px;
-  font-size: 32px;
-  font-weight: 600;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  font-size: 30px;
+  font-weight: 650;
+  line-height: 1.25;
+}
+.status-problems li {
+  padding: 10px 16px;
+  border-radius: 10px;
+  background: rgba(0, 0, 0, 0.14);
 }
 .status-problems li + li { margin-top: 8px; }
 
 @media (max-width: 800px) {
   .station { grid-template-columns: 1fr; }
-  .status { order: -1; min-height: 40vh; padding: 24px 16px; }
-  .ticket { padding: 16px 16px 80px; }
-  .ticket-line { font-size: 22px; grid-template-columns: 48px 1fr 36px; }
+  .status { order: -1; min-height: 36vh; padding: 24px 18px; }
+  .ticket { padding: 18px 16px 40px; }
+  .ticket-line { font-size: 22px; grid-template-columns: 40px 1fr 32px; padding: 12px 6px; }
 }
 
 /* Demo-only scenario switcher (see App.tsx). */
