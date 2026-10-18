@@ -25,7 +25,7 @@ export function App() {
       </header>
       {!valid ? (
         <main className="empty-state"><h1>Page not found</h1><a href={homePath}>Go back</a></main>
-      ) : <AccessGate>{ordering ? <OrderingScreen /> : <KitchenScreen />}</AccessGate>}
+      ) : <AccessGate scope={ordering ? "order" : "kitchen"}>{ordering ? <OrderingScreen /> : <KitchenScreen />}</AccessGate>}
     </div>
   );
 }

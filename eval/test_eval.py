@@ -145,3 +145,24 @@ def test_t2_scoring():
     assert not passed["T2 names"]
     assert "photos fixed 1 ['e']" in "\n".join(lines)
 
+
+
+def test_nonordered_references_and_structured_wrong_items_reach_the_verdict(tmp, image):
+    data = answer(fries=1)
+    data["unexpected_items"] = [{"item_id": "ranch_cup", "name": "Ranch", "count": 1,
+                                 "instead_of_target_id": None, "label_text": None}]
+    client = FakeClient([data])
+    result = vision.check_order(adapter_with(client), make_guard(tmp), image, ["fries"], MENU)
+    assert result.n_references == 2
+    assert result.unexpected[0]["item_id"] == "ranch_cup"
+    assert vision.verdict({"fries": 1}, result) == "red"
+    assert len(client.requests) == 1
+
+
+def test_obscured_scene_survives_evaluation_scoring(tmp, image):
+    data = answer(fries=1)
+    data["scene_status"] = "obscured"
+    client = FakeClient([data])
+    result = vision.check_order(adapter_with(client), make_guard(tmp), image, ["fries"], MENU)
+    assert result.scene_uncertainty
+    assert vision.verdict({"fries": 1}, result) == "amber"

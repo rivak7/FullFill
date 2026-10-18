@@ -58,7 +58,7 @@ function Status({ screen }: { screen: ScreenState }) {
       {screen.problems.length > 0 && (
         <ul className="status-problems">
           {screen.problems.map((p, i) => (
-            <li key={p.target_id ?? i}>{p.message}</li>
+            <li key={`${p.target_id ?? "scene"}:${p.kind}:${i}`}>{p.message}</li>
           ))}
         </ul>
       )}

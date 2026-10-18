@@ -31,7 +31,7 @@ class CheckAccepted(Contract):
 class Discrepancy(Contract):
     target_id: str | None = None
     line_ids: list[Identifier] = Field(default_factory=list)
-    kind: Literal["missing", "unexpected", "unsure"]
+    kind: Literal["missing", "unexpected", "wrong_item", "unidentified", "unsure"]
     message: str
     expected_quantity: PositiveQuantity | None = None
     observed_quantity: Quantity | None = None

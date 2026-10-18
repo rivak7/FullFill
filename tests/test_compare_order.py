@@ -108,7 +108,7 @@ def test_red_wins_over_amber():
 def test_item_not_on_the_ticket_is_amber():
     result = compare_order(ORDER, seen(unexpected=["Celsius can"]))
     assert result.verdict == "unsure"
-    assert result.discrepancies[0].message == "Not on the ticket: Celsius can"
+    assert result.discrepancies[0].message == "Unidentified item: Celsius can"
 
 
 @pytest.mark.parametrize("ketchup", [("present", 3), ("missing", 0)])
@@ -129,3 +129,40 @@ def test_duplicate_observations_do_not_silently_replace_each_other():
     observations.targets.append(observations.targets[0])
     with pytest.raises(ValueError):
         compare_order(ORDER, observations)
+
+
+def test_known_substitute_shows_both_missing_and_wrong_items():
+    observed = seen(chicken=("missing", 0))
+    observed.unexpected_items = [
+        UnexpectedItem(
+            name="Beef burrito", item_id="beef", instead_of_target_id="chicken_burrito", quantity=1
+        )
+    ]
+    result = compare_order(ORDER, observed)
+    assert result.verdict == "fail"
+    assert [issue.kind for issue in result.discrepancies] == ["missing", "wrong_item"]
+    wrong = result.discrepancies[1]
+    assert wrong.message == "Wrong item: expected Chicken burrito; detected Beef burrito"
+    assert wrong.line_ids == ["l1"]
+
+
+def test_unknown_extra_is_not_forced_into_a_menu_identity_or_substitution():
+    observed = seen()
+    observed.unexpected_items = [UnexpectedItem(name="Covered container", quantity=1)]
+    result = compare_order(ORDER, observed)
+    assert result.verdict == "unsure"
+    assert result.discrepancies[0].kind == "unidentified"
+    assert result.discrepancies[0].target_id is None
+
+
+def test_extra_is_not_paired_to_an_item_that_is_not_missing():
+    observed = seen()
+    observed.unexpected_items = [
+        UnexpectedItem(
+            name="Beef burrito", item_id="beef", instead_of_target_id="chicken_burrito", quantity=1
+        )
+    ]
+    result = compare_order(ORDER, observed)
+    assert result.verdict == "fail"
+    assert result.discrepancies[0].target_id is None
+    assert result.discrepancies[0].message == "Wrong item: Beef burrito is not on this ticket"

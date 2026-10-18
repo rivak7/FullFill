@@ -1,7 +1,7 @@
 import { useEffect, useState, type FormEvent, type ReactNode } from "react";
 import { orderApi, setAccessKey } from "../../api/client";
 
-export function AccessGate({ children }: { children: ReactNode }) {
+export function AccessGate({ children, scope }: { children: ReactNode; scope: "order" | "kitchen" }) {
   const [ready, setReady] = useState(false);
   const [required, setRequired] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -12,8 +12,9 @@ export function AccessGate({ children }: { children: ReactNode }) {
   useEffect(() => {
     const controller = new AbortController();
     setLoading(true);
+    setReady(false);
     setError(null);
-    orderApi.session(controller.signal).then(session => {
+    orderApi.session(scope, controller.signal).then(session => {
       if (controller.signal.aborted) return;
       setRequired(session.required);
       setReady(session.authenticated);
@@ -23,7 +24,7 @@ export function AccessGate({ children }: { children: ReactNode }) {
     const expired = () => { setReady(false); setRequired(true); setError("Enter the access code again."); };
     window.addEventListener("fullfill:access-required", expired);
     return () => { controller.abort(); window.removeEventListener("fullfill:access-required", expired); };
-  }, [retry]);
+  }, [retry, scope]);
 
   async function signIn(event: FormEvent) {
     event.preventDefault();
@@ -32,10 +33,10 @@ export function AccessGate({ children }: { children: ReactNode }) {
     setError(null);
     setAccessKey(code.trim());
     try {
-      const session = await orderApi.session();
+      const session = await orderApi.session(scope);
       if (!session.authenticated) {
         setAccessKey("");
-        setError("That code didn’t match.");
+        setError(session.role === "order" && scope === "kitchen" ? "Use the kitchen access code. The ordering code cannot access this screen." : "That code didn’t match.");
       } else {
         setCode("");
         setReady(true);
@@ -49,7 +50,7 @@ export function AccessGate({ children }: { children: ReactNode }) {
   if (ready) return children;
   return <main className="access-page">
     <form className="access-card" onSubmit={signIn}>
-      <h1>{required ? "Demo access" : loading ? "Connecting…" : "Unable to connect"}</h1>
+      <h1>{required ? scope === "kitchen" ? "Kitchen access" : "Ordering access" : loading ? "Connecting…" : "Unable to connect"}</h1>
       {required && <>
         <label htmlFor="access-code">Access code</label>
         <input id="access-code" type="password" autoComplete="current-password" value={code} onChange={event => setCode(event.target.value)} required disabled={loading} />

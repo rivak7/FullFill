@@ -452,6 +452,8 @@
           "enum": [
             "missing",
             "unexpected",
+            "wrong_item",
+            "unidentified",
             "unsure"
           ],
           "title": "Kind",
@@ -1138,6 +1140,32 @@
     "UnexpectedItem": {
       "additionalProperties": false,
       "properties": {
+        "instead_of_target_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Instead Of Target Id"
+        },
+        "item_id": {
+          "anyOf": [
+            {
+              "minLength": 1,
+              "type": "string"
+            },
+            {
+              "type": "null"
+            }
+          ],
+          "default": null,
+          "title": "Item Id"
+        },
         "name": {
           "title": "Name",
           "type": "string"

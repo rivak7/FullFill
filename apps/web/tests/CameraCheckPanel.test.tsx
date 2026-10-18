@@ -50,9 +50,10 @@ async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(button => button.textContent === label);
   expect(button).toBeDefined(); await act(async () => button!.click());
 }
-async function camera() {
+async function camera(prepare = true) {
   await click("Enable camera");
   await act(async () => container.querySelector("video")!.dispatchEvent(new Event("loadeddata")));
+  if (prepare) await click("New order placed");
 }
 
 it("opening the camera and previewing continuously consumes no AI calls", async () => {
@@ -298,4 +299,42 @@ it("revokes a result if the scene changes during confirmation without spending a
   expect(vi.mocked(orderApi.confirmCamera).mock.calls.map(call => call[0].scene_unchanged)).toEqual([true, false]);
   expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("amber");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+});
+
+it("requires an explicit new-order handoff before checking, including after switching or reopening", async () => {
+  await render(); await camera(false);
+  await click("Check order");
+  const automatic = () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  expect(automatic().disabled).toBe(true);
+  expect(orderApi.checkCamera).not.toHaveBeenCalled();
+  await click("New order placed"); await click("Check order");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  await render(ticket("second")); await click("Check order");
+  expect(automatic().disabled).toBe(true);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  await click("New order placed"); await click("Check order");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  await click("Close camera"); await camera(false); await click("Check order");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+});
+
+it("requires a fresh handoff when the ticket contents change, but not for claim renewals", async () => {
+  await render(); await camera();
+  await render({ ...ticket(), order: { ...ticket().order, revision: 4 } });
+  await click("Check order");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  const changed = ticket(); changed.order.lines[0].quantity = 2;
+  await render(changed); await click("Check order");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  expect(container.textContent).toContain("New order placed");
+});
+
+it("shows unidentified items in amber and confidently wrong items in red", () => {
+  const state = checked(); state.disposition = "needs_review";
+  state.current_check!.verdict = "unsure";
+  state.current_check!.discrepancies = [{ kind: "unidentified", message: "Unidentified item: Container", line_ids: [] }];
+  expect(toScreenState(state).tone).toBe("amber");
+  state.current_check!.verdict = "fail";
+  state.current_check!.discrepancies.push({ kind: "wrong_item", message: "Wrong item: Chips", line_ids: [] });
+  expect(toScreenState(state).tone).toBe("red");
 });

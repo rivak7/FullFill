@@ -60,6 +60,28 @@ Each run prints PASS/FAIL per test, cost per check, input tokens per check, and 
 
 A T2 error counts as caught when the screen would not show green (red, or amber for a human look). A false alarm is a correct order that isn't green. The red-only numbers are printed alongside.
 
-The eval calls the app's own Perceptron adapter (`apps/api/fullfill/adapters/vision/perceptron.py`) and decision rules (`apps/api/fullfill/domain/compare_order.py`), so it measures exactly what the station runs. The expected quantities are not sent to the model, so it counts instead of agreeing with the ticket. If you change the prompt there, bump `PROMPT_VERSION` so logged results stay comparable.
+The eval calls the app's own Perceptron adapter (`apps/api/fullfill/adapters/vision/perceptron.py`) and decision rules (`apps/api/fullfill/domain/compare_order.py`), with the same reference candidate selection. Camera timing and shared-order persistence are tested separately. The expected quantities are not sent to the model, so it counts instead of agreeing with the ticket. If you change the prompt there, bump `PROMPT_VERSION` so logged results stay comparable.
 
 A menu item with `"label": ["C"]` must carry that readable label to count. A lookalike with no readable label comes back unsure, so the check shows amber.
+
+## Website regression photo set
+
+Use a small labeled set before enabling automatic checks in a real kitchen.
+Include a correct order, a missing item, an extra known menu item, an unknown
+object, a substitution between similar-looking menu items, a hidden filling,
+a blurred frame, an occluded item, and two orders mixed together. For lookalikes,
+include both readable and unreadable labels. Record what is actually visible;
+do not label a hidden filling as visually knowable.
+
+The photo mode now uses the website's candidate selector: all available menu
+photos are ranked locally, with up to six alternative items sent alongside the
+ordered references in the same request. Use one reference per item to match the
+website. Include references for competing menu items, even if they are not on
+the ticket. The selector is a retrieval heuristic, not a measured classifier.
+The harness preserves wrong-item identity and whole-scene uncertainty in scoring.
+
+Run the offline tests and manifest dry run first. Only run a live evaluation
+when the photos are ready and the planned call count is acceptable. Automated
+fake-provider tests verify software behavior; they do not establish camera
+accuracy. Browser handoff, stale references, and simultaneous workers are tested
+separately in `tests/` and `apps/web/tests/`.

@@ -29,7 +29,7 @@ export type CaptureId2 = string;
 export type CheckId1 = string;
 export type CompletedAt = string | null;
 export type ExpectedQuantity = number | null;
-export type Kind = "missing" | "unexpected" | "unsure";
+export type Kind = "missing" | "unexpected" | "wrong_item" | "unidentified" | "unsure";
 export type LineIds = string[];
 export type Message = string;
 export type MissingQuantity = number | null;
@@ -77,6 +77,8 @@ export type ObservedQuantity1 = number | null;
 export type Reason = string | null;
 export type Status1 = "present" | "missing" | "unsure";
 export type TargetId1 = string;
+export type InsteadOfTargetId = string | null;
+export type ItemId1 = string | null;
 export type Name1 = string;
 export type Quantity = number | null;
 export type UnexpectedItems = UnexpectedItem[];
@@ -84,7 +86,7 @@ export type UnexpectedItems = UnexpectedItem[];
  * @minItems 1
  */
 export type Lines = [OrderLine, ...OrderLine[]];
-export type ItemId1 = string;
+export type ItemId2 = string;
 export type LineId = string;
 export type Name2 = string;
 export type Quantity1 = number;
@@ -104,7 +106,7 @@ export type CameraProfileId1 = string;
  * @minItems 1
  */
 export type ImageAssetIds = [string, ...string[]];
-export type ItemId2 = string;
+export type ItemId3 = string;
 export type Revision1 = number;
 export type EventId = string;
 export type EventType = "check.queued" | "check.completed" | "check.failed" | "order.updated" | "resync_required";
@@ -119,7 +121,7 @@ export type Orders = OrderState[];
 export type SchemaVersion6 = 1;
 export type StationId4 = string;
 export type ExpectedQuantity1 = number;
-export type ItemId3 = string;
+export type ItemId4 = string;
 export type LabelAliases1 = string[];
 /**
  * @minItems 1
@@ -264,6 +266,8 @@ export interface TargetObservation {
   target_id: TargetId1;
 }
 export interface UnexpectedItem {
+  instead_of_target_id?: InsteadOfTargetId;
+  item_id?: ItemId1;
   name: Name1;
   quantity?: Quantity;
 }
@@ -274,7 +278,7 @@ export interface OrderSnapshot {
   schema_version?: SchemaVersion4;
 }
 export interface OrderLine {
-  item_id: ItemId1;
+  item_id: ItemId2;
   line_id: LineId;
   name: Name2;
   quantity: Quantity1;
@@ -292,7 +296,7 @@ export interface OverrideRequest {
 export interface ReferenceSet {
   camera_profile_id: CameraProfileId1;
   image_asset_ids: ImageAssetIds;
-  item_id: ItemId2;
+  item_id: ItemId3;
   revision: Revision1;
 }
 export interface StationEvent {
@@ -321,7 +325,7 @@ export interface StationSnapshot {
 }
 export interface VerificationTarget {
   expected_quantity: ExpectedQuantity1;
-  item_id: ItemId3;
+  item_id: ItemId4;
   label_aliases?: LabelAliases1;
   line_ids: LineIds1;
   name: Name3;

@@ -1,10 +1,10 @@
 """Decision rules: turn an order plus vision observations into green / red / amber.
 
 - pass (green): every target's count matches and nothing is uncertain.
-- fail (red): a definite shortfall or excess. A red stays red even if something else is unsure.
+- fail (red): a definite shortfall, excess, or identified wrong menu item. A red stays red even if something else is unsure.
 - unsure (amber): something the worker should look at, such as a target the model couldn't
   see or tell apart, an unlabeled item that might be a labeled one, or an item that isn't
-  on the ticket. The worker decides.
+  identifiable from the references. The worker decides.
 """
 
 import hashlib
@@ -143,9 +143,45 @@ def compare_order(
             )
 
     for item in observations.unexpected_items:
-        discrepancies.append(
-            Discrepancy(kind="unexpected", message=f"Not on the ticket: {item.name}")
-        )
+        if item.item_id:
+            definite = True
+            target = next(
+                (target for target in targets if target.target_id == item.instead_of_target_id),
+                None,
+            )
+            shortage = next(
+                (
+                    entry
+                    for entry in discrepancies
+                    if entry.target_id == item.instead_of_target_id and entry.kind == "missing"
+                ),
+                None,
+            )
+            paired = (
+                target is not None
+                and shortage is not None
+                and item.quantity is not None
+                and item.quantity <= shortage.missing_quantity
+            )
+            discrepancies.append(
+                Discrepancy(
+                    kind="wrong_item",
+                    target_id=target.target_id if paired else None,
+                    line_ids=target.line_ids if paired else [],
+                    observed_quantity=item.quantity,
+                    message=f"Wrong item: expected {target.name}; detected {item.name}"
+                    if paired
+                    else f"Wrong item: {item.name} is not on this ticket",
+                )
+            )
+        else:
+            discrepancies.append(
+                Discrepancy(
+                    kind="unidentified",
+                    message=f"Unidentified item: {item.name}",
+                    observed_quantity=item.quantity,
+                )
+            )
 
     if definite:
         verdict = "fail"

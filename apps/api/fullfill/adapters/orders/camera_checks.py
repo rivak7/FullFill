@@ -17,6 +17,7 @@ from fullfill_contracts.vision import Observations, TargetObservation, Unexpecte
 
 from fullfill.application.order_source import OrderSourceError
 from fullfill.domain.compare_order import compare_order, targets_for
+from fullfill.domain.reference_selection import reference_fingerprint
 from fullfill.domain.vision_uncertainty import REASON_CODES, REASONS
 
 from .check_storage import pack_result, unpack_result
@@ -71,6 +72,8 @@ def check_result(order, metadata, lines=()):
                 unexpected_items=[
                     UnexpectedItem(name=item)
                     if isinstance(item, str)
+                    else UnexpectedItem(**item)
+                    if isinstance(item, dict)
                     else UnexpectedItem(name=item[0], quantity=item[1])
                     for item in data["u"]
                 ],
@@ -97,7 +100,7 @@ def check_result(order, metadata, lines=()):
         verdict=comparison.verdict if comparison else None,
         discrepancies=comparison.discrepancies if comparison else [],
         completed_at=datetime.fromtimestamp(record["t"], UTC) if status == "completed" else None,
-        error_code="scene_changed"
+        error_code=record.get("e", "scene_changed")
         if status == "superseded"
         else "vision_unavailable"
         if status == "failed"
@@ -159,7 +162,7 @@ class SquareCameraChecks:
         reserved = saved.get("order", {})
         return reserved, self._order_state(reserved)
 
-    async def finish_camera_check(self, reserved, observations=None):
+    async def finish_camera_check(self, reserved, observations=None, reference_version=None):
         metadata = dict(reserved.get("metadata") or {})
         record = read_record(metadata)
         record["s"] = "failed" if observations is None else "awaiting_confirmation"
@@ -190,7 +193,8 @@ class SquareCameraChecks:
                 values.append(value)
             payload = {
                 "o": values,
-                "u": [[item.name, item.quantity] for item in observations.unexpected_items],
+                "u": [item.model_dump(exclude_none=True) for item in observations.unexpected_items],
+                "f": reference_version,
             }
             if observations.scene_uncertainty:
                 payload["s"] = observations.scene_uncertainty
@@ -236,6 +240,15 @@ class SquareCameraChecks:
             "completed",
         ):
             raise OrderSourceError("This order changed. Refresh before checking it.", 409)
+        if scene_unchanged:
+            try:
+                payload = unpack_result(metadata, order.get("line_items", []), record.get("r", 2))
+                references_match = payload.get("f") == reference_fingerprint(await self.menu())
+            except (ValueError, KeyError, TypeError, zlib.error):
+                references_match = False
+            if not references_match:
+                scene_unchanged = False
+                record["e"] = "reference_changed"
         # A missing browser confirmation never becomes a green result.
         expired = time.time() - record["t"] > CONFIRM_SECONDS
         record["s"] = "completed" if scene_unchanged and not expired else "superseded"

@@ -101,7 +101,7 @@ export const orderApi = {
   claim: (id: string, body: { worker_id: string; expected_revision: number; release?: boolean }) => request<OrderState>(`/orders/${encodeURIComponent(id)}/claim`, {
     method: "POST", body: JSON.stringify(body),
   }),
-  session: (signal?: AbortSignal) => request<{ required: boolean; authenticated: boolean }>("/session", { signal }),
+  session: (scope: "order" | "kitchen" = "order", signal?: AbortSignal) => request<{ required: boolean; authenticated: boolean; role: "order" | "kitchen" | null }>(`/session?scope=${scope}`, { signal }),
   menu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/current", { signal }),
   managedMenu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/manage", { signal }),
   saveMenu: (body: MenuEdit, key: string) => request<MenuSnapshot>("/menu/items", {

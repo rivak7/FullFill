@@ -3,6 +3,8 @@
 import asyncio
 import hashlib
 import os
+import time
+from collections import OrderedDict
 from io import BytesIO
 from typing import Annotated
 from urllib.parse import urlsplit
@@ -23,6 +25,7 @@ from fullfill.adapters.vision.perceptron import (
 from fullfill.application.menu_photo import MenuPhoto
 from fullfill.application.order_source import OrderSource, OrderSourceError
 from fullfill.domain.compare_order import targets_for
+from fullfill.domain.reference_selection import choose_alternatives, reference_fingerprint
 
 from .order_source import get_order_source
 
@@ -48,7 +51,14 @@ def normalized_image(data, edge=1024):
         return ImageInput(output.getvalue(), "image/jpeg")
 
 
-async def reference_image(url):
+_reference_cache = OrderedDict()
+
+
+async def reference_image(url, revision=0):
+    cached = _reference_cache.get((url, revision))
+    if cached and time.monotonic() - cached[0] < 300:
+        _reference_cache.move_to_end((url, revision))
+        return cached[1]
     parsed = urlsplit(url)
     host = parsed.hostname or ""
     # These URLs come from Square Catalog, never from the browser request.
@@ -74,7 +84,12 @@ async def reference_image(url):
                 data.extend(chunk)
                 if len(data) > 2_000_000:
                     raise ValueError("Reference image too large")
-    return normalized_image(bytes(data), 640)
+    image = normalized_image(bytes(data), 640)
+    _reference_cache[(url, revision)] = (time.monotonic(), image)
+    _reference_cache.move_to_end((url, revision))
+    while len(_reference_cache) > 128:
+        _reference_cache.popitem(last=False)
+    return image
 
 
 @router.get("/camera/config")
@@ -138,22 +153,30 @@ async def check_camera(
 
         async def load_reference(item):
             async with slots:
-                return ReferenceImage(
-                    item_id=item.item_id,
-                    revision=item.version,
-                    image=await reference_image(item.photo_url),
-                )
+                image = await reference_image(item.photo_url, item.version)
+                return item.item_id, image
 
+        candidates = [
+            item
+            for item in menu.items
+            if item.photo_url and (item.item_id in wanted or not item.archived)
+        ]
         async with asyncio.timeout(12):
-            references = tuple(
-                await asyncio.gather(
-                    *[
-                        load_reference(item)
-                        for item in menu.items
-                        if item.item_id in wanted and item.photo_url
-                    ]
-                )
+            # All menu photos participate in cheap candidate retrieval; only the
+            # selected alternatives are sent to the model. Failure is explicit.
+            images = dict(await asyncio.gather(*(load_reference(item) for item in candidates)))
+        alternatives = choose_alternatives(menu, wanted, images)
+        included = [item for item in menu.items if item.item_id in wanted] + alternatives
+        references = tuple(
+            ReferenceImage(
+                item_id=item.item_id,
+                revision=item.version,
+                image=images[item.item_id],
+                name=item.name,
+                verification_mode=item.verification_mode,
             )
+            for item in included
+        )
         vision_input = VisionInput(
             capture_id=hashlib.sha256(idempotency_key.encode()).hexdigest(),
             image=image,
@@ -170,9 +193,10 @@ async def check_camera(
                 api_key=os.environ["PERCEPTRON_API_KEY"], timeout=30, retries=0
             ) as client:
                 observations = await PerceptronVision(
-                    client=client, max_output_tokens=min(3000, 200 + 120 * len(targets))
+                    client=client,
+                    max_output_tokens=min(4000, 400 + 140 * (len(targets) + len(alternatives))),
                 ).inspect(vision_input)
-        return await source.finish_camera_check(reserved, observations)
+        return await source.finish_camera_check(reserved, observations, reference_fingerprint(menu))
     except OrderSourceError as error:
         # A revision conflict preserves the worker's newer decision.
         if error.status_code != 409:
