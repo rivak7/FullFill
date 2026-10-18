@@ -1,10 +1,11 @@
+import { preferredCamera } from "./preferredCamera";
 import { useEffect, useRef, useState } from "react";
 import { orderApi, ApiError, type MenuPhoto } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
 import { SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
-import { cameraConstraints, cameraPhoto, cropCamera } from "./cameraFraming";
+import { cameraPhoto, cropCamera } from "./cameraFraming";
 import { CvLogs, attachCvVisuals, startCvLog, updateCvLog, checkResultDetails, sceneDiagnostic, type CheckTrigger } from "./CvLogs";
 
 interface Props {
@@ -40,6 +41,7 @@ export function CameraCheckPanel(props: Props) {
   const [error, setError] = useState("");
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("");
+  const chosenDevice = useRef("");
   const [lastPhoto, setLastPhoto] = useState<{ orderId: string; url: string } | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
@@ -91,17 +93,18 @@ export function CameraCheckPanel(props: Props) {
   }, [ticketKey]);
   useEffect(() => { setAuto(false); }, [props.pauseToken]);
 
-  async function start(id = deviceId) {
+  async function start(id = chosenDevice.current) {
     stop(); setError(""); setOpen(true); setAuto(true);
     const current = generation.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera access requires HTTPS and a supported browser.");
-      const next = await navigator.mediaDevices.getUserMedia(cameraConstraints(id));
+      const next = await preferredCamera(id, () => generation.current === current);
+      if (!next) return;
       if (!mounted.current || generation.current !== current) { next.getTracks().forEach(track => track.stop()); return; }
       stream.current = next;
       next.getVideoTracks()[0]?.addEventListener("ended", () => { if (generation.current === current) { guard.current?.invalidate("camera_disconnected"); stop(); setError("Camera disconnected. Enable it to reconnect."); } });
       if (video.current) { video.current.srcObject = next; await video.current.play(); }
-      const available = await navigator.mediaDevices.enumerateDevices();
+      const available = await navigator.mediaDevices.enumerateDevices().catch(() => []);
       if (mounted.current && generation.current === current) {
         setDevices(available.filter(device => device.kind === "videoinput"));
         setDeviceId(next.getVideoTracks()[0]?.getSettings().deviceId ?? id);
@@ -219,7 +222,7 @@ export function CameraCheckPanel(props: Props) {
     {open && <div className="camera-check-body">
       <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
       <div className="camera-check-controls">
-        {devices.length > 1 && <label>Camera<select aria-label="Camera" value={deviceId} onChange={event => { setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select></label>}
+        {devices.length > 1 && <label>Camera<select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select></label>}
         <p role="status">{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order from view." : automatic && handoff === "place" ? "Place the next order in view. Checking starts when it settles." : automatic ? "Place the order in view. Checking starts when it settles." : "Automatic checks paused. Check manually or turn them back on."}</p>
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
         <label className="camera-auto"><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Automatic checks</label>
