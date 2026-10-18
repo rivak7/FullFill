@@ -24,7 +24,7 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/fulfill");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   orders = [ticket("first"), ticket("second", "needs_review"), ticket("third")];
-  vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: true, cooldown_seconds: 10, max_checks_per_order: 20 });
+  vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: true });
   vi.mocked(orderApi.station).mockImplementation(async () => snapshot(orders));
   vi.mocked(orderApi.setStatus).mockImplementation(async (id, edit) => {
     const updated = ticket(id, edit.status === "fulfilled" ? "overridden" : edit.status === "unsure" ? "needs_review" : "pending", edit.expected_revision + 1);

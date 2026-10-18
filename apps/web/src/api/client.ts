@@ -91,7 +91,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const orderApi = {
-  cameraConfig: (signal?: AbortSignal) => request<{ configured: boolean; cooldown_seconds: number; max_checks_per_order: number }>("/checks/camera/config", { signal }),
+  cameraConfig: (signal?: AbortSignal) => request<{ configured: boolean }>("/checks/camera/config", { signal }),
   checkCamera: (body: { order_id: string; expected_revision: number; photo: MenuPhoto }, key: string) => request<OrderState>("/checks/camera", {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
   }),

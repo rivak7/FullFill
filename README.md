@@ -17,7 +17,7 @@ frames, the backend calls Perceptron, and compact results persist in Square.
 | Kitchen queue | Refresh one second after each successful response; requests stay sequential and failed refreshes back off from 3 to 30 seconds. Show open, nonempty tickets newest first. Staff can fulfill, flag for review, or reopen tickets; completion advances upward to the next unresolved ticket. New arrivals preserve the current selection. |
 | Menu management | Add items with a required photo, replace photos, edit names/prices, mark items sold out, and delete items. Photos persist in Square Catalog. Ordering screens refresh every five seconds and when returning to the tab. |
 | Shared state | Orders and menu edits persist in Square across browsers and API instances using the same Sandbox account and location. Conflicting menu edits require a refresh. |
-| Vision adapter | Send an order photo and optional labeled reference photos to Perceptron Mk1.5; validate structured observations, with a cooldown and call cap. Expected quantities are kept out of the model prompt. |
+| Vision adapter | Send an order photo and labeled reference photos to Perceptron Mk1.5; validate structured observations. Browser checks require a reference for every ticket item. Expected quantities are kept out of the model prompt. |
 | Browser camera | Enable a local video preview, then check the selected ticket manually or opt into checks after movement settles. No Python camera installation is needed. Preview makes no Perceptron calls. |
 | Comparison rules | Exact, clearly visible counts pass; definite shortages/excesses fail; ambiguous identity/counts, unreadable required labels, unknown extras, poor camera views, and failed checks require review. A clear mismatch takes precedence over uncertainty about another item; an unusable whole-scene view invalidates all counts. |
 | Station preview | Explore hardcoded checking, pass, fail, unsure, and error states at `/demo` in the combined frontend. |
@@ -48,11 +48,15 @@ such as “no onion.” A saved menu photo is a visual reference, not model trai
 Camera checks require `PERCEPTRON_API_KEY` on the backend. Keep it out of `VITE_`
 variables. Open the kitchen page, select an unresolved ticket, enable the camera,
 and choose **Check order**. **Auto check after movement** is off by default.
-There is a 10-check limit per browser session, a shared 20-attempt lifetime limit
-per order, a 10-second cooldown, and no automatic retry after failure. Restarting
-Vercel does not reset the per-order limit. These are demo guards, not a global
-account spending budget. Camera images stay in memory; only compact observations
-and hashes persist. Keep the page visible and the computer awake.
+There are no application spending caps or forced cooldowns for browser checks.
+Only one check runs at a time for a ticket, duplicate requests remain idempotent,
+and failures are not automatically retried. Expand **Check activity** to count
+attempts over the last 5 minutes, hour, or 24 hours. Timestamp-only history survives
+refreshes and menu visits and includes other tabs on this browser/site. It includes
+failed requests, so it is not a provider billing total or an all-devices counter.
+Older timestamps are discarded when history is read; clearing browser data resets it.
+Camera images stay in memory; only compact observations and hashes persist in Square.
+Keep the page visible and the computer awake.
 
 ### Camera decisions and corrections
 
@@ -60,6 +64,9 @@ The browser handles camera preview, cropping, movement detection, and stillness
 without installing Python or OpenCV. Only a selected still image is uploaded to
 the Vercel API, which calls Perceptron with the server-side key. Reference photos
 identify menu items; they do not train the model or prove hidden ingredients.
+Missing references block the provider call and name the items needing photos.
+Ticket lines with different options stay separate; variations, modifiers, and
+special instructions require staff confirmation even when the counts match.
 
 Perceptron reports observed counts and uncertainty; application rules decide the
 status. The expected counts remain outside the model prompt. Green means a clear
@@ -219,7 +226,7 @@ state without requiring authentication.
 | `POST /orders/{id}/status` | Save `unfulfilled`, `unsure`, or `fulfilled` using `expected_revision` and an `Idempotency-Key`. |
 | `GET /stations/{id}` | Read the queue as a station snapshot, including manual status and camera results. |
 | `POST /stations/{id}/refresh` | Remove fulfilled overflow above the soft limit and return the latest snapshot. |
-| `GET /checks/camera/config` | Report whether a server key is configured and the check limits; does not call Perceptron or reveal the key. |
+| `GET /checks/camera/config` | Report whether a server key is configured; does not call Perceptron or reveal the key. |
 | `POST /checks/camera` | Accept `{order_id, expected_revision, photo: {data_base64}}` with `Idempotency-Key`; reserve one check, call Perceptron once, and return the saved `OrderState`. |
 
 There is also a legacy `GET /v1/menu` endpoint, which can return the starter menu

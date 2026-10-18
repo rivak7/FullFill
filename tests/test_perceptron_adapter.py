@@ -136,6 +136,19 @@ def test_call_cap_stops_before_sending():
     assert len(client.requests) == 1
 
 
+def test_website_adapter_has_no_default_spending_cap():
+    answer = {"items": [entry("chicken_burrito", label="C"), entry("mayo")], "unexpected_items": []}
+    client = FakeClient(*[answer.copy() for _ in range(501)])
+    adapter = PerceptronVision(client=client)
+
+    async def checks():
+        for _ in range(501):
+            await adapter.inspect(REQUEST)
+
+    run(checks())
+    assert len(client.requests) == 501
+
+
 def test_cooldown_waits(monkeypatch):
     slept = []
 

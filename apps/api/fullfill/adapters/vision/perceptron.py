@@ -110,7 +110,8 @@ def _target_line(target: VerificationTarget) -> str:
 
 
 def build_messages(request: VisionInput) -> list[dict]:
-    names = {t.item_id: t.name for t in request.targets}
+    # A base menu photo cannot demonstrate a ticket's specific modifications.
+    names = {t.item_id: t.name.split(" — ", 1)[0] for t in request.targets}
     content: list[dict] = []
     for ref in request.references:
         label = f"Reference photo of {ref.item_id} ({names.get(ref.item_id, ref.item_id)}):"
@@ -253,7 +254,8 @@ class PerceptronVision(VisionProvider):
         """``client`` is for tests; otherwise a Perceptron ``AsyncClient`` is built from the key."""
         self.model = model or os.getenv("PERCEPTRON_MODEL") or DEFAULT_MODEL
         self.max_output_tokens = max_output_tokens
-        self.limiter = limiter or CallLimiter(max_calls=500, cooldown_s=2.0)
+        # Optional limits are for explicitly budgeted offline evaluations only.
+        self.limiter = limiter
         if client is None:
             from perceptron import AsyncClient
 
@@ -268,7 +270,8 @@ class PerceptronVision(VisionProvider):
             raise ValueError("a check needs at least one target")
         target_ids = [t.target_id for t in request.targets]
         messages = build_messages(request)
-        await self.limiter.acquire()
+        if self.limiter is not None:
+            await self.limiter.acquire()
         start = time.perf_counter()
         try:
             completion = await self._client.chat.completions.create(

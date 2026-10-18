@@ -20,8 +20,6 @@ from fullfill.domain.vision_uncertainty import REASON_CODES, REASONS
 
 CHECK_KEY = "fullfill_camera_check"
 RESULT_KEYS = ("fullfill_camera_result_0", "fullfill_camera_result_1")
-MAX_CHECKS_PER_ORDER = 20
-COOLDOWN_SECONDS = 10
 LEASE_SECONDS = 90
 COMPLETED_AT_KEY = "fullfill_completed_at"
 UNDO_SECONDS = 120
@@ -116,10 +114,6 @@ class SquareCameraChecks:
         now = int(time.time())
         if previous.get("s") == "running" and now - previous["t"] < LEASE_SECONDS:
             raise OrderSourceError("This order is already being checked on another screen.", 409)
-        if previous.get("n", 0) >= MAX_CHECKS_PER_ORDER:
-            raise OrderSourceError("This order reached its 20-check limit. Check it manually.", 429)
-        if previous and now - previous["t"] < COOLDOWN_SECONDS:
-            raise OrderSourceError("Wait 10 seconds between camera checks.", 429)
         record = {
             "k": key,
             "d": image_digest,

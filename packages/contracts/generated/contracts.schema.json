@@ -696,6 +696,11 @@
           "title": "Quantity",
           "type": "integer"
         },
+        "requires_manual_review": {
+          "default": false,
+          "title": "Requires Manual Review",
+          "type": "boolean"
+        },
         "verification_mode": {
           "default": "visible_item",
           "enum": [

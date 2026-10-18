@@ -15,7 +15,6 @@ from fullfill_contracts.vision import ImageInput, ReferenceImage, VisionInput
 from PIL import Image
 from pydantic import Field, ValidationError
 
-from fullfill.adapters.orders.camera_checks import COOLDOWN_SECONDS, MAX_CHECKS_PER_ORDER
 from fullfill.adapters.vision.perceptron import (
     PerceptronVision,
     VisionCallRejected,
@@ -84,8 +83,6 @@ async def camera_config(request: Request):
             os.getenv("PERCEPTRON_API_KEY", "").strip()
             or getattr(request.app.state, "vision_provider", None)
         ),
-        "cooldown_seconds": COOLDOWN_SECONDS,
-        "max_checks_per_order": MAX_CHECKS_PER_ORDER,
     }
 
 
@@ -130,6 +127,12 @@ async def check_camera(
         targets = targets_for(state.order)
         menu = await source.menu()
         wanted = {target.item_id for target in targets}
+        available = {item.item_id for item in menu.items if item.photo_url}
+        missing = [target.name for target in targets if target.item_id not in available]
+        if missing:
+            raise OrderSourceError(
+                "Add a menu reference photo before checking: " + ", ".join(missing), 422
+            )
         slots = asyncio.Semaphore(4)
 
         async def load_reference(item):

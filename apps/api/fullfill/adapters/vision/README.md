@@ -22,7 +22,7 @@ comparison = compare_order(order, observations)  # fullfill_contracts.checks.Com
 
 - Send an image that is already cropped to the mat and downscaled to about 1024 px. The adapter doesn't resize.
 - `inspect` raises `VisionProviderError` when Perceptron fails or answers out of format, and `VisionCallRejected` when the spending guard refuses the call. Show either one as a failed check. Never show it as green.
-- Spending guard: 2 s between calls and at most 500 calls per process, by default. Pass `limiter=CallLimiter(...)` to change it.
+- No default spending cap or cooldown. The website uses one in-flight check per ticket and idempotency. Offline evaluation callers can explicitly pass `limiter=CallLimiter(...)` when running a budgeted experiment.
 
 ## Screen states
 
