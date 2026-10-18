@@ -92,8 +92,8 @@ def crop_mat(frame: np.ndarray, roi: tuple[int, int, int, int] | None) -> np.nda
 
 
 def analysis_copy(frame: np.ndarray, settings: TriggerSettings) -> np.ndarray:
-    """Small, blurred copy of the mat. Color stays: red ketchup on brown cardboard
-    can have the same brightness as the cardboard."""
+    """Small, blurred copy of the mat. Color stays: a red or yellow packet can have
+    the same brightness as the mat around it."""
     import cv2
 
     mat = crop_mat(frame, settings.mat_roi)

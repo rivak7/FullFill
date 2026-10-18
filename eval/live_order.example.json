@@ -5,15 +5,11 @@
     "chicken_burrito": {"name": "Chicken burrito", "description": "burrito in red and white checkered paper, letter C written on it in marker", "label": ["C"]},
     "steak_burrito": {"name": "Steak burrito", "description": "burrito in red and white checkered paper, letter S written on it in marker", "label": ["S"]},
     "ketchup": {"name": "Ketchup packet", "description": "small red packet"},
-    "mayo": {"name": "Mayo packet", "description": "small white packet"},
-    "tartar": {"name": "Tartar sauce packet"},
-    "salt": {"name": "Salt sachet"},
-    "pepper": {"name": "Pepper sachet"},
+    "ranch": {"name": "Buttermilk ranch packet"},
+    "mayo": {"name": "Mayo packet", "description": "small white packet; on the white paper only its printing and edges show"},
     "mustard": {"name": "Mustard packet", "description": "small yellow packet"},
-    "honey": {"name": "Honey packet"},
-    "celsius": {"name": "Celsius can", "description": "slim can; from above only the silver lid shows"},
-    "espresso_can": {"name": "Starbucks espresso can"},
-    "frappuccino": {"name": "Starbucks Frappuccino mocha bottle", "description": "glass bottle"}
+    "salt": {"name": "Salt packet"},
+    "pepper": {"name": "Pepper packet"}
   },
   "order": {"tsss": 1, "ketchup": 2}
 }

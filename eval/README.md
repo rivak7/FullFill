@@ -44,7 +44,7 @@ Copy `eval/manifest.example.json` to `eval/manifest.json` and list the menu and 
 
 - `order`: what the ticket says, `{item_id: quantity}`.
 - `actual`: what is really on the mat, when it differs (an error case). Leave it out for a correct order.
-- `extras`: items on the mat that aren't on the ticket (the wrong drink in a swap).
+- `extras`: items on the mat that aren't on the ticket (the wrong sauce in a swap).
 - T3 cases need `kind`: `lookalike` (scored on exact counts) or `label` (with `labels`, the marker text to read).
 
 T2 needs 20 error orders and 10 correct ones. T1 uses the first `t1` case; give it 5 items so the call carries 5 reference photos.
