@@ -16,7 +16,7 @@ export function App() {
   return (
     <div className="app-shell">
       <header className="app-header">
-        <a className="brand" href={homePath}><span className="brand-mark">ff</span> FullFill</a>
+        <a className="brand" href={homePath}><img className="brand-logo" src="/fullfill-wordmark.svg" alt="FullFill" /></a>
         {siteScreen === "combined" ? <nav aria-label="Main navigation">
           <a href="/order" aria-current={ordering ? "page" : undefined}>Order</a>
           <a href="/fulfill" aria-current={!ordering && valid ? "page" : undefined}>Fulfillment</a>
