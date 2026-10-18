@@ -77,6 +77,8 @@ class Vision:
         self.status = status
         self.unexpected = unexpected
         self.before_result = None
+        self.scene_uncertainty = None
+        self.reason = None
 
     async def inspect(self, request):
         self.calls.append(request)
@@ -86,11 +88,15 @@ class Vision:
             capture_id=request.capture_id,
             targets=[
                 TargetObservation(
-                    target_id=target.target_id, status=self.status, observed_quantity=self.count
+                    target_id=target.target_id,
+                    status=self.status,
+                    observed_quantity=self.count,
+                    reason=self.reason,
                 )
                 for target in request.targets
             ],
             unexpected_items=[UnexpectedItem(name="Drink")] if self.unexpected else [],
+            scene_uncertainty=self.scene_uncertainty,
         )
 
 
@@ -180,7 +186,7 @@ def test_failed_provider_never_goes_green_and_does_not_leak_error_or_retry():
         assert "secret-key" not in result.text
         state = send(client).json()
         assert state["current_check"]["execution_status"] == "failed"
-        assert state["disposition"] == "pending"
+        assert state["disposition"] == "needs_review"
     assert len(vision.calls) == 1
 
 
@@ -365,3 +371,56 @@ def test_short_result_replaces_both_chunks_after_a_long_result(monkeypatch):
         shared = other.get("/v1/stations/main").json()["orders"][0]
     assert shared == result.json()
     assert len(vision.calls) == 2
+
+
+def test_scene_uncertainty_and_reason_survive_square_storage():
+    square, vision = Square(), Vision()
+    vision.scene_uncertainty = "Keep the entire order inside the camera preview."
+    with TestClient(square.app(vision)) as client:
+        result = send(client)
+    assert result.status_code == 200, result.text
+    assert result.json()["disposition"] == "needs_review"
+    with TestClient(square.app()) as other:
+        shared = other.get("/v1/stations/main").json()["orders"][0]
+    assert shared == result.json()
+    assert shared["current_check"]["discrepancies"][0]["message"] == vision.scene_uncertainty
+
+
+def test_item_uncertainty_keeps_actionable_reason_and_manual_correction_wins():
+    from fullfill.domain.vision_uncertainty import REASONS
+
+    square, vision = Square(), Vision(status="unsure")
+    vision.reason = REASONS["label"]
+    with TestClient(square.app(vision)) as client:
+        result = send(client).json()
+        assert REASONS["label"] in result["current_check"]["discrepancies"][0]["message"]
+        corrected = client.post(
+            "/v1/orders/ticket/status",
+            headers={"Idempotency-Key": "staff-confirm"},
+            json={"status": "fulfilled", "expected_revision": result["order"]["revision"]},
+        )
+        assert corrected.json()["disposition"] == "overridden"
+        assert corrected.json()["current_check"] is None
+    assert len(vision.calls) == 1
+
+
+def test_maximum_result_preserves_uncertainty_within_square_limits():
+    from fullfill.domain.vision_uncertainty import REASONS
+
+    square, vision = Square(), Vision(count=100000, status="unsure", unexpected=True)
+    vision.reason = REASONS["identity"]
+    vision.scene_uncertainty = '"' * 80
+    square.order["line_items"] = [
+        {
+            "uid": f"line-{index}",
+            "name": f"Item {index}",
+            "quantity": "1",
+            "metadata": {"fullfill_item_id": f"item-{index}"},
+        }
+        for index in range(20)
+    ]
+    with TestClient(square.app(vision)) as client:
+        result = send(client)
+    assert result.status_code == 200, result.text
+    assert result.json()["disposition"] == "needs_review"
+    assert result.json()["current_check"]["verdict"] == "unsure"

@@ -246,6 +246,22 @@ def test_more_than_ten_unresolved_tickets_remain_after_all_green_tickets_are_rem
     assert all(state["disposition"] != "overridden" for state in states)
 
 
+def test_recent_fulfillment_survives_cleanup_for_undo_then_expires(monkeypatch):
+    now = 1000
+    monkeypatch.setattr("fullfill.adapters.orders.square.time.time", lambda: now)
+    orders = [square_order(f"order-{number}") for number in range(11)]
+    store = QueueStore(orders)
+    with client_for(store) as kitchen:
+        assert status_request(kitchen, "order-0", "fulfilled").status_code == 200
+        assert len(kitchen.post("/v1/stations/main/refresh").json()["orders"]) == 11
+        now += 119
+        assert len(kitchen.post("/v1/stations/main/refresh").json()["orders"]) == 11
+        now += 2
+        states = kitchen.post("/v1/stations/main/refresh").json()["orders"]
+        assert len(states) == 10
+        assert all(state["order"]["order_id"] != "order-0" for state in states)
+
+
 @pytest.mark.parametrize("change", ["unfulfilled", "unsure", "items", "archived"])
 def test_cleanup_rechecks_after_conflict_and_never_removes_reopened_or_changed_work(change):
     orders = [square_order(f"order-{number}") for number in range(11)]

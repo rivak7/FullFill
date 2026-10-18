@@ -7,6 +7,7 @@ import { isFulfilled } from "./queueState";
 interface Props {
   order?: OrderState;
   disabled: boolean;
+  pauseToken?: number;
   onResult: (state: OrderState) => void;
   onBusyChange: (busy: boolean) => void;
 }
@@ -47,6 +48,7 @@ export function CameraCheckPanel(props: Props) {
   const nextCheck = useRef(0);
   const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [deviceId, setDeviceId] = useState("");
+  const [lastPhoto, setLastPhoto] = useState<{ orderId: string; url: string } | null>(null);
   const video = useRef<HTMLVideoElement>(null);
   const stream = useRef<MediaStream | null>(null);
   const generation = useRef(0);
@@ -80,6 +82,7 @@ export function CameraCheckPanel(props: Props) {
   }, []);
 
   useEffect(() => { trigger.current.reset(); }, [props.order?.order.order_id]);
+  useEffect(() => { setAuto(false); }, [props.pauseToken]);
 
   async function start(id = deviceId) {
     stop(); setError(""); setOpen(true);
@@ -114,6 +117,7 @@ export function CameraCheckPanel(props: Props) {
       trigger.current.submitted(frame, Date.now());
     } catch { setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
     inFlight.current = true; calls.current++; nextCheck.current = Date.now() + 10000;
+    setLastPhoto({ orderId: boundOrder.id, url: `data:image/jpeg;base64,${photo.data_base64}` });
     setUsed(calls.current); setBusy(true); setCooldown(true); setError("");
     latest.current.onBusyChange(true);
     if (calls.current >= 10) setAuto(false);
@@ -123,6 +127,8 @@ export function CameraCheckPanel(props: Props) {
         latest.current.onResult(state);
         if (state.current_check?.execution_status !== "completed") {
           setAuto(false); setError("The check has not completed. Check manually before starting another.");
+        } else if (state.current_check.verdict === "unsure") {
+          setAuto(false);
         }
       }
     } catch (cause) {
@@ -154,12 +160,14 @@ export function CameraCheckPanel(props: Props) {
       <video ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
       <div className="camera-check-controls">
         {devices.length > 1 && <label>Camera<select aria-label="Camera" value={deviceId} onChange={event => { setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select></label>}
-        <p>{busy ? "Checking this ticket…" : !ready ? "Opening camera…" : "Keep all items inside the preview."}</p>
+        <p>{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : "One order at a time. Keep every item visible."}</p>
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : cooldown ? "Wait before checking again" : "Check order"}</button>
         <label className="camera-auto"><input type="checkbox" checked={automatic} disabled={!ready || !configured || used >= 10} onChange={event => setAuto(event.target.checked)} />Auto check after movement</label>
         <small>{used}/10 checks this session · Preview is free</small>
         {used >= 10 && <p>Session limit reached. Continue with manual fulfillment.</p>}
+        {props.order?.current_check?.verdict === "unsure" && <p>Inspect the highlighted items, then recheck or fulfill manually.</p>}
       </div>
+      {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{lastPhoto.orderId.slice(-8).toUpperCase()}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${lastPhoto.orderId.slice(-8).toUpperCase()}`} /><small>Snapshot used for the check. Kept only in this page.</small></details>}
     </div>}
     {configured === false && <p className="camera-hint">AI checks unavailable. Camera preview still works.</p>}
     {error && <p role="alert" className="error-banner">{error}</p>}

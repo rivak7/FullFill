@@ -40,8 +40,8 @@ afterEach(async () => {
   await act(async () => root.unmount()); container.remove();
   vi.restoreAllMocks(); vi.resetAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
-async function render(order = ticket(), disabled = false) {
-  await act(async () => root.render(<CameraCheckPanel order={order} disabled={disabled} onResult={onResult} onBusyChange={onBusyChange} />));
+async function render(order = ticket(), disabled = false, pauseToken = 0) {
+  await act(async () => root.render(<CameraCheckPanel order={order} disabled={disabled} pauseToken={pauseToken} onResult={onResult} onBusyChange={onBusyChange} />));
 }
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(button => button.textContent === label);
@@ -146,4 +146,49 @@ it("shows an unexpected unidentified item as orange, matching the comparison ver
   state.current_check!.verdict = "unsure";
   state.current_check!.discrepancies = [{ kind: "unexpected", message: "Not on the ticket: Drink", line_ids: [] }];
   expect(toScreenState(state).tone).toBe("amber");
+});
+
+it("keeps the exact submitted photo labeled with its ticket after selection changes", async () => {
+  await render(); await camera(); await click("Check order");
+  await render(ticket("second"));
+  expect(container.querySelector(".camera-last-photo summary")?.textContent).toContain("FIRST");
+  expect(container.querySelector(".camera-last-photo img")?.getAttribute("src")).toBe("data:image/jpeg;base64,cGhvdG8=");
+});
+
+it("pauses automatic spending for uncertain results and manual corrections", async () => {
+  const state = checked(); state.current_check!.verdict = "unsure";
+  vi.mocked(orderApi.checkCamera).mockResolvedValueOnce(state);
+  await render(); await camera();
+  const automatic = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  await act(async () => automatic.click());
+  await click("Check order");
+  expect(automatic.checked).toBe(false);
+  await act(async () => automatic.click());
+  expect(automatic.checked).toBe(true);
+  await render(ticket(), false, 1);
+  expect(automatic.checked).toBe(false);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+});
+
+it("failed, malformed, and outdated results cannot display green", () => {
+  for (const kind of ["failed", "missing-verdict", "stale", "wrong-order"] as const) {
+    const state = checked();
+    state.current_check!.verdict = "pass";
+    if (kind === "failed") state.current_check!.execution_status = "failed";
+    if (kind === "missing-verdict") state.current_check!.verdict = null;
+    if (kind === "stale") state.current_check!.order_revision = 2;
+    if (kind === "wrong-order") state.current_check!.order_id = "different";
+    expect(toScreenState(state).tone).toBe("amber");
+  }
+});
+
+it("keeps uncertain items visible alongside definite shortages", () => {
+  const state = checked();
+  state.current_check!.discrepancies = [
+    { kind: "missing", line_ids: ["line"], message: "Missing: 1 Fries", expected_quantity: 2, observed_quantity: 1 },
+    { kind: "unsure", line_ids: [], message: "Read the drink label." },
+  ];
+  const screen = toScreenState(state);
+  expect(screen.tone).toBe("red");
+  expect(screen.problems).toHaveLength(2);
 });

@@ -6,6 +6,7 @@ import hashlib
 import hmac
 import json
 import os
+import time
 from decimal import Decimal, InvalidOperation
 from pathlib import Path
 from urllib.parse import quote
@@ -25,7 +26,14 @@ from fullfill.application.order_source import (
     OrderStatusEdit,
 )
 
-from .camera_checks import CHECK_KEY, SquareCameraChecks, check_result, read_record
+from .camera_checks import (
+    CHECK_KEY,
+    COMPLETED_AT_KEY,
+    UNDO_SECONDS,
+    SquareCameraChecks,
+    check_result,
+    read_record,
+)
 from .menu import SquareMenu, menu_snapshot
 
 
@@ -293,6 +301,14 @@ class SquareOrders(SquareCameraChecks):
             # A different screen may have reopened this order since the search.
             if state.disposition not in ("overridden", "verified"):
                 return order
+            # Keep newly completed tickets available for correcting a mistake,
+            # even when another kitchen screen is cleaning up overflow.
+            completed = (order.get("metadata") or {}).get(COMPLETED_AT_KEY, "0")
+            try:
+                if time.time() - int(completed) < UNDO_SECONDS:
+                    return order
+            except ValueError:
+                return order
             path = f"/v2/orders/{quote(order['id'], safe='')}"
             key = hashlib.sha256(
                 f"queue-archive:{order['id']}:{order['version']}".encode()
@@ -360,6 +376,9 @@ class SquareOrders(SquareCameraChecks):
                         "metadata": {
                             **metadata,
                             "fullfill_queue_status": edit.status,
+                            COMPLETED_AT_KEY: str(
+                                int(time.time()) if edit.status == "fulfilled" else 0
+                            ),
                             "fullfill_status_fingerprint": self._ticket_fingerprint(order),
                             "fullfill_status_request": key,
                         },

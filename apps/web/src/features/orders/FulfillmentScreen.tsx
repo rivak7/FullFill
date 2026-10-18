@@ -5,7 +5,8 @@ import { toScreenState } from "../station/screenState";
 import { isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
 
-type StatusAttempt = { id: string; body: OrderStatusEdit; key: string };
+type StatusAttempt = { id: string; body: OrderStatusEdit; key: string; restoreSelection?: boolean };
+type Undo = { id: string; revision: number; expires: number };
 
 const refreshDelayMs = 1000;
 const initialRetryDelayMs = 3000;
@@ -20,6 +21,8 @@ export function FulfillmentScreen() {
   const [pending, setPending] = useState<StatusAttempt | null>(null);
   const [busy, setBusy] = useState(false);
   const [refresh, setRefresh] = useState(0);
+  const [undo, setUndo] = useState<Undo | null>(null);
+  const [cameraPause, setCameraPause] = useState(0);
   const epoch = useRef(0);
   const saving = useRef(false);
   const list = useRef<HTMLElement>(null);
@@ -64,17 +67,35 @@ export function FulfillmentScreen() {
     list.current?.querySelector('[aria-pressed="true"]')?.scrollIntoView?.({ block: "nearest" });
   }, [selected, loading]);
 
+  useEffect(() => {
+    if (!undo) return;
+    const timer = setTimeout(() => setUndo(null), Math.max(0, undo.expires - Date.now()));
+    return () => clearTimeout(timer);
+  }, [undo]);
+
+  function offerUndo(id: string, revision: number) {
+    setUndo({ id, revision, expires: Date.now() + 110000 });
+  }
+
   async function submit(attempt: StatusAttempt) {
     if (saving.current) return;
     saving.current = true; epoch.current++;
     setPending(attempt); setBusy(true); setActionError(null); setNotice("");
     try {
       const updated = await orderApi.setStatus(attempt.id, attempt.body, attempt.key);
-      setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === attempt.id ? updated : state)));
+      setQueue(previous => {
+        const next = reconcileQueue(previous, previous.orders.map(state => state.order.order_id === attempt.id ? updated : state));
+        return attempt.restoreSelection ? { ...next, selected: attempt.id } : next;
+      });
+      if (attempt.body.status === "fulfilled") offerUndo(attempt.id, updated.order.revision);
+      else setUndo(previous => previous?.id === attempt.id ? null : previous);
       setPending(null);
       setNotice(`#${attempt.id.slice(-8).toUpperCase()} · ${toScreenState(updated).headline}`);
     } catch (error) {
-      if (error instanceof ApiError && [400, 401, 403, 404, 409, 422].includes(error.status)) setPending(null);
+      if (error instanceof ApiError && [400, 401, 403, 404, 409, 422].includes(error.status)) {
+        setPending(null);
+        if (attempt.restoreSelection) setUndo(null);
+      }
       setActionError(error instanceof Error ? error.message : "Could not save the order status.");
     } finally {
       saving.current = false; setBusy(false); setRefresh(value => value + 1);
@@ -88,7 +109,14 @@ export function FulfillmentScreen() {
 
   function updateStatus(status: OrderStatusEdit["status"]) {
     if (!current || locked) return;
+    setCameraPause(value => value + 1);
     void submit({ id: current.order.order_id, body: { status, expected_revision: current.order.revision }, key: crypto.randomUUID() });
+  }
+
+  function undoFulfillment() {
+    if (!undo || locked || Date.now() >= undo.expires) return;
+    setCameraPause(value => value + 1);
+    void submit({ id: undo.id, body: { status: "unfulfilled", expected_revision: undo.revision }, key: crypto.randomUUID(), restoreSelection: true });
   }
 
   return (
@@ -100,6 +128,7 @@ export function FulfillmentScreen() {
       {error && <div className="connection-error" role="alert">{error}</div>}
       {actionError && <div className="connection-error" role="alert">{actionError}{pending && <button className="secondary-button" disabled={busy} onClick={() => void submit(pending)}>{busy ? "Saving…" : "Retry status"}</button>}</div>}
       <div className="queue-announcement" role="status">{notice}</div>
+      {undo && <div className="fulfillment-undo" role="status"><span>#{undo.id.slice(-8).toUpperCase()} fulfilled</span><button className="secondary-button" disabled={locked} onClick={undoFulfillment}>Undo</button></div>}
       <div className="fulfillment-layout">
         <aside ref={list} className="order-queue" aria-label="Incoming orders" tabIndex={0}>
           <div className="queue-heading"><h2>Orders</h2><span>Newest first</span></div>
@@ -127,11 +156,12 @@ export function FulfillmentScreen() {
               </div>
             </>
             : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1>{!!waiting && <p>Select another ticket to continue.</p>}</div>}
-          <CameraCheckPanel order={current} disabled={locked} onBusyChange={value => {
+          <CameraCheckPanel order={current} disabled={locked} pauseToken={cameraPause} onBusyChange={value => {
             saving.current = value; setBusy(value);
             if (value) epoch.current++;
             else setRefresh(count => count + 1);
           }} onResult={updated => {
+            if (isFulfilled(updated)) offerUndo(updated.order.order_id, updated.order.revision);
             setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === updated.order.order_id ? updated : state)));
             setNotice(`#${updated.order.order_id.slice(-8).toUpperCase()} · ${toScreenState(updated).headline}`);
           }} />

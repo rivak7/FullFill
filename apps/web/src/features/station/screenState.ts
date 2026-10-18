@@ -23,9 +23,10 @@ export interface ScreenState {
 }
 
 export function toScreenState(state: OrderState): ScreenState {
-  const check = state.current_check ?? null;
+  const candidate = state.current_check ?? null;
+  const check = candidate?.order_id === state.order.order_id && candidate.order_revision === state.order.revision ? candidate : null;
   const discrepancies = check?.discrepancies ?? [];
-  const checked = check?.execution_status === "completed";
+  const checked = check?.execution_status === "completed" && !!check.verdict;
   const lines = state.order.lines.map((line) => toScreenLine(line, checked ? discrepancies : null));
 
   if (state.disposition === "overridden") {
@@ -38,14 +39,17 @@ export function toScreenState(state: OrderState): ScreenState {
   if (state.disposition === "needs_review" && !check) {
     return { tone: "amber", headline: "Needs review", detail: null, lines, problems: [], confirmedByStaff: false };
   }
+  if (candidate && !check) {
+    return { tone: "amber", headline: "Needs review", detail: "Ticket changed. Check this order again.", lines, problems: [], confirmedByStaff: false };
+  }
   if (!check) {
     return { tone: "red", headline: "Unfulfilled", detail: null, lines, problems: [], confirmedByStaff: false };
   }
   if (check.execution_status === "failed") {
     return {
-      tone: "error",
-      headline: "Check failed",
-      detail: "Check manually or retry.",
+      tone: "amber",
+      headline: "Needs review",
+      detail: "Camera check failed. Check manually or take a new photo.",
       lines,
       problems: [],
       confirmedByStaff: false,
@@ -60,19 +64,19 @@ export function toScreenState(state: OrderState): ScreenState {
   const unsure = discrepancies.filter(isUnsure);
 
   if (check.verdict === "fail" || definite.length > 0) {
-    return { tone: "red", headline: "Unfulfilled", detail: null, lines, problems: definite, confirmedByStaff: false };
+    return { tone: "red", headline: "Unfulfilled", detail: "Camera found a mismatch", lines, problems: discrepancies, confirmedByStaff: false };
   }
-  if (check.verdict === "unsure" || unsure.length > 0) {
+  if (check.verdict !== "pass" || unsure.length > 0) {
     return {
       tone: "amber",
       headline: "Needs review",
-      detail: null,
+      detail: unsure.length ? null : "No reliable result. Check manually or take a new photo.",
       lines,
       problems: unsure,
       confirmedByStaff: false,
     };
   }
-  return { tone: "green", headline: "Fulfilled", detail: null, lines, problems: [], confirmedByStaff: false };
+  return { tone: "green", headline: "Fulfilled", detail: "Camera match", lines, problems: [], confirmedByStaff: false };
 }
 
 function toScreenLine(line: OrderLine, discrepancies: Discrepancy[] | null): ScreenLine {

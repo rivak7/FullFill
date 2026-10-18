@@ -8,6 +8,7 @@ from fullfill.adapters.vision.perceptron import (
     PerceptronVision,
     VisionCallRejected,
     VisionProviderError,
+    parse_answer,
 )
 from fullfill_contracts.vision import ImageInput, ReferenceImage, VerificationTarget, VisionInput
 
@@ -58,6 +59,7 @@ class FakeClient:
         answer = self.answers.pop(0)
         if isinstance(answer, Exception):
             raise answer
+        answer.setdefault("scene_status", "clear")
         return SimpleNamespace(
             text=json.dumps(answer),
             finish_reason="stop",
@@ -99,7 +101,10 @@ def test_request_shape():
 def test_unlabeled_lookalike_becomes_unsure():
     client = FakeClient(
         {
-            "items": [entry("chicken_burrito", count=0, unlabeled=1), entry("mayo")],
+            "items": [
+                entry("chicken_burrito", status="unsure", count=0, unlabeled=1),
+                entry("mayo"),
+            ],
             "unexpected_items": [],
         }
     )
@@ -142,3 +147,68 @@ def test_cooldown_waits(monkeypatch):
     run(limiter.acquire())
     run(limiter.acquire())
     assert slept == [2.0]
+
+
+@pytest.mark.parametrize("label", [None, "", "Beef", "Chocolate"])
+def test_label_required_cannot_pass_without_a_matching_readable_label(label):
+    client = FakeClient(
+        {"items": [entry("chicken_burrito", label=label), entry("mayo")], "unexpected_items": []}
+    )
+    obs = run(vision(client).inspect(REQUEST))
+    assert obs.targets[0].status == "unsure"
+    assert "label" in obs.targets[0].reason
+    assert len(client.requests) == 1
+
+
+@pytest.mark.parametrize("scene", ["obscured", "blurry", "out_of_frame", "mixed_orders"])
+def test_poor_scene_never_becomes_a_confident_count(scene):
+    client = FakeClient(
+        {
+            "items": [entry("chicken_burrito", label="C"), entry("mayo", "missing", 0)],
+            "unexpected_items": [],
+            "scene_status": scene,
+        }
+    )
+    obs = run(vision(client).inspect(REQUEST))
+    assert obs.scene_uncertainty
+    assert all(target.status == "unsure" for target in obs.targets)
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        [],
+        {"items": [None], "unexpected_items": []},
+        {"items": [], "unexpected_items": [{}]},
+        {"items": [entry("chicken_burrito", count=True), entry("mayo")], "unexpected_items": []},
+        {"items": [entry("chicken_burrito", count=0), entry("mayo")], "unexpected_items": []},
+        {
+            "items": [entry("chicken_burrito", status="missing", count=1), entry("mayo")],
+            "unexpected_items": [],
+        },
+        {"items": [entry("chicken_burrito", unlabeled="1"), entry("mayo")], "unexpected_items": []},
+    ],
+)
+def test_malformed_or_contradictory_observations_are_rejected(bad):
+    with pytest.raises(VisionProviderError):
+        parse_answer(json.dumps(bad), REQUEST)
+
+
+def test_uncertainty_reason_overrides_an_apparently_matching_count():
+    item = {**entry("chicken_burrito", label="C"), "reason": "identity"}
+    observations, _ = parse_answer(
+        json.dumps({"items": [item, entry("mayo")], "unexpected_items": []}), REQUEST
+    )
+    assert observations[0].status == "unsure"
+    assert "hidden contents" in observations[0].reason
+
+
+def test_label_without_aliases_must_name_the_item_not_just_contain_text():
+    request = VisionInput(
+        capture_id="label", image=IMAGE, targets=(target("fries", "Fries", "label"),), references=()
+    )
+    for label, expected in [("Order 123", "unsure"), ("Fries", "present")]:
+        observations, _ = parse_answer(
+            json.dumps({"items": [entry("fries", label=label)], "unexpected_items": []}), request
+        )
+        assert observations[0].status == expected

@@ -33,7 +33,7 @@ class FakeClient:
 
 def answer(**counts):
     return {"items": [{"item_id": i, "status": "present" if c else "missing", "count": c, "label_text": None}
-                      for i, c in counts.items()], "unexpected_items": []}
+                      for i, c in counts.items()], "unexpected_items": [], "scene_status": "clear"}
 
 
 @pytest.fixture

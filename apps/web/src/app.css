@@ -88,6 +88,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .camera-auto input { width: auto; }
 .camera-check-controls select { display: block; width: 100%; margin-top: 5px; }
 .camera-hint { margin-top: 10px; }
+.camera-last-photo { width: 100%; font-size: 12px; color: #62695e; }
+.camera-last-photo summary { cursor: pointer; }
+.camera-last-photo img { display: block; max-width: 240px; width: 100%; margin: 10px 0; border-radius: 8px; }
+.fulfillment-undo { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 10px 24px; background: #e9eee1; color: var(--forest); font-size: 14px; }
 .active-ticket .station { min-height: calc(100dvh - 274px); flex: 1; grid-template-columns: minmax(260px, 1fr) minmax(0, 1fr); }
 .active-ticket:has(.camera-check-open) .station { min-height: max(260px, calc(100dvh - 470px)); }
 .active-ticket .ticket { padding: 30px 24px; }
