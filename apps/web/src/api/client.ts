@@ -6,6 +6,7 @@ import type {
   CreateCheckRequest,
   OverrideRequest,
   OrderSnapshot,
+  OrderState,
   StationEvent,
   StationSnapshot,
 } from "./generated/contracts";
@@ -26,6 +27,7 @@ export interface MenuEntry {
 export interface MenuSnapshot { revision: string; items: MenuEntry[] }
 export interface MenuPhoto { data_base64: string }
 export interface MenuEdit { item_id: string; name: string; price_cents: number; available: boolean; archived: boolean; version: number; photo?: MenuPhoto }
+export interface OrderStatusEdit { status: "unfulfilled" | "unsure" | "fulfilled"; expected_revision: number }
 
 export interface CreateOrderInput {
   items: { item_id: string; quantity: number }[];
@@ -96,6 +98,9 @@ export const orderApi = {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
   }),
   station: (signal?: AbortSignal) => request<StationSnapshot>("/stations/main/refresh", { method: "POST", signal }),
+  setStatus: (id: string, body: OrderStatusEdit, key: string) => request<OrderState>(`/orders/${encodeURIComponent(id)}/status`, {
+    method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
+  }),
   prepare: (body: CreateOrderInput, key: string) => request<CreateOrderInput>("/orders/prepare", {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
   }),

@@ -1,8 +1,9 @@
 """Order ingress boundary. Screens consume FullFill orders, not provider responses."""
 
-from typing import Protocol
+from typing import Literal, Protocol
 
 from fullfill_contracts.common import Contract
+from fullfill_contracts.events import OrderState
 from fullfill_contracts.orders import OrderSnapshot, VerificationMode
 from pydantic import Field, model_validator
 
@@ -68,6 +69,11 @@ class OrderSourceError(Exception):
         self.status_code = status_code
 
 
+class OrderStatusEdit(Contract):
+    status: Literal["unfulfilled", "unsure", "fulfilled"]
+    expected_revision: int = Field(gt=0, strict=True)
+
+
 class OrderSource(Protocol):
     async def menu(self) -> MenuSnapshot: ...
 
@@ -77,7 +83,11 @@ class OrderSource(Protocol):
 
     async def list_orders(self) -> list[OrderSnapshot]: ...
 
-    async def refresh_orders(self) -> list[OrderSnapshot]: ...
+    async def station_orders(self, *, cleanup: bool = False) -> list[OrderState]: ...
+
+    async def set_order_status(
+        self, order_id: str, edit: OrderStatusEdit, idempotency_key: str
+    ) -> OrderState: ...
 
     async def get_order(self, order_id: str) -> OrderSnapshot: ...
 
