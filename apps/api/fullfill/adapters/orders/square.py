@@ -11,6 +11,7 @@ from pathlib import Path
 from urllib.parse import quote
 
 import httpx
+from fullfill_contracts.events import OrderState
 from fullfill_contracts.orders import OrderLine, OrderSnapshot
 from pydantic import ValidationError
 
@@ -21,6 +22,7 @@ from fullfill.application.order_source import (
     MenuEntry,
     MenuSnapshot,
     OrderSourceError,
+    OrderStatusEdit,
 )
 
 from .menu import SquareMenu, menu_snapshot
@@ -33,7 +35,7 @@ def demo_menu() -> list[MenuEntry]:
 
 class SquareOrders:
     base_url = "https://connect.squareupsandbox.com"
-    queue_limit = 30
+    queue_limit = 10
 
     def __init__(
         self,
@@ -203,14 +205,34 @@ class SquareOrders:
                 "An order has unsupported item data. This demo requires positive whole-item quantities."
             ) from None
 
-    async def _queue_records(self, *, limit: int | None = None) -> list[dict]:
+    def _ticket_fingerprint(self, order: dict) -> str:
+        # A changed quantity/item must be checked again, even if Square retains
+        # the metadata from the old ticket. Status-only writes do not change it.
+        lines = [line.model_dump(mode="json") for line in self._snapshot(order).lines]
+        return hashlib.sha256(json.dumps(lines, sort_keys=True).encode()).hexdigest()
+
+    def _order_state(self, order: dict) -> OrderState:
+        snapshot = self._snapshot(order)
+        metadata = order.get("metadata") or {}
+        status = metadata.get("fullfill_queue_status")
+        if metadata.get("fullfill_status_fingerprint") != self._ticket_fingerprint(order):
+            status = "unfulfilled"
+        return OrderState(
+            order=snapshot,
+            disposition={"fulfilled": "overridden", "unsure": "needs_review"}.get(
+                status, "pending"
+            ),
+            disposition_revision=snapshot.revision,
+        )
+
+    async def _queue_records(self) -> list[dict]:
         payload = {
             "location_ids": [self.location_id],
             "return_entries": False,
             "limit": 100,
             "query": {
                 "filter": {"state_filter": {"states": ["OPEN"]}},
-                "sort": {"sort_field": "CREATED_AT", "sort_order": "DESC"},
+                "sort": {"sort_field": "CREATED_AT", "sort_order": "ASC"},
             },
         }
         orders: dict[str, dict] = {}
@@ -229,8 +251,6 @@ class SquareOrders:
                 ):
                     snapshot = self._snapshot(order)
                     orders[snapshot.order_id] = order
-                    if limit and len(orders) == limit:
-                        return list(orders.values())
             cursor = result.get("cursor")
             if not cursor:
                 return list(orders.values())
@@ -243,26 +263,32 @@ class SquareOrders:
         raise OrderSourceError("The order queue is too large to load completely. Try again later.")
 
     async def list_orders(self) -> list[OrderSnapshot]:
-        return [
-            self._snapshot(order) for order in await self._queue_records(limit=self.queue_limit)
-        ]
+        return [self._snapshot(order) for order in await self._queue_records()]
 
-    async def refresh_orders(self) -> list[OrderSnapshot]:
+    async def station_orders(self, *, cleanup: bool = False) -> list[OrderState]:
         orders = await self._queue_records()
-        # Persist removal on Square, so an old ticket cannot reappear when newer
-        # orders finish or a different browser/server handles the next refresh.
-        for order in reversed(orders[self.queue_limit :]):
-            await self._archive_from_queue(order)
-        return [self._snapshot(order) for order in orders[: self.queue_limit]]
+        excess = max(0, len(orders) - self.queue_limit) if cleanup else 0
+        retained = []
+        for order in orders:
+            if excess and self._order_state(order).disposition == "overridden":
+                order = await self._archive_from_queue(order)
+                if order is None:
+                    excess -= 1
+                    continue
+            retained.append(self._order_state(order))
+        return retained
 
-    async def _archive_from_queue(self, order: dict):
+    async def _archive_from_queue(self, order: dict) -> dict | None:
         for _ in range(3):
+            state = self._order_state(order)  # Validate location before any mutation.
             if (
                 order.get("state") != "OPEN"
                 or (order.get("metadata") or {}).get("fullfill_queue_archived") == "true"
             ):
-                return
-            self._snapshot(order)  # Validate the location before any mutation.
+                return None
+            # A different screen may have reopened this order since the search.
+            if state.disposition != "overridden":
+                return order
             path = f"/v2/orders/{quote(order['id'], safe='')}"
             key = hashlib.sha256(
                 f"queue-archive:{order['id']}:{order['version']}".encode()
@@ -283,13 +309,66 @@ class SquareOrders:
                         },
                     },
                 )
-                return
+                return None
             except OrderSourceError as error:
                 if error.status_code != 409:
                     raise
                 result = await self._request("GET", path)
                 order = result.get("order", {})
-        raise OrderSourceError("The queue changed during cleanup. Refresh to try again.", 503)
+        # The cap is soft. Keep contested tickets and retry on the next refresh.
+        return order
+
+    async def set_order_status(
+        self, order_id: str, edit: OrderStatusEdit, idempotency_key: str
+    ) -> OrderState:
+        path = f"/v2/orders/{quote(order_id, safe='')}"
+        key = hashlib.sha256(
+            f"queue-status:{self.location_id}:{order_id}:{idempotency_key}:"
+            f"{edit.expected_revision}:{edit.status}".encode()
+        ).hexdigest()
+        result = await self._request("GET", path)
+        order = result.get("order", {})
+        state = self._order_state(order)
+        metadata = order.get("metadata") or {}
+        if metadata.get("fullfill_status_request") == key:
+            return state  # Recover a successful write whose response was lost.
+        if (
+            state.order.revision != edit.expected_revision
+            or order.get("state") != "OPEN"
+            or metadata.get("fullfill_queue_archived") == "true"
+        ):
+            raise OrderSourceError(
+                "This order changed on another screen. Refresh and try again.", 409
+            )
+        try:
+            result = await self._request(
+                "PUT",
+                path,
+                {
+                    "idempotency_key": key,
+                    "order": {
+                        "location_id": self.location_id,
+                        "version": edit.expected_revision,
+                        "metadata": {
+                            **metadata,
+                            "fullfill_queue_status": edit.status,
+                            "fullfill_status_fingerprint": self._ticket_fingerprint(order),
+                            "fullfill_status_request": key,
+                        },
+                    },
+                },
+            )
+        except OrderSourceError as error:
+            if error.status_code != 409:
+                raise
+            result = await self._request("GET", path)
+            if (result.get("order", {}).get("metadata") or {}).get(
+                "fullfill_status_request"
+            ) != key:
+                raise OrderSourceError(
+                    "This order changed on another screen. Refresh and try again.", 409
+                ) from None
+        return self._order_state(result.get("order", {}))
 
     async def get_order(self, order_id: str) -> OrderSnapshot:
         result = await self._request("GET", f"/v2/orders/{quote(order_id, safe='')}")

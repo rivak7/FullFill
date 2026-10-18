@@ -3,9 +3,10 @@
 from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header
+from fullfill_contracts.events import OrderState
 from fullfill_contracts.orders import OrderSnapshot
 
-from fullfill.application.order_source import CreateOrder, OrderSource
+from fullfill.application.order_source import CreateOrder, OrderSource, OrderStatusEdit
 
 from .order_source import get_order_source
 
@@ -43,3 +44,15 @@ async def prepare_order(
 @router.get("/{order_id}", response_model=OrderSnapshot)
 async def get_order(order_id: str, source: Source):
     return await source.get_order(order_id)
+
+
+@router.post("/{order_id}/status", response_model=OrderState)
+async def set_order_status(
+    order_id: str,
+    body: OrderStatusEdit,
+    source: Source,
+    idempotency_key: Annotated[
+        str, Header(min_length=1, max_length=192, pattern=r"^[A-Za-z0-9_-]+$")
+    ],
+):
+    return await source.set_order_status(order_id, body, idempotency_key)

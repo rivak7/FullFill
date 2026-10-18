@@ -1,0 +1,123 @@
+// @vitest-environment jsdom
+import { act } from "react";
+import { createRoot, type Root } from "react-dom/client";
+import { afterEach, beforeEach, expect, it, vi } from "vitest";
+import { ApiError, orderApi } from "../src/api/client";
+import type { OrderState, StationSnapshot } from "../src/api/generated/contracts";
+import { FulfillmentScreen } from "../src/features/orders/FulfillmentScreen";
+import { reconcileQueue } from "../src/features/orders/queueState";
+
+vi.mock("../src/api/client", async importOriginal => ({
+  ...await importOriginal<typeof import("../src/api/client")>(),
+  orderApi: { station: vi.fn(), setStatus: vi.fn() },
+}));
+
+function ticket(id: string, disposition: OrderState["disposition"] = "pending", revision = 1): OrderState {
+  return { order: { schema_version: 1, order_id: id, revision, lines: [{ line_id: "line", item_id: "fries", name: "Fries", quantity: 1, verification_mode: "visible_item" }] }, disposition, disposition_revision: revision, current_check: null };
+}
+const snapshot = (orders: OrderState[]): StationSnapshot => ({ station_id: "main", orders });
+let orders: OrderState[];
+let container: HTMLDivElement;
+let root: Root;
+beforeEach(() => {
+  vi.useFakeTimers(); vi.stubGlobal("IS_REACT_ACT_ENVIRONMENT", true);
+  window.history.replaceState(null, "", "/fulfill");
+  container = document.createElement("div"); document.body.append(container); root = createRoot(container);
+  orders = [ticket("first"), ticket("second", "needs_review"), ticket("third")];
+  vi.mocked(orderApi.station).mockImplementation(async () => snapshot(orders));
+  vi.mocked(orderApi.setStatus).mockImplementation(async (id, edit) => {
+    const updated = ticket(id, edit.status === "fulfilled" ? "overridden" : edit.status === "unsure" ? "needs_review" : "pending", edit.expected_revision + 1);
+    orders = orders.map(state => state.order.order_id === id ? updated : state);
+    return updated;
+  });
+});
+afterEach(async () => {
+  await act(async () => root.unmount()); container.remove(); vi.resetAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
+});
+async function render() { await act(async () => root.render(<FulfillmentScreen />)); }
+async function click(text: string) {
+  const button = [...container.querySelectorAll("button")].find(button => button.textContent === text);
+  expect(button).toBeDefined(); await act(async () => button!.click());
+}
+const selected = () => container.querySelector('.queue-ticket[aria-pressed="true"]')?.textContent;
+async function poll() { await act(async () => vi.advanceTimersByTimeAsync(3000)); }
+
+it("colors the queue, advances to orange work, and keeps completed tickets selectable", async () => {
+  await render();
+  expect(selected()).toContain("#FIRST");
+  expect(container.querySelector(".queue-amber")?.textContent).toContain("#SECOND");
+  await click("Fulfill order");
+  expect(selected()).toContain("#SECOND");
+  expect(window.location.search).toBe("?order=second");
+  expect(container.querySelector(".queue-green")?.textContent).toContain("#FIRST");
+  expect(container.querySelector(".station.tone-amber")).not.toBeNull();
+  await act(async () => (container.querySelector(".queue-green") as HTMLButtonElement).click());
+  await poll();
+  expect(selected()).toContain("#FIRST");
+  expect(container.querySelector(".station.tone-green")).not.toBeNull();
+  await click("Reopen");
+  expect(selected()).toContain("#FIRST");
+  expect(container.querySelector(".station.tone-red")).not.toBeNull();
+});
+
+it("keeps the current ticket on arrivals or orange status and advances on another screen's fulfillment", async () => {
+  await render(); await click("Needs review");
+  expect(selected()).toContain("#FIRST");
+  expect(container.querySelector(".station.tone-amber")).not.toBeNull();
+  orders.push(ticket("newest")); await poll();
+  expect(selected()).toContain("#FIRST");
+  orders[0] = ticket("first", "overridden", 3); await poll();
+  expect(selected()).toContain("#SECOND");
+});
+
+it("keeps unresolved overflow visible and shows caught up only after the last unresolved ticket", async () => {
+  orders = Array.from({ length: 12 }, (_, i) => ticket(`order-${i}`));
+  await render(); expect(container.querySelectorAll(".queue-ticket")).toHaveLength(12);
+  orders = [ticket("order-0", "overridden", 2)]; await poll();
+  expect(container.querySelector("h1")?.textContent).toBe("All caught up");
+  expect(window.location.search).toBe("");
+  orders.push(ticket("new")); await poll();
+  expect(selected()).toContain("#NEW");
+});
+
+it("does not advance on a failed write and retries the exact same attempt", async () => {
+  vi.mocked(orderApi.setStatus).mockRejectedValueOnce(new Error("Offline"));
+  await render(); await click("Fulfill order");
+  expect(selected()).toContain("#FIRST");
+  expect(container.querySelector(".queue-green")).toBeNull();
+  const attempt = vi.mocked(orderApi.setStatus).mock.calls[0];
+  await click("Retry status");
+  expect(vi.mocked(orderApi.setStatus).mock.calls[1]).toEqual(attempt);
+  expect(selected()).toContain("#SECOND");
+});
+
+it("refreshes a conflict without silently overwriting the other screen", async () => {
+  vi.mocked(orderApi.setStatus).mockImplementationOnce(async () => {
+    orders[0] = ticket("first", "needs_review", 2);
+    throw new ApiError("This order changed on another screen.", 409);
+  });
+  await render(); await click("Fulfill order");
+  expect(selected()).toContain("#FIRST");
+  expect(container.querySelector(".station.tone-amber")).not.toBeNull();
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("another screen");
+  expect(orderApi.setStatus).toHaveBeenCalledTimes(1);
+});
+
+it("ignores an in-flight poll from before a status save", async () => {
+  await render();
+  let resolve!: (snapshot: StationSnapshot) => void;
+  vi.mocked(orderApi.station).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
+  await poll();
+  await click("Fulfill order");
+  await act(async () => resolve(snapshot([ticket("first"), ticket("second", "needs_review"), ticket("third")])));
+  expect(selected()).toContain("#SECOND");
+  expect(container.querySelector(".queue-green")?.textContent).toContain("#FIRST");
+});
+
+it("advances if cleanup removes the current ticket, keeps newer revisions, and skips green on initial load", () => {
+  const first = ticket("first", "overridden", 2);
+  const second = ticket("second", "needs_review");
+  expect(reconcileQueue({ orders: [], selected: null }, [first, second]).selected).toBe("second");
+  expect(reconcileQueue({ orders: [first, second], selected: "first" }, [second]).selected).toBe("second");
+  expect(reconcileQueue({ orders: [first, second], selected: "second" }, [ticket("first"), second]).orders[0]).toEqual(first);
+});

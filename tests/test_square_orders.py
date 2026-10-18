@@ -147,69 +147,217 @@ def test_queue_follows_pagination_skips_empty_and_terminal_orders():
     assert requests[1]["cursor"] == "next"
 
 
-def test_thirty_first_order_drops_oldest_ticket_from_all_kitchen_screens():
-    orders = [square_order(f"order-{number}") for number in range(30, 0, -1)]
-
-    def square(request):
-        if request.method == "GET":
-            return httpx.Response(200, json={"order": orders[-1]})
-        body = json.loads(request.content)
-        assert body["query"]["sort"] == {"sort_field": "CREATED_AT", "sort_order": "DESC"}
-        return httpx.Response(200, json={"orders": orders})
-
-    with client_for(square) as kitchen:
-        initial = kitchen.get("/v1/orders").json()
-        assert len(initial) == 30
-        assert initial[-1]["order_id"] == "order-1"
-        orders.insert(0, square_order("order-31"))
-        updated = kitchen.get("/v1/orders").json()
-        assert len(updated) == 30
-        assert updated[0]["order_id"] == "order-31"
-        assert updated[-1]["order_id"] == "order-2"
-        assert kitchen.get("/v1/orders/order-1").status_code == 200
-    with client_for(square) as other_kitchen:
-        assert other_kitchen.get("/v1/orders").json() == updated
+def with_status(order, status):
+    source = SquareOrders("test-token", "test-location")
+    order["metadata"] = {
+        **order.get("metadata", {}),
+        "fullfill_queue_status": status,
+        "fullfill_status_fingerprint": source._ticket_fingerprint(order),
+    }
+    return order
 
 
-@pytest.mark.parametrize("concurrent", [False, True])
-def test_queue_overflow_removal_persists_and_tolerates_another_kitchen_refresh(concurrent):
-    orders = [square_order(f"order-{number}") for number in range(31, 0, -1)]
-    orders[-1]["metadata"] = {"existing": "keep-me"}
-    writes = []
+class QueueStore:
+    def __init__(self, orders):
+        self.orders = orders
+        self.writes = []
+        self.before_write = None
+        self.lose_response = False
 
-    def square(request):
+    def __call__(self, request):
         if request.url.path == "/v2/orders/search":
-            return httpx.Response(200, json={"orders": orders})
-        assert request.url.path == "/v2/orders/order-1"
+            body = json.loads(request.content)
+            assert body["query"]["sort"] == {"sort_field": "CREATED_AT", "sort_order": "ASC"}
+            return httpx.Response(200, json={"orders": self.orders})
+        order = next(order for order in self.orders if request.url.path.endswith("/" + order["id"]))
         if request.method == "GET":
-            return httpx.Response(200, json={"order": orders[-1]})
+            return httpx.Response(200, json={"order": order})
         assert request.method == "PUT"
         body = json.loads(request.content)
-        writes.append(body)
-        orders[-1]["metadata"].update(fullfill_queue_archived="true")
-        orders[-1]["version"] += 1
-        if concurrent:
+        self.writes.append(body)
+        if self.before_write:
+            callback, self.before_write = self.before_write, None
+            callback(order)
+        if body["order"]["version"] != order["version"]:
             return httpx.Response(400, json={"errors": [{"code": "VERSION_MISMATCH"}]})
-        return httpx.Response(200, json={"order": orders[-1]})
+        order["metadata"] = body["order"]["metadata"]
+        order["version"] += 1
+        if self.lose_response:
+            self.lose_response = False
+            raise httpx.ReadTimeout("lost response", request=request)
+        return httpx.Response(200, json={"order": order})
 
-    with client_for(square) as kitchen:
+
+def status_request(client, order_id, status, version=3, key="status-attempt"):
+    return client.post(
+        f"/v1/orders/{order_id}/status",
+        json={"status": status, "expected_revision": version},
+        headers={"Idempotency-Key": key},
+    )
+
+
+@pytest.mark.parametrize("count", [10, 11, 16])
+def test_soft_cap_always_keeps_unfulfilled_and_orange_orders(count):
+    orders = [square_order(f"order-{number}") for number in range(count)]
+    with_status(orders[0], "unsure")
+    store = QueueStore(orders)
+    with client_for(store) as kitchen:
         response = kitchen.post("/v1/stations/main/refresh")
         assert response.status_code == 200, response.text
-        assert len(response.json()["orders"]) == 30
-        assert response.json()["orders"][-1]["order"]["order_id"] == "order-2"
-    assert len(writes) == 1
-    assert writes[0]["order"] == {
-        "location_id": "test-location",
-        "version": 3,
-        "metadata": {"existing": "keep-me", "fullfill_queue_archived": "true"},
-    }
-    assert orders[-1]["state"] == "OPEN"
-    for order in orders[:-1]:
-        order["state"] = "COMPLETED"
-    with client_for(square) as second_kitchen:
-        assert second_kitchen.post("/v1/stations/main/refresh").json()["orders"] == []
-        assert second_kitchen.get("/v1/orders/order-1").status_code == 200
-    assert len(writes) == 1
+        states = response.json()["orders"]
+        assert len(states) == count
+        assert states[0]["disposition"] == "needs_review"
+        assert states[-1]["order"]["order_id"] == f"order-{count - 1}"
+    assert not store.writes
+
+
+@pytest.mark.parametrize("count,removed", [(10, 0), (11, 1), (15, 5)])
+def test_overflow_removes_only_oldest_fulfilled_and_persists_across_screens(count, removed):
+    orders = [square_order(f"order-{number}") for number in range(count)]
+    # Old unresolved work must survive even when completed tickets are newer.
+    with_status(orders[0], "unsure")
+    for order in orders[2:]:
+        order["metadata"] = {"existing": "keep-me"}
+        with_status(order, "fulfilled")
+    store = QueueStore(orders)
+    expected = [order["id"] for order in orders[:2] + orders[2 + removed :]]
+    with client_for(store) as kitchen:
+        response = kitchen.post("/v1/stations/main/refresh")
+        assert response.status_code == 200, response.text
+        assert [state["order"]["order_id"] for state in response.json()["orders"]] == expected
+    with client_for(store) as other_kitchen:
+        assert other_kitchen.get("/v1/stations/main").json() == response.json()
+        assert other_kitchen.get("/v1/orders/order-2").status_code == 200
+    assert len(store.writes) == removed
+    assert all(order["state"] == "OPEN" for order in orders)
+    assert all(order["metadata"]["existing"] == "keep-me" for order in orders[2:])
+
+
+def test_more_than_ten_unresolved_tickets_remain_after_all_green_tickets_are_removed():
+    orders = [square_order(f"order-{number}") for number in range(15)]
+    with_status(orders[0], "fulfilled")
+    with_status(orders[1], "unsure")
+    with_status(orders[-1], "fulfilled")
+    store = QueueStore(orders)
+    with client_for(store) as kitchen:
+        states = kitchen.post("/v1/stations/main/refresh").json()["orders"]
+    assert len(states) == 13
+    assert len(store.writes) == 2
+    assert all(state["disposition"] != "overridden" for state in states)
+
+
+@pytest.mark.parametrize("change", ["unfulfilled", "unsure", "items", "archived"])
+def test_cleanup_rechecks_after_conflict_and_never_removes_reopened_or_changed_work(change):
+    orders = [square_order(f"order-{number}") for number in range(11)]
+    with_status(orders[0], "fulfilled")
+    store = QueueStore(orders)
+
+    def concurrent_edit(order):
+        order["version"] += 1
+        if change == "archived":
+            order["metadata"]["fullfill_queue_archived"] = "true"
+        elif change == "items":
+            order["line_items"][0]["quantity"] = "3"
+        else:
+            with_status(order, change)
+
+    store.before_write = concurrent_edit
+    with client_for(store) as kitchen:
+        response = kitchen.post("/v1/stations/main/refresh")
+    assert response.status_code == 200, response.text
+    states = response.json()["orders"]
+    assert len(store.writes) == 1
+    assert len(states) == (10 if change == "archived" else 11)
+    if change != "archived":
+        assert states[0]["order"]["order_id"] == "order-0"
+        assert states[0]["disposition"] == ("needs_review" if change == "unsure" else "pending")
+
+
+@pytest.mark.parametrize(
+    "status,disposition",
+    [("fulfilled", "overridden"), ("unsure", "needs_review"), ("unfulfilled", "pending")],
+)
+def test_status_is_shared_between_independent_screens_and_retries_are_idempotent(
+    status, disposition
+):
+    order = square_order(metadata={"existing": "keep-me"})
+    store = QueueStore([order])
+    with client_for(store) as kitchen:
+        response = status_request(kitchen, order["id"], status)
+        assert response.status_code == 200, response.text
+        assert status_request(kitchen, order["id"], status).json() == response.json()
+    with client_for(store) as other:
+        state = other.get("/v1/stations/main").json()["orders"][0]
+        assert state == response.json()
+        assert state["disposition"] == disposition
+        assert state["current_check"] is None
+        assert state["order"]["revision"] == 4
+    assert len(store.writes) == 1
+    assert order["metadata"]["existing"] == "keep-me"
+    assert order["state"] == "OPEN"
+
+
+def test_lost_status_response_is_recovered_without_duplicate_writes():
+    order = square_order()
+    store = QueueStore([order])
+    store.lose_response = True
+    with client_for(store) as kitchen:
+        assert status_request(kitchen, order["id"], "fulfilled").status_code == 503
+        retry = status_request(kitchen, order["id"], "fulfilled")
+    assert retry.status_code == 200
+    assert retry.json()["disposition"] == "overridden"
+    assert len(store.writes) == 1
+
+
+@pytest.mark.parametrize("during_write", [False, True])
+def test_conflicting_status_edits_require_refresh_instead_of_overwriting_other_screen(during_write):
+    order = square_order()
+    store = QueueStore([order])
+    if during_write:
+
+        def other_screen(order):
+            with_status(order, "unsure")
+            order["version"] += 1
+
+        store.before_write = other_screen
+    else:
+        with client_for(store) as first:
+            assert status_request(first, order["id"], "unsure").status_code == 200
+    with client_for(store) as second:
+        response = status_request(second, order["id"], "fulfilled", key="other-screen")
+    assert response.status_code == 409
+    assert len(store.writes) == 1
+    assert order["metadata"]["fullfill_queue_status"] == "unsure"
+
+
+def test_order_edit_invalidates_fulfilled_status_and_protects_ticket_from_cleanup():
+    orders = [square_order(f"order-{number}") for number in range(11)]
+    store = QueueStore(orders)
+    with client_for(store) as kitchen:
+        assert status_request(kitchen, "order-0", "fulfilled").status_code == 200
+        orders[0]["line_items"][0]["quantity"] = "3"
+        orders[0]["version"] += 1
+        states = kitchen.post("/v1/stations/main/refresh").json()["orders"]
+    assert len(states) == 11
+    assert states[0]["disposition"] == "pending"
+    assert states[0]["order"]["lines"][0]["quantity"] == 3
+    assert len(store.writes) == 1
+
+
+@pytest.mark.parametrize(
+    "body",
+    [
+        {"status": "unknown", "expected_revision": 3},
+        {"status": "fulfilled", "expected_revision": 0},
+        {"status": "fulfilled", "expected_revision": True},
+    ],
+)
+def test_invalid_status_edits_never_reach_square(body):
+    with client_for(lambda _: pytest.fail("Validation must run before Square")) as client:
+        response = client.post(
+            "/v1/orders/test/status", json=body, headers={"Idempotency-Key": "test"}
+        )
+    assert response.status_code == 422
 
 
 @pytest.mark.parametrize("status", [401, 403, 429, 500])

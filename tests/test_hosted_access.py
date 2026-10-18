@@ -61,6 +61,12 @@ def test_unauthorized_requests_never_reach_square(monkeypatch, authorization):
         )
         assert response.status_code == 401
         assert ACCESS_CODE not in response.text
+        response = client.post(
+            "/v1/orders/123/status",
+            json={"status": "fulfilled", "expected_revision": 1},
+            headers=headers,
+        )
+        assert response.status_code == 401
 
 
 def test_both_sites_can_authenticate_and_invalid_origins_are_not_allowed(monkeypatch):

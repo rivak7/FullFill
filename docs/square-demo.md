@@ -3,7 +3,8 @@
 The order entry screen creates orders in Square Sandbox. The fulfillment screen
 polls that same location every three seconds. Square holds the orders; they are
 not stored in a browser or an API process's memory. The current integration does
-not charge payments, run camera checks, or mark orders fulfilled.
+not charge payments or run camera checks. Staff can mark tickets fulfilled,
+flag them for review, or reopen them from the kitchen screen.
 
 ## Run locally
 
@@ -29,7 +30,8 @@ require a name, price, and photo. Choose **Take photo** to capture from a camera
 **Upload photo** to choose an existing JPEG, PNG, or WebP. The photo preview is saved
 with the item; **Replace photo** or **Take photo** replaces it on the next save.
 Existing items can be renamed, repriced, marked sold out, or deleted. Deleted items
-leave the ordering menu and can be restored from **Deleted**; past orders are kept.
+leave the menu entirely; there is no Deleted view or restore option. Past orders
+and the archived Square catalog record are kept.
 Starter items without photos remain editable so their real photos can be added later.
 The ordering screen refreshes every five seconds and when returning to the tab.
 If a selected item changes, checkout pauses until the customer reviews the basket.
@@ -54,11 +56,27 @@ cannot silently overwrite a photo. Replaced images and unsuccessful attachments
 remain in Square's image library; deleting a menu item archives its catalog item.
 See [Square's image API](https://developer.squareup.com/reference/square/catalog-api/create-catalog-image).
 
-The active kitchen queue shows the newest **30** nonempty open orders. When order
-31 arrives, the oldest drops out of every kitchen screen on the next refresh.
-The kitchen refresh archives overflow tickets using Square order metadata, so
-they stay out after reloads or after newer orders finish. The original Square order
-remains retrievable by ID; its payment and fulfillment state are unchanged.
+## Kitchen queue
+
+Tickets appear oldest first in a scrollable list: red for unfulfilled, orange for
+needs review, and green for fulfilled. **Fulfill order** saves a manual confirmation
+and selects the oldest unresolved ticket, including orange tickets. The same
+advance occurs when another kitchen screen completes the selected order. New
+arrivals never replace a selected ticket; completed history remains selectable.
+When no unresolved tickets remain, the screen shows **All caught up**.
+
+The queue has a **soft limit of 10 tickets**. Above ten, a kitchen refresh removes
+the oldest fulfilled tickets until ten remain or there are no fulfilled tickets
+left. Unfulfilled and orange tickets are always retained, even above the limit.
+Removal persists in Square metadata across screens and reloads; the Square order
+itself remains retrievable and its payment and native fulfillment state do not change.
+
+Manual status lives in Square order metadata, bound to a fingerprint of the ticket
+items. Changed items or quantities invalidate the previous confirmation. Saves
+require the displayed Square revision and an idempotency key: stale screens get a
+409 instead of overwriting someone else's action, and lost responses can be retried.
+Cleanup also checks the current status after version conflicts, protecting orders
+reopened by another screen. Status changes appear elsewhere on the next three-second poll.
 
 ## Two computers
 
@@ -88,10 +106,11 @@ is not authentication. The local servers do not need to be exposed publicly.
 | `POST /v1/menu/items` | Saves an item; requires the demo session and `Idempotency-Key` |
 | `POST /v1/orders/prepare` | Validates the menu revision and returns a signed checkout |
 | `POST /v1/orders` | Creates an order from that checkout with the same `Idempotency-Key` |
-| `GET /v1/orders` | Lists the newest 30 open, nonempty orders at the configured location |
+| `GET /v1/orders` | Lists non-archived, open, nonempty orders oldest first |
+| `POST /v1/orders/{id}/status` | Saves `{status, expected_revision}` with `Idempotency-Key`; status is `unfulfilled`, `unsure`, or `fulfilled` |
 | `GET /v1/orders/{id}` | Retrieves the shared `OrderSnapshot` for a vision consumer |
 | `GET /v1/stations/main` | Returns those orders as a `StationSnapshot` |
-| `POST /v1/stations/main/refresh` | Archives queue overflow and returns the latest station snapshot |
+| `POST /v1/stations/main/refresh` | Removes oldest fulfilled overflow and returns the station snapshot |
 
 Preparation body example (use the revision returned by `/v1/menu/current`):
 
@@ -116,8 +135,8 @@ Prepared checkouts remain valid after menu edits; new checkouts use the current 
 Rotating the Square credential invalidates outstanding signed checkouts.
 An HTTP failure is shown explicitly and never substituted with fake orders.
 
-The adapter follows queue pages until it has 30 eligible tickets, with a bounded
-2,000-record scan if most records are empty or otherwise ineligible.
+The adapter reads every queue page, with a bounded 2,000-record scan. It reports
+an explicit error beyond that bound instead of silently hiding unresolved work.
 Empty and terminal orders are excluded. Unsupported quantities produce a visible
 error instead of being rounded or silently omitted. Order IDs, line IDs, and
 Square revisions are retained. Customer records and payment details aren't sent
@@ -137,8 +156,9 @@ custom order store can implement the same interface without changing the screens
 
 ## Vision handoff
 
-All live tickets currently return `disposition="pending"` and `current_check=null`.
-They must not turn green merely because they arrived from Square. The vision
+New tickets return `disposition="pending"`. Manual review uses `needs_review`;
+manual fulfillment uses `overridden`, never a fabricated vision pass. Live tickets
+still return `current_check=null`. Tickets never turn green just by arriving from Square. The vision
 workflow can fetch `OrderSnapshot` by ID and later supply its actual `CheckResult`
 through the station snapshot. Associate results with the order ID and revision;
 do not reuse a result after the order changes. The menu editor requests camera
@@ -149,9 +169,10 @@ closed, or navigated away from. It does not call the vision API.
 
 `python -m pytest -q tests/test_square_orders.py tests/test_menu_sync.py` covers request validation,
 server-owned prices, idempotency forwarding, independent API instances, pagination,
-location isolation, provider failures, the 30-ticket cap, shared menu editing,
+location isolation, provider failures, the soft ten-ticket cap and concurrent status/cleanup changes, shared menu editing,
 demo authorization, conflicting edits, photo validation/replacement, upload retries,
-deletion/restoration, safe checkout retries, and pending check state. Run it in the
+catalog archiving, safe checkout retries, and manual status persistence. Frontend
+tests cover queue colors, automatic advance, stale polls, retries, and menu visibility. Run it in the
 workspace virtual environment. `npm --prefix apps/web run build` checks TypeScript
 and builds both pages. Live Sandbox testing should use an explicitly identified
 test basket and verify that it appears in the other browser's queue.

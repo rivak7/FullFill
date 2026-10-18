@@ -57,27 +57,36 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .queue-count { color: var(--muted); font-size: 12px; border-left: 1px solid #ddd; padding-left: 10px; }
 .queue-toolbar button { background: transparent; border: 1px solid #d7dace; border-radius: 5px; padding: 6px 10px; font-size: 12px; }
 .connection-error { padding: 14px 24px; font-size: 14px; background: #fae5db; color: #75341e; }
-.fulfillment-layout { display: grid; grid-template-columns: 250px minmax(0, 1fr); min-height: calc(100vh - 136px); }
-.order-queue { padding: 24px 14px; border-right: 1px solid #daddd0; background: #eeefe7; }
+.fulfillment-layout { display: grid; grid-template-columns: 270px minmax(0, 1fr); min-height: calc(100dvh - 194px); }
+.order-queue { padding: 24px 14px; border-right: 1px solid #daddd0; background: #eeefe7; height: calc(100dvh - 194px); min-height: 280px; overflow-y: auto; overscroll-behavior: contain; position: sticky; top: 0; scrollbar-gutter: stable; }
 .queue-heading { padding: 0 6px 20px; display: flex; justify-content: space-between; align-items: baseline; }
 .queue-heading h2 { font-size: 15px; margin: 0; }
+.queue-heading > span { color: #62695e; font-size: 11px; }
 .queue-ticket { display: block; text-align: left; width: 100%; padding: 16px 13px; margin-bottom: 10px; background: #fafbf5; color: #303b2e; border: 1px solid #d9decf; border-radius: 8px; }
-.queue-ticket[aria-pressed="true"] { background: var(--forest); border-color: var(--forest); color: #fff; }
+.queue-ticket.queue-red { background: #fff0eb; border-color: #e0b5a8; color: #7a3426; }
+.queue-ticket.queue-green { background: #dcefdc; border-color: #9ac29a; color: #214d2d; }
+.queue-ticket.queue-amber { background: #ffe2b1; border-color: #dcaa5c; color: #70410b; }
+.queue-ticket[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: 2px; }
 .queue-ticket-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .queue-ticket-top strong { font-size: 15px; font-family: ui-monospace, monospace; }
 .queue-ticket-top > span { font-size: 11px; opacity: .8; }
 .queue-ticket-items { display: block; margin-top: 10px; font-size: 12px; line-height: 1.7; opacity: .85; }
-.queue-ticket-status { display: inline-block; margin-top: 14px; font-size: 10px; text-transform: uppercase; letter-spacing: 1px; opacity: .7; }
+.queue-ticket-status { display: inline-block; margin-top: 14px; font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 1px; }
 .queue-empty { font-size: 14px; line-height: 1.7; margin: 0 6px; color: var(--muted); }
 .active-ticket { min-width: 0; position: relative; display: flex; flex-direction: column; }
-.active-ticket .station { min-height: calc(100vh - 174px); flex: 1; grid-template-columns: minmax(260px, 1fr) minmax(0, 1fr); }
+.active-ticket .station { min-height: calc(100dvh - 274px); flex: 1; grid-template-columns: minmax(260px, 1fr) minmax(0, 1fr); }
 .active-ticket .ticket { padding: 30px 24px; }
 .active-ticket .ticket-id { font-size: clamp(23px, 2.3vw, 38px); overflow-wrap: anywhere; }
 .active-ticket .ticket-line { font-size: 24px; grid-template-columns: 46px 1fr 28px; gap: 8px; }
 .active-ticket .status { padding: 32px; }
 .active-ticket .status-headline { font-size: clamp(32px, 4.8vw, 72px); }
 .active-ticket .status-detail { font-size: 20px; line-height: 1.5; }
-.vision-note { padding: 12px 24px; background: #e5e8df; color: #5f695a; margin: 0; font-size: 11px; }
+.fulfillment-actions { display: flex; flex-wrap: wrap; align-items: center; justify-content: flex-end; gap: 12px; padding: 16px 24px; background: #fffef9; border-top: 1px solid #dedfd4; }
+.fulfillment-actions > span { margin-right: auto; color: #62695e; font-size: 12px; }
+.fulfillment-actions .primary-button { width: auto; padding: 12px 24px; }
+.review-button { background: #ffe2b1; color: #70410b; border: 1px solid #dcaa5c; border-radius: 7px; padding: 10px 14px; font-size: 13px; font-weight: 600; }
+.connection-error > button { margin-left: 12px; }
+.queue-announcement { position: absolute; width: 1px; height: 1px; padding: 0; overflow: hidden; clip-path: inset(50%); white-space: nowrap; }
 .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 50vh; padding: 40px; text-align: center; }
 .empty-state h1 { font-size: 36px; letter-spacing: -1px; margin: 12px 0; }
 .demo-bar a { color: white; align-self: center; font-size: 12px; padding: 0 8px; white-space: nowrap; }
@@ -93,9 +102,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .menu-actions { display: flex; gap: 10px; }
 .menu-actions .primary-button { width: auto; font-size: 13px; padding: 12px 18px; }
 .menu-management-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr); gap: 32px; align-items: start; }
-.menu-filter { display: flex; gap: 8px; margin-bottom: 18px; }
-.menu-filter button { border: 0; padding: 8px 12px; font-size: 13px; background: transparent; border-radius: 6px; color: #6b7564; }
-.menu-filter button[aria-pressed="true"] { background: #e3e8d9; color: var(--forest); font-weight: 650; }
 .managed-menu-item { display: flex; align-items: center; gap: 14px; background: #fffef9; border: 1px solid #dedfd4; border-radius: 10px; padding: 20px; margin-bottom: 12px; }
 .managed-menu-item > div { flex: 1; min-width: 0; }
 .managed-menu-item h2 { margin: 0 0 6px; font-size: 17px; overflow-wrap: anywhere; }
@@ -121,7 +127,6 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .availability { display: inline-flex; white-space: nowrap; padding: 5px 9px; border-radius: 5px; font-size: 11px; font-weight: 650; }
 .availability.available { color: #315335; background: #edf3e5; }
 .availability.sold-out { color: #855c25; background: #fbefda; }
-.availability.archived { color: #687063; background: #eceee8; }
 .menu-edit-card { background: #fffef9; border: 1px solid #d1d8c6; border-radius: 12px; padding: 24px; position: sticky; top: 24px; }
 .menu-edit-card h2 { margin: 0 0 24px; font-size: 21px; }
 .menu-edit-card fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
@@ -145,7 +150,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
   .ordering-page { padding: 36px 24px; }
   .ordering-layout { gap: 20px; }
   .menu-card { gap: 12px; padding: 20px 16px; }
-  .fulfillment-layout { grid-template-columns: 210px minmax(0, 1fr); }
+  .fulfillment-layout { grid-template-columns: 250px minmax(0, 1fr); }
   .active-ticket .station { grid-template-columns: 1fr; }
   .active-ticket .status { order: -1; min-height: 260px; }
 }
@@ -167,7 +172,8 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
   .basket { margin-top: 0; }
   .queue-toolbar { padding: 12px 16px; }
   .fulfillment-layout { grid-template-columns: 1fr; }
-  .order-queue { border-right: 0; border-bottom: 1px solid #daddd0; max-height: 260px; overflow-y: auto; }
+  .order-queue { border-right: 0; border-bottom: 1px solid #daddd0; height: 260px; min-height: 0; position: static; }
+  .queue-toolbar > div { flex-wrap: wrap; }
   .active-ticket .station { min-height: auto; }
   .success-banner { align-items: start; flex-direction: column; }
 }

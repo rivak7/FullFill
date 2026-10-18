@@ -29,14 +29,17 @@ export function toScreenState(state: OrderState): ScreenState {
   const lines = state.order.lines.map((line) => toScreenLine(line, checked ? discrepancies : null));
 
   if (state.disposition === "overridden") {
-    // Staff accepted the uncertain items; show them as accepted, not machine-verified.
+    // A manual fulfillment confirms the whole ticket, including unchecked items.
     const accepted = lines.map((l) =>
-      l.status === "unsure" ? { ...l, status: "accepted" as const, note: "Confirmed by staff" } : l,
+      l.status !== "ok" ? { ...l, status: "accepted" as const, note: "Confirmed by staff" } : l,
     );
     return { tone: "green", headline: "Fulfilled", detail: "Confirmed by staff", lines: accepted, problems: [], confirmedByStaff: true };
   }
+  if (state.disposition === "needs_review" && !check) {
+    return { tone: "amber", headline: "Needs review", detail: null, lines, problems: [], confirmedByStaff: false };
+  }
   if (!check) {
-    return { tone: "waiting", headline: "Awaiting check", detail: null, lines, problems: [], confirmedByStaff: false };
+    return { tone: "red", headline: "Unfulfilled", detail: null, lines, problems: [], confirmedByStaff: false };
   }
   if (check.execution_status === "failed") {
     return {
