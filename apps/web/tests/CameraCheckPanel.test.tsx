@@ -43,24 +43,23 @@ afterEach(async () => {
   await act(async () => root.unmount()); container.remove();
   vi.restoreAllMocks(); vi.resetAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
-async function render(order = ticket(), disabled = false, pauseToken = 0) {
-  await act(async () => root.render(<CameraCheckPanel workerId="worker" order={order} disabled={disabled} pauseToken={pauseToken} onResult={onResult} onBusyChange={onBusyChange} />));
+async function render(order: OrderState | null = ticket(), disabled = false, pauseToken = 0) {
+  await act(async () => root.render(<CameraCheckPanel workerId="worker" order={order ?? undefined} disabled={disabled} pauseToken={pauseToken} onResult={onResult} onBusyChange={onBusyChange} />));
 }
 async function click(label: string) {
   const button = [...container.querySelectorAll("button")].find(button => button.textContent === label);
   expect(button).toBeDefined(); await act(async () => button!.click());
 }
-async function camera(prepare = true) {
+async function camera() {
   await click("Enable camera");
   await act(async () => container.querySelector("video")!.dispatchEvent(new Event("loadeddata")));
-  if (prepare) await click("New order placed");
 }
 
-it("opening the camera and previewing continuously consumes no AI calls", async () => {
+it("an unchanged camera preview consumes no AI calls even with automatic checks enabled", async () => {
   await render(); await camera();
   await act(async () => vi.advanceTimersByTimeAsync(60000));
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
-  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
+  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
   await click("Close camera");
   expect(stopTrack).toHaveBeenCalledTimes(1);
 });
@@ -82,7 +81,6 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
 it("does not automatically retry failures and stops auto checking on error", async () => {
   vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new Error("Provider unavailable"));
   await render(); await camera();
-  await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   await click("Check order");
   expect(container.querySelector('[role="alert"]')?.textContent).toContain("Provider unavailable");
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
@@ -131,7 +129,6 @@ it("retains only recent timestamps and deduplicates an attempt ID", () => {
 
 it("pauses automatic checks when the page is hidden", async () => {
   await render(); await camera();
-  await act(async () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.click());
   vi.spyOn(document, "hidden", "get").mockReturnValue(true);
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
@@ -145,41 +142,61 @@ it("disables paid checks when the backend is not configured while allowing previ
   expect(container.textContent).toContain("AI checks unavailable");
 });
 
-it("requires new movement and settling and suppresses unchanged scenes", () => {
+function sampled(scene: SceneTrigger, frame: Uint8Array, from: number, to: number) {
+  let triggered = false;
+  for (let time = from; time <= to; time += 250) triggered = scene.sample(frame, time) || triggered;
+  return triggered;
+}
+
+it("requires movement and settling, ignores hand waves, and suppresses unchanged scenes", () => {
   const scene = new SceneTrigger();
-  const frame = (value: number) => new Uint8Array(16).fill(value);
-  expect(scene.sample(frame(0), 0)).toBe(false);
-  expect(scene.sample(frame(0), 3000)).toBe(false);
-  expect(scene.sample(frame(80), 3500)).toBe(false);
-  expect(scene.sample(frame(80), 4999)).toBe(false);
-  expect(scene.sample(frame(80), 5000)).toBe(true);
+  const frame = (value: number) => new Uint8Array(1024).fill(value);
+  expect(sampled(scene, frame(0), 0, 3000)).toBe(false);
+  expect(sampled(scene, frame(80), 3250, 4500)).toBe(false);
+  expect(scene.sample(frame(80), 4750)).toBe(true);
   scene.submitted(frame(80));
-  expect(scene.sample(frame(80), 20000)).toBe(false);
-  // Moving hands out and returning to the same scene cannot resubmit it.
-  expect(scene.sample(frame(200), 21000)).toBe(false);
-  expect(scene.sample(frame(80), 22000)).toBe(false);
-  expect(scene.sample(frame(80), 25000)).toBe(false);
-  scene.reset();
-  // Selecting the next ticket must not send the previous ticket's food.
-  expect(scene.sample(frame(80), 30000)).toBe(false);
-  expect(scene.sample(frame(80), 32000)).toBe(false);
-  expect(scene.sample(frame(150), 33000)).toBe(false);
-  expect(scene.sample(frame(150), 35000)).toBe(true);
-  scene.submitted(frame(150));
-  expect(scene.sample(frame(0), 36000)).toBe(false);
-  expect(scene.sample(frame(0), 38000)).toBe(true);
+  expect(sampled(scene, frame(80), 5000, 9000)).toBe(false);
+  scene.sample(frame(200), 9250);
+  expect(sampled(scene, frame(80), 9500, 11500)).toBe(false);
+  const untouched = new SceneTrigger();
+  untouched.sample(frame(0), 0); untouched.sample(frame(200), 250);
+  expect(sampled(untouched, frame(0), 500, 2500)).toBe(false);
 });
 
-it("can check an identical next meal after the station is cleared and refilled", () => {
+it("waits for a stable intermediate scene before checking an identical next meal", () => {
   const scene = new SceneTrigger();
-  const meal = new Uint8Array(1024).fill(80);
+  const meal = new Uint8Array(1024).fill(80), empty = new Uint8Array(1024);
   scene.submitted(meal); scene.nextOrder();
-  expect(scene.sample(meal, 0)).toBe(false);
-  expect(scene.sample(meal, 2000)).toBe(false);
-  expect(scene.sample(new Uint8Array(1024), 3000)).toBe(false);
-  expect(scene.sample(meal, 4000)).toBe(false);
-  expect(scene.sample(meal, 5499)).toBe(false);
-  expect(scene.sample(meal, 5500)).toBe(true);
+  expect(sampled(scene, meal, 0, 3000)).toBe(false);
+  expect(scene.handoff).toBe("remove");
+  // A brief hand wave returning to the previous meal isn't a handoff.
+  scene.sample(empty, 3250);
+  expect(sampled(scene, meal, 3500, 5500)).toBe(false);
+  expect(scene.handoff).toBe("remove");
+  expect(sampled(scene, empty, 5750, 9000)).toBe(false);
+  expect(scene.handoff).toBe("place");
+  expect(sampled(scene, meal, 9250, 10500)).toBe(false);
+  expect(scene.sample(meal, 10750)).toBe(true);
+});
+
+it("does not treat time away from the camera as handoff evidence", () => {
+  const scene = new SceneTrigger();
+  const meal = new Uint8Array(1024).fill(80), empty = new Uint8Array(1024);
+  scene.submitted(meal); scene.nextOrder();
+  sampled(scene, empty, 0, 1000);
+  expect(scene.handoff).toBe("place");
+  expect(sampled(scene, meal, 5000, 8000)).toBe(false);
+  expect(scene.handoff).toBe("remove");
+});
+
+it("preserves a clear-and-replace sequence through queue and claim updates", () => {
+  const scene = new SceneTrigger();
+  const meal = new Uint8Array(1024).fill(80), empty = new Uint8Array(1024);
+  scene.submitted(meal); scene.nextOrder();
+  sampled(scene, empty, 0, 1000);
+  scene.nextOrder();
+  expect(scene.handoff).toBe("place");
+  expect(sampled(scene, meal, 1250, 2750)).toBe(true);
 });
 
 it("detects a small added packet while ignoring an isolated noisy pixel", () => {
@@ -187,12 +204,11 @@ it("detects a small added packet while ignoring an isolated noisy pixel", () => 
   const baseline = new Uint8Array(1024).fill(80);
   scene.sample(baseline, 0);
   const noise = baseline.slice(); noise[0] = 200;
-  expect(scene.sample(noise, 1000)).toBe(false);
-  expect(scene.sample(noise, 3000)).toBe(false);
+  expect(sampled(scene, noise, 250, 2000)).toBe(false);
   const packet = baseline.slice();
   for (let row = 0; row < 4; row++) for (let col = 0; col < 8; col++) packet[row * 32 + col] = 200;
-  expect(scene.sample(packet, 4000)).toBe(false);
-  expect(scene.sample(packet, 5500)).toBe(true);
+  expect(sampled(scene, packet, 2250, 3500)).toBe(false);
+  expect(scene.sample(packet, 3750)).toBe(true);
 });
 
 it("shows an unexpected unidentified item as orange, matching the comparison verdict", () => {
@@ -215,7 +231,7 @@ it("pauses automatic spending for uncertain results and manual corrections", asy
   vi.mocked(orderApi.checkCamera).mockResolvedValueOnce(state);
   await render(); await camera();
   const automatic = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-  await act(async () => automatic.click());
+  expect(automatic.checked).toBe(true);
   await click("Check order");
   expect(automatic.checked).toBe(false);
   await act(async () => automatic.click());
@@ -301,32 +317,71 @@ it("revokes a result if the scene changes during confirmation without spending a
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
 });
 
-it("requires an explicit new-order handoff before checking, including after switching or reopening", async () => {
-  await render(); await camera(false);
-  await click("Check order");
-  const automatic = () => container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
-  expect(automatic().disabled).toBe(true);
-  expect(orderApi.checkCamera).not.toHaveBeenCalled();
-  await click("New order placed"); await click("Check order");
+function showFrame(value: number) {
+  vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(4096).fill(value) }) } as unknown as CanvasRenderingContext2D);
+}
+async function observe(value: number, milliseconds = 2000) {
+  showFrame(value);
+  await act(async () => vi.advanceTimersByTimeAsync(milliseconds));
+}
+
+it("automatically checks consecutive identical meals without a handoff button or empty-scene calls", async () => {
+  await render(); await camera();
+  expect(container.textContent).not.toContain("New order placed");
+  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  await observe(0); // First baseline is local only.
+  await observe(80);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  await render(ticket("second")); await click("Check order");
-  expect(automatic().disabled).toBe(true);
+  await render(ticket("second"));
+  await observe(80, 10000); // Untouched food cannot check the next ticket.
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  await click("New order placed"); await click("Check order");
+  expect(container.textContent).toContain("Remove the previous order");
+  await observe(200, 250); await observe(80); // Brief hand wave.
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  await observe(0, 3000); // Cleared view is observed without an AI call.
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  expect(container.textContent).toContain("Place the next order");
+  await observe(80);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
-  await click("Close camera"); await camera(false); await click("Check order");
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0].order_id).toBe("second");
+  await observe(80, 10000);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
 });
 
-it("requires a fresh handoff when the ticket contents change, but not for claim renewals", async () => {
-  await render(); await camera();
-  await render({ ...ticket(), order: { ...ticket().order, revision: 4 } });
+it("keeps handoff evidence while waiting for the new ticket claim", async () => {
+  await render(); await camera(); await observe(0); await observe(80);
+  await render(ticket("second"), true);
+  await observe(0); await observe(80);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  await render({ ...ticket("second"), order: { ...ticket("second").order, revision: 4 } });
+  await observe(80, 250);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0].expected_revision).toBe(4);
+});
+
+it("keeps manual checks available without an extra confirmation and respects opting out of automatic checks", async () => {
+  await render(); await camera(); await click("Check order");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  const automatic = container.querySelector<HTMLInputElement>('input[type="checkbox"]')!;
+  await act(async () => automatic.click());
+  await render(ticket("second"));
+  await observe(0); await observe(80);
+  expect(automatic.checked).toBe(false);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   await click("Check order");
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+});
+
+it("invalidates a snapshot when the ticket contents change without turning automatic mode off", async () => {
+  await render(); await camera(); await observe(0); await observe(80);
+  await render({ ...ticket(), order: { ...ticket().order, revision: 4 } });
+  await observe(80);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   const changed = ticket(); changed.order.lines[0].quantity = 2;
-  await render(changed); await click("Check order");
+  await render(changed); await observe(80);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(container.textContent).toContain("New order placed");
+  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(container.textContent).not.toContain("New order placed");
 });
 
 it("shows unidentified items in amber and confidently wrong items in red", () => {
@@ -337,4 +392,12 @@ it("shows unidentified items in amber and confidently wrong items in red", () =>
   state.current_check!.verdict = "fail";
   state.current_check!.discrepancies.push({ kind: "wrong_item", message: "Wrong item: Chips", line_ids: [] });
   expect(toScreenState(state).tone).toBe("red");
+});
+
+
+it("automatically checks the first ticket arriving after the camera starts with an empty queue", async () => {
+  await render(null); await camera();
+  await observe(0);
+  await render(ticket()); await observe(80);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
 });

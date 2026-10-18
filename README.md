@@ -47,11 +47,22 @@ can only assess visible items or readable labels, not hidden fillings or modifie
 such as “no onion.” A saved menu photo is a visual reference, not model training.
 
 Camera checks require `PERCEPTRON_API_KEY` on the backend. Keep it out of `VITE_`
-variables. Open the kitchen page, select an unresolved ticket, enable the camera,
-clear the previous order, place the selected order in view, and select **New order
-placed** before **Check order**. Each ticket change, ticket-content edit, or camera
-restart requires this handoff again. This is a staff confirmation, not automatic
-proof that the counter was cleared. **Auto check after movement** is off by default.
+variables. Open the kitchen page and enable the camera once. **Automatic checks**
+start enabled and stay enabled as fulfilled tickets advance through the queue.
+Place the first order in view after the preview starts; a changed view that stays
+still for 1.5 seconds triggers a check. **Check order** remains an optional manual
+capture with no separate handoff confirmation.
+
+For subsequent tickets, the browser observes two transitions: the previous view
+changes and stays stable for at least 750 ms, then a replacement view changes
+again and settles for 1.5 seconds. The intermediate view makes no model call.
+Clear the packing area briefly between orders. This allows identical meals to be
+checked separately while suppressing untouched food and brief hand waves. It is
+a motion heuristic, not proof that the area is empty: a prolonged obstruction or
+lighting change can fool it, and a swap with no visible gap can be missed. Manual
+checks remain available if the transition was missed. Hidden tabs, sampling gaps,
+and camera stops discard incomplete handoff evidence. Initial startup/reload
+establishes a fresh baseline rather than automatically submitting a still scene.
 There are no application spending caps or forced cooldowns for browser checks.
 Only one check runs at a time for a ticket, duplicate requests remain idempotent,
 and failures are not automatically retried. Expand **Check activity** to count
@@ -60,7 +71,8 @@ refreshes and menu visits and includes other tabs on this browser/site. It inclu
 failed requests, so it is not a provider billing total or an all-devices counter.
 Older timestamps are discarded when history is read; clearing browser data resets it.
 Camera images stay in memory; only compact observations and hashes persist in Square.
-Keep the page visible and the computer awake.
+Keep the page visible and the computer awake. Preview frames stay local; automatic
+checks send selected snapshots only after the trigger conditions are met.
 
 Each kitchen screen reserves its selected unresolved order for two minutes,
 renewing while it works. Other screens skip that ticket and show “Working on
@@ -111,8 +123,9 @@ results never silently drop extra items to fit.
 If the result looks wrong, expand **Last photo** to inspect the exact submitted
 frame and its ticket ID. Reposition items and check again, or use the existing
 manual fulfillment/review controls. A new **Undo** button reopens a just-completed
-ticket and selects it again without calling Perceptron. Manual changes pause
-automatic checks and take precedence over an in-flight result; conflicting edits
+ticket and selects it again without calling Perceptron. Manual review/reopen
+actions pause automatic checks; fulfilling a ticket keeps automatic mode running
+for the next ticket. Manual decisions take precedence over an in-flight result; conflicting edits
 from another screen require refresh instead of silently overwriting them.
 
 Automatic checks pause on uncertainty or failure. They never retry a paid request

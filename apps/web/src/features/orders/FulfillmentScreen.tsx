@@ -144,7 +144,7 @@ export function FulfillmentScreen() {
 
   function updateStatus(status: OrderStatusEdit["status"]) {
     if (!current || locked) return;
-    setCameraPause(value => value + 1);
+    if (status !== "fulfilled") setCameraPause(value => value + 1);
     void submit({ id: current.order.order_id, body: { worker_id: workerId, status, expected_revision: current.order.revision }, key: crypto.randomUUID() });
   }
 

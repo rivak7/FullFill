@@ -23,35 +23,69 @@ export class SceneTrigger {
   private previous: Uint8Array | null = null;
   private baseline: Uint8Array | null = null;
   private lastSent: Uint8Array | null = null;
-  private changed = false;
-  private movingAt = 0;
+  private handoffFrom: Uint8Array | null = null;
+  private betweenOrders: Uint8Array | null = null;
+  private stableFrame: Uint8Array | null = null;
+  private stableSince = 0;
+  private lastAt: number | null = null;
+
+  get handoff(): "remove" | "place" | null {
+    return this.handoffFrom ? this.betweenOrders ? "place" : "remove" : null;
+  }
 
   reset(frame?: Uint8Array) {
     this.previous = frame?.slice() ?? null;
     this.baseline = frame?.slice() ?? null;
-    this.changed = false;
-    this.movingAt = 0;
+    this.stableFrame = null;
+    this.lastAt = null;
   }
 
   nextOrder() {
-    // Identical meals on different tickets are separate checks. Still require
-    // movement after selection so untouched food is not immediately reused.
-    this.lastSent = null; this.reset();
+    // Preserve an unfinished handoff through an empty queue or another selection.
+    // A still frame from the previous ticket must never automatically check the next.
+    this.handoffFrom ??= (this.lastSent ?? this.previous)?.slice() ?? null;
+    this.lastSent = null;
+    this.reset(this.previous ?? this.handoffFrom ?? undefined);
+  }
+
+  interrupt() {
+    // A hidden/stopped camera cannot provide evidence of a physical handoff.
+    this.betweenOrders = null;
+    this.reset();
   }
 
   submitted(frame: Uint8Array) {
+    this.handoffFrom = null; this.betweenOrders = null;
     this.lastSent = frame.slice(); this.reset(frame);
   }
 
   sample(frame: Uint8Array, now: number): boolean {
-    if (!this.previous || !this.baseline) { this.reset(frame); return false; }
-    if (frameDifference(frame, this.previous) > 8) this.movingAt = now;
-    if (frameDifference(frame, this.baseline) > 12) {
-      if (!this.changed) this.movingAt = now;
-      this.changed = true;
+    if (this.lastAt !== null && now - this.lastAt > 1000) this.interrupt();
+    this.lastAt = now;
+    if (!this.previous || !this.baseline) {
+      this.previous = frame.slice(); this.baseline = frame.slice();
+    }
+    if (!this.stableFrame || frameDifference(frame, this.previous) > 8
+      || frameDifference(frame, this.stableFrame) > 8) {
+      this.stableFrame = frame.slice(); this.stableSince = now;
     }
     this.previous = frame.slice();
-    return this.changed && now - this.movingAt >= 1500
+    const settledFor = now - this.stableSince;
+    if (this.handoffFrom) {
+      if (!this.betweenOrders) {
+        // Observe a changed intermediate scene for 750 ms before accepting a
+        // second transition. This is a visual heuristic, not proof of emptiness.
+        if (frameDifference(frame, this.handoffFrom) > 12 && settledFor >= 750) {
+          this.betweenOrders = frame.slice();
+          this.reset(frame);
+        }
+        return false;
+      }
+      // Do not spend a check on the intermediate/cleared view. Identical meals
+      // can pass this gate after the observed removal-and-replacement sequence.
+      return frameDifference(frame, this.betweenOrders) > 12 && settledFor >= 1500;
+    }
+    return frameDifference(frame, this.baseline) > 12 && settledFor >= 1500
       && (!this.lastSent || frameDifference(frame, this.lastSent) > 12);
   }
 }
