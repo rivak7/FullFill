@@ -53,7 +53,38 @@ Run `uv run python scripts/seed_square_menu.py` once against the same Sandbox
 location before deploying the catalog-backed menu. Menu edits persist in Square;
 deployment does not overwrite them. See [the menu workflow](square-demo.md).
 
-## Deploy
+## Automatic deployments
+
+The repository's **Checks and deploy** GitHub Actions workflow runs `make check`
+on pushes and pull requests. After checks pass for a push or merge to `main`, it
+deploys the API first, then the ordering site, then the kitchen site. Each project
+uses its existing Vercel root directory, build command, and production environment.
+Vercel performs the production builds, so Square credentials stay in Vercel and do
+not need to be copied into GitHub Actions.
+
+Production runs are serialized; a run skips deployment if its commit has already
+been superseded on `main`. Pull requests and other branches only run checks.
+The GitHub Actions **Run workflow** button can retry the current `main` deployment.
+If any deployment fails, later projects are not deployed; earlier successful
+deployments remain live. Fix the problem and run the workflow on `main` again.
+
+GitHub repository secrets:
+
+| Secret | Vercel project scope |
+| --- | --- |
+| `VERCEL_API_TOKEN` | `fullfill-api` |
+| `VERCEL_ORDER_TOKEN` | `fullfill-order` |
+| `VERCEL_KITCHEN_TOKEN` | `fullfill-kitchen` |
+
+These are dedicated Vercel tokens, scoped to the corresponding project within
+`iceberg-projects`. Project/team IDs are identifiers stored in the workflow, not
+credentials. Update the corresponding repository secret when rotating a token.
+The workflow uses Vercel CLI 64.5.0 and GitHub's read-only repository token.
+
+Repository ownership transfer and Vercel's native GitHub integration are not
+required. See the [official GitHub Actions guide](https://vercel.com/kb/guide/how-can-i-use-github-actions-with-vercel).
+
+## Manual deployment
 
 Create the projects once using the settings above, then deploy from the repository
 root with the official Vercel CLI. Select the appropriate account with `--scope`.
@@ -71,11 +102,8 @@ on the API and redeploy the API. Use stable production aliases, not changing
 deployment URLs. `.vercelignore` excludes `.env`, dependencies, local output,
 and agent configuration from CLI uploads. `.vercel/` stays out of Git.
 
-These projects currently deploy through the CLI. Git pushes alone do not redeploy
-them. Connecting a collaborator-owned personal GitHub repository has ownership
-restrictions; granting repository access alone may not make it importable.
-A separately configured GitHub Actions workflow using the Vercel CLI is another
-option, but no such deployment workflow is configured here yet.
+Manual CLI deployment remains available for recovery. Normal updates should go
+through `main` so they receive the automated checks and deploy all three projects.
 
 ## Local development and checks
 
