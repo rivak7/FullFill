@@ -5,17 +5,38 @@ export interface QueueState { orders: OrderState[]; selected: string | null }
 export const isFulfilled = (state: OrderState) => toScreenState(state).tone === "green";
 
 export function reconcileQueue(previous: QueueState, incoming: OrderState[]): QueueState {
+  // Both arrays are displayed newest first, with the oldest ticket at the bottom.
   // A slow read must not overwrite a newer acknowledged status change.
   const orders = incoming.map(state => {
     const saved = previous.orders.find(item => item.order.order_id === state.order.order_id);
     return saved && saved.order.revision > state.order.revision ? saved : state;
   });
-  const before = previous.orders.find(state => state.order.order_id === previous.selected);
-  const current = orders.find(state => state.order.order_id === previous.selected);
+  const beforeIndex = previous.orders.findIndex(state => state.order.order_id === previous.selected);
+  const currentIndex = orders.findIndex(state => state.order.order_id === previous.selected);
+  const before = previous.orders[beforeIndex];
+  const current = orders[currentIndex];
   const justFulfilled = before && !isFulfilled(before) && current && isFulfilled(current);
-  // Keep intentional selections, including completed history. New work never
-  // steals focus. Completion/removal advances to the oldest unresolved ticket.
-  const selected = current && !justFulfilled ? previous.selected
-    : orders.find(state => !isFulfilled(state))?.order.order_id ?? null;
-  return { orders, selected };
+  // New arrivals never steal focus, and intentionally selected history stays put.
+  if (current && !justFulfilled) return { orders, selected: previous.selected };
+
+  let candidates = orders;
+  if (before) {
+    if (current) {
+      candidates = orders.slice(0, currentIndex);
+    } else {
+      // Cleanup can remove the completed ticket before another screen sees its
+      // green state. Surviving older neighbors still mark where it used to sit.
+      const olderIds = new Set(previous.orders.slice(beforeIndex + 1).map(state => state.order.order_id));
+      const olderIndex = orders.findIndex(state => olderIds.has(state.order.order_id));
+      candidates = olderIndex < 0 ? orders : orders.slice(0, olderIndex);
+    }
+  } else if (previous.orders.length && previous.selected === null) {
+    // At the top, wait for new work; don't wrap back down on the next poll.
+    const knownIds = new Set(previous.orders.map(state => state.order.order_id));
+    candidates = orders.filter(state => !knownIds.has(state.order.order_id));
+  }
+
+  // Work upward one unresolved ticket at a time, including orange tickets.
+  // On the first load this starts at the oldest unresolved ticket at the bottom.
+  return { orders, selected: [...candidates].reverse().find(state => !isFulfilled(state))?.order.order_id ?? null };
 }

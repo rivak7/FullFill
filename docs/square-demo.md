@@ -58,12 +58,19 @@ See [Square's image API](https://developer.squareup.com/reference/square/catalog
 
 ## Kitchen queue
 
-Tickets appear oldest first in a scrollable list: red for unfulfilled, orange for
-needs review, and green for fulfilled. **Fulfill order** saves a manual confirmation
-and selects the oldest unresolved ticket, including orange tickets. The same
+Tickets appear newest at the top and oldest at the bottom in a scrollable list.
+The order cards are red for unfulfilled, orange for needs review, and green for
+fulfilled. The initial selection is the oldest unresolved ticket at the bottom.
+**Fulfill order** saves a manual confirmation and moves upward to the nearest
+unresolved ticket above the current one, skipping green cards and including orange
+cards. For example, completing the fourth card from the top selects the third if
+it is unresolved, rather than jumping to the top of the list. The same
 advance occurs when another kitchen screen completes the selected order. New
 arrivals never replace a selected ticket; completed history remains selectable.
-When no unresolved tickets remain, the screen shows **All caught up**.
+When no unresolved tickets remain, the screen shows **All caught up**. If there
+are only older unresolved tickets below the completed one, it shows **No newer
+orders** and allows a manual selection; polling does not wrap back down the list.
+New arrivals resume upward progress from the oldest of the newly arrived tickets.
 
 The queue has a **soft limit of 10 tickets**. Above ten, a kitchen refresh removes
 the oldest fulfilled tickets until ten remain or there are no fulfilled tickets
