@@ -29,7 +29,8 @@ export function FulfillmentScreen() {
         if (saving.current) return;
         const snapshot = await orderApi.station(controller.signal);
         if (controller.signal.aborted || started !== epoch.current) return;
-        setQueue(previous => reconcileQueue(previous, snapshot.orders ?? []));
+        // The API keeps chronological order for cleanup; display newest at top.
+        setQueue(previous => reconcileQueue(previous, [...(snapshot.orders ?? [])].reverse()));
         setError(null);
       } catch (error) {
         if (!controller.signal.aborted && started === epoch.current) setError(error instanceof Error ? error.message : "Could not refresh orders.");
@@ -90,7 +91,7 @@ export function FulfillmentScreen() {
       <div className="queue-announcement" role="status">{notice}</div>
       <div className="fulfillment-layout">
         <aside ref={list} className="order-queue" aria-label="Incoming orders" tabIndex={0}>
-          <div className="queue-heading"><h2>Orders</h2><span>Oldest first</span></div>
+          <div className="queue-heading"><h2>Orders</h2><span>Newest first</span></div>
           {!loading && !error && !orders.length && <p className="queue-empty">No orders yet.</p>}
           {orders.map(state => {
             const screen = toScreenState(state);
@@ -114,7 +115,7 @@ export function FulfillmentScreen() {
                 {currentTone !== "green" && <button className="primary-button" disabled={locked} onClick={() => updateStatus("fulfilled")}>{busy ? "Saving…" : "Fulfill order"}</button>}
               </div>
             </>
-            : <div className="empty-state"><h1>{orders.length ? "All caught up" : "Waiting for orders"}</h1></div>}
+            : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1>{!!waiting && <p>Select another ticket to continue.</p>}</div>}
         </div>
       </div>
     </div>

@@ -64,9 +64,10 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .queue-heading > span { color: #62695e; font-size: 11px; }
 .queue-ticket { display: block; text-align: left; width: 100%; padding: 16px 13px; margin-bottom: 10px; background: #fafbf5; color: #303b2e; border: 1px solid #d9decf; border-radius: 8px; }
 .queue-ticket.queue-red { background: #fff0eb; border-color: #e0b5a8; color: #7a3426; }
-.queue-ticket.queue-green { background: #dcefdc; border-color: #9ac29a; color: #214d2d; }
-.queue-ticket.queue-amber { background: #ffe2b1; border-color: #dcaa5c; color: #70410b; }
-.queue-ticket[aria-pressed="true"] { outline: 2px solid currentColor; outline-offset: 2px; }
+.queue-ticket.queue-green { background: #238347; border-color: #176334; color: #fff; }
+.queue-ticket.queue-amber { background: #f5a623; border-color: #b8750b; color: #402a08; }
+.queue-ticket[aria-pressed="true"] { outline: 2px solid var(--forest); outline-offset: 2px; }
+.queue-green .queue-ticket-items, .queue-green .queue-ticket-top > span { opacity: 1; }
 .queue-ticket-top { display: flex; justify-content: space-between; gap: 8px; align-items: baseline; }
 .queue-ticket-top strong { font-size: 15px; font-family: ui-monospace, monospace; }
 .queue-ticket-top > span { font-size: 11px; opacity: .8; }

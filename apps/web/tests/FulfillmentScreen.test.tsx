@@ -45,6 +45,8 @@ async function poll() { await act(async () => vi.advanceTimersByTimeAsync(3000))
 it("colors the queue, advances to orange work, and keeps completed tickets selectable", async () => {
   await render();
   expect(selected()).toContain("#FIRST");
+  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual(["#THIRD", "#SECOND", "#FIRST"]);
+  expect(container.querySelector(".queue-heading")?.textContent).toContain("Newest first");
   expect(container.querySelector(".queue-amber")?.textContent).toContain("#SECOND");
   await click("Fulfill order");
   expect(selected()).toContain("#SECOND");
@@ -117,7 +119,55 @@ it("ignores an in-flight poll from before a status save", async () => {
 it("advances if cleanup removes the current ticket, keeps newer revisions, and skips green on initial load", () => {
   const first = ticket("first", "overridden", 2);
   const second = ticket("second", "needs_review");
-  expect(reconcileQueue({ orders: [], selected: null }, [first, second]).selected).toBe("second");
-  expect(reconcileQueue({ orders: [first, second], selected: "first" }, [second]).selected).toBe("second");
-  expect(reconcileQueue({ orders: [first, second], selected: "second" }, [ticket("first"), second]).orders[0]).toEqual(first);
+  expect(reconcileQueue({ orders: [], selected: null }, [second, first]).selected).toBe("second");
+  expect(reconcileQueue({ orders: [second, first], selected: "first" }, [second]).selected).toBe("second");
+  expect(reconcileQueue({ orders: [second, first], selected: "second" }, [second, ticket("first")]).orders[1]).toEqual(first);
+});
+
+it("fulfills the fourth card and moves up to the third, then second, then first", async () => {
+  orders = Array.from({ length: 6 }, (_, i) => ticket(`order-${i + 1}`));
+  window.history.replaceState(null, "", "/fulfill?order=order-3");
+  await render();
+  expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual(["#ORDER-6", "#ORDER-5", "#ORDER-4", "#ORDER-3", "#ORDER-2", "#ORDER-1"]);
+  expect(selected()).toContain("#ORDER-3");
+  for (const next of ["#ORDER-4", "#ORDER-5", "#ORDER-6"]) {
+    await click("Fulfill order");
+    expect(selected()).toContain(next);
+    await poll();
+    expect(selected()).toContain(next);
+  }
+});
+
+it("moves upward past green cards to the next orange card", async () => {
+  orders = [ticket("oldest"), ticket("current"), ticket("done", "overridden"), ticket("review", "needs_review"), ticket("newest")];
+  window.history.replaceState(null, "", "/fulfill?order=current");
+  await render(); await click("Fulfill order");
+  expect(selected()).toContain("#REVIEW");
+  expect(container.querySelector('.queue-ticket[aria-pressed="true"]')?.classList.contains("queue-amber")).toBe(true);
+  expect([...container.querySelectorAll(".queue-green")].map(card => card.textContent)).toEqual([expect.stringContaining("#DONE"), expect.stringContaining("#CURRENT")]);
+});
+
+it("preserves the upward position when another screen completes and cleanup removes the current card", async () => {
+  orders = Array.from({ length: 6 }, (_, i) => ticket(`order-${i + 1}`));
+  window.history.replaceState(null, "", "/fulfill?order=order-3");
+  await render();
+  orders = orders.filter(state => state.order.order_id !== "order-3");
+  orders.push(ticket("order-7"));
+  await poll();
+  expect(selected()).toContain("#ORDER-4");
+});
+
+it("waits at the top instead of wrapping to older work, then resumes when new orders arrive", async () => {
+  orders = [ticket("older"), ticket("current")];
+  window.history.replaceState(null, "", "/fulfill?order=current");
+  await render(); await click("Fulfill order");
+  expect(selected()).toBeUndefined();
+  expect(container.querySelector("h1")?.textContent).toBe("No newer orders");
+  await poll();
+  expect(selected()).toBeUndefined();
+  orders.push(ticket("new-a"), ticket("new-b"));
+  await poll();
+  expect(selected()).toContain("#NEW-A");
+  await click("Fulfill order");
+  expect(selected()).toContain("#NEW-B");
 });
