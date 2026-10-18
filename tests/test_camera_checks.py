@@ -9,7 +9,7 @@ from io import BytesIO
 import httpx
 import pytest
 from fastapi.testclient import TestClient
-from fullfill.adapters.orders.camera_checks import CHECK_KEY
+from fullfill.adapters.orders.camera_checks import CHECK_KEY, RESULT_KEYS
 from fullfill.adapters.orders.square import SquareOrders
 from fullfill.adapters.vision.perceptron import VisionProviderError
 from fullfill.main import create_app
@@ -53,7 +53,7 @@ class Square:
             self.order["version"] += 1
             metadata = self.order["metadata"]
             assert len(metadata) <= 10
-            assert all(len(value) <= 255 for value in metadata.values())
+            assert all(1 <= len(value) <= 255 for value in metadata.values())
             if self.lose_finish_response and body["idempotency_key"].startswith("camera-finish-"):
                 self.lose_finish_response = False
                 raise httpx.ReadTimeout("Lost response")
@@ -334,3 +334,34 @@ def test_twenty_large_counts_fit_square_metadata_limits():
     assert result.status_code == 200, result.text
     assert result.json()["current_check"]["verdict"] == "fail"
     assert len(result.json()["current_check"]["discrepancies"]) == 20
+
+
+def test_short_result_replaces_both_chunks_after_a_long_result(monkeypatch):
+    square, vision = Square(), Vision(count=100000)
+    square.order["line_items"] = [
+        {
+            "uid": f"line-{index}",
+            "name": f"Item {index}",
+            "quantity": "1",
+            "metadata": {"fullfill_item_id": f"item-{index}"},
+        }
+        for index in range(20)
+    ]
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 200
+        assert len(square.order["metadata"][RESULT_KEYS[1]]) > 1
+        record = json.loads(square.order["metadata"][CHECK_KEY])
+        monkeypatch.setattr(
+            "fullfill.adapters.orders.camera_checks.time.time", lambda: record["t"] + 100
+        )
+        vision.count = 0
+        vision.status = "missing"
+        result = send(client, key="shorter", revision=square.order["version"])
+    assert result.status_code == 200, result.text
+    assert result.json()["current_check"]["execution_status"] == "completed"
+    assert result.json()["current_check"]["verdict"] == "fail"
+    assert len(square.order["metadata"][RESULT_KEYS[1]]) == 1
+    with TestClient(square.app()) as other:
+        shared = other.get("/v1/stations/main").json()["orders"][0]
+    assert shared == result.json()
+    assert len(vision.calls) == 2
