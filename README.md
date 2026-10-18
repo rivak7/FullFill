@@ -19,7 +19,7 @@ frames, the backend calls Perceptron, and compact results persist in Square.
 | Shared state | Orders and menu edits persist in Square across browsers and API instances using the same Sandbox account and location. Conflicting menu edits require a refresh. |
 | Vision adapter | Send an order photo and optional labeled reference photos to Perceptron Mk1.5; validate structured observations, with a cooldown and call cap. Expected quantities are kept out of the model prompt. |
 | Browser camera | Enable a local video preview, then check the selected ticket manually or opt into checks after movement settles. No Python camera installation is needed. Preview makes no Perceptron calls. |
-| Comparison rules | Aggregate repeated item lines and compare observed counts with the ticket. Exact counts pass; definite shortages/excesses fail; uncertainty or items outside the ticket require review. A definite failure takes precedence over uncertainty. |
+| Comparison rules | Exact, clearly visible counts pass; definite shortages/excesses fail; ambiguous identity/counts, unreadable required labels, unknown extras, poor camera views, and failed checks require review. A clear mismatch takes precedence over uncertainty about another item; an unusable whole-scene view invalidates all counts. |
 | Station preview | Explore hardcoded checking, pass, fail, unsure, and error states at `/demo` in the combined frontend. |
 | Evaluation | Run photo-based latency, order-accuracy, and lookalike/label checks, including names-only versus reference-photo comparisons and JSONL logging. |
 
@@ -29,7 +29,9 @@ fabricate a pass. The app does not charge payments. Manual and camera status per
 metadata and is invalidated when ticket items change; saves reject stale revisions.
 
 The queue has a soft limit of 10 tickets. Refresh removes the oldest fulfilled
-tickets above that limit, while retaining all unresolved tickets. Cleanup and
+tickets above that limit, while retaining all unresolved tickets. Newly completed
+tickets stay for at least two minutes so staff can undo mistakes; the cap can be
+exceeded during this grace period. Cleanup and
 manual statuses leave Square's payment and native fulfillment state unchanged.
 Deleted menu items are archived in Square and hidden from the menu, with no
 restore option in the UI. Existing starter items can be edited without photos;
@@ -51,6 +53,39 @@ per order, a 10-second cooldown, and no automatic retry after failure. Restartin
 Vercel does not reset the per-order limit. These are demo guards, not a global
 account spending budget. Camera images stay in memory; only compact observations
 and hashes persist. Keep the page visible and the computer awake.
+
+### Camera decisions and corrections
+
+The browser handles camera preview, cropping, movement detection, and stillness
+without installing Python or OpenCV. Only a selected still image is uploaded to
+the Vercel API, which calls Perceptron with the server-side key. Reference photos
+identify menu items; they do not train the model or prove hidden ingredients.
+
+Perceptron reports observed counts and uncertainty; application rules decide the
+status. The expected counts remain outside the model prompt. Green means a clear
+snapshot match and advances upward in the queue. Red names definite shortages or
+excesses. Orange names uncertain items or gives an instruction for improving the
+camera view. An API error is orange, never evidence that food is missing. Partial,
+contradictory, malformed, or stale results cannot produce a green screen.
+
+If the result looks wrong, expand **Last photo** to inspect the exact submitted
+frame and its ticket ID. Reposition items and check again, or use the existing
+manual fulfillment/review controls. A new **Undo** button reopens a just-completed
+ticket and selects it again without calling Perceptron. Manual changes pause
+automatic checks and take precedence over an in-flight result; conflicting edits
+from another screen require refresh instead of silently overwriting them.
+
+Automatic checks pause on uncertainty or failure. They never retry a paid request
+on their own. Each result describes the captured moment, not continuous proof of
+the order's contents: keep one order entirely visible until the check finishes.
+Closed bags, hidden fillings, and visually identical packaging need a readable
+identifier or staff inspection. The app does not infer that the physical packing
+area belongs to a ticket; staff must select the correct ticket.
+
+These rules reduce avoidable mistakes; automated tests do not establish model
+accuracy. Before relying on automatic completion, evaluate labeled examples from
+the actual camera and menu, especially missing items, lookalikes, clutter, and
+closed packaging. No numerical confidence threshold is presented as calibrated.
 
 ## Run locally
 

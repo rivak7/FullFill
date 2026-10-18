@@ -51,15 +51,32 @@ def compare_order(
     """Validate/aggregate the checklist without performing I/O."""
     targets = targets_for(order, menu)
     seen = {o.target_id: o for o in observations.targets}
-    missing_targets = [t.target_id for t in targets if t.target_id not in seen]
-    if missing_targets:
-        raise ValueError(f"observations leave out {missing_targets}")
+    if len(seen) != len(observations.targets) or set(seen) != {t.target_id for t in targets}:
+        raise ValueError("observations must cover each target exactly once")
+
+    # A poor whole-scene view invalidates counts, including apparent shortages.
+    # It must never turn missing evidence into a confident red or green result.
+    if observations.scene_uncertainty:
+        return Comparison(
+            verdict="unsure",
+            discrepancies=[
+                Discrepancy(
+                    kind="unsure",
+                    line_ids=[line.line_id for line in order.lines],
+                    message=observations.scene_uncertainty,
+                )
+            ],
+        )
 
     discrepancies: list[Discrepancy] = []
     definite = False
     for target in targets:
         obs = seen[target.target_id]
         expected, observed = target.expected_quantity, obs.observed_quantity
+        if (obs.status == "missing" and observed != 0) or (
+            obs.status == "present" and observed is not None and observed == 0
+        ):
+            raise ValueError("inconsistent observation status and count")
         common = {"target_id": target.target_id, "line_ids": target.line_ids}
         if obs.status == "unsure" or observed is None:
             discrepancies.append(

@@ -212,3 +212,26 @@ it("waits at the top instead of wrapping to older work, then resumes when new or
   await click("Fulfill order");
   expect(selected()).toContain("#NEW-B");
 });
+
+it("undoes a mistaken fulfillment and returns to that ticket without an AI call", async () => {
+  await render(); await click("Fulfill order");
+  expect(selected()).toContain("#SECOND");
+  await click("Undo");
+  expect(selected()).toContain("#FIRST");
+  expect(container.querySelector(".station.tone-red")).not.toBeNull();
+  expect(container.querySelector(".fulfillment-undo")).toBeNull();
+  expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { status: "unfulfilled", expected_revision: 2 }, expect.any(String));
+  expect(orderApi.checkCamera).not.toHaveBeenCalled();
+  await poll();
+  expect(selected()).toContain("#FIRST");
+});
+
+it("a stale Undo cannot overwrite another worker's newer decision", async () => {
+  await render(); await click("Fulfill order");
+  orders[0] = ticket("first", "needs_review", 3);
+  vi.mocked(orderApi.setStatus).mockRejectedValueOnce(new ApiError("Order changed. Refresh before correcting it.", 409));
+  await click("Undo");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Order changed");
+  expect(orderApi.setStatus).toHaveBeenLastCalledWith("first", { status: "unfulfilled", expected_revision: 2 }, expect.any(String));
+  expect(container.querySelector(".queue-amber")?.textContent).toContain("#SECOND");
+});

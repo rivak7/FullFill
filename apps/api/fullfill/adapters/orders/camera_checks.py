@@ -16,12 +16,16 @@ from fullfill_contracts.vision import Observations, TargetObservation, Unexpecte
 
 from fullfill.application.order_source import OrderSourceError
 from fullfill.domain.compare_order import compare_order, targets_for
+from fullfill.domain.vision_uncertainty import REASON_CODES, REASONS
 
 CHECK_KEY = "fullfill_camera_check"
 RESULT_KEYS = ("fullfill_camera_result_0", "fullfill_camera_result_1")
 MAX_CHECKS_PER_ORDER = 20
 COOLDOWN_SECONDS = 10
 LEASE_SECONDS = 90
+COMPLETED_AT_KEY = "fullfill_completed_at"
+UNDO_SECONDS = 120
+STORED_REASONS = {REASON_CODES[key]: value for key, value in REASONS.items()}
 
 
 def read_record(metadata):
@@ -52,20 +56,25 @@ def check_result(order, metadata):
                         target_id=target.target_id,
                         status={"p": "present", "m": "missing", "u": "unsure"}[entry[0]],
                         observed_quantity=entry[1],
-                        reason="not clearly visible or distinguishable"
+                        reason=STORED_REASONS.get(
+                            entry[2] if len(entry) > 2 else "u", REASONS["unknown"]
+                        )
                         if entry[0] == "u"
                         else None,
                     )
                     for target, entry in zip(targets, data["o"], strict=True)
                 ],
                 unexpected_items=[UnexpectedItem(name=name) for name in data["u"]],
+                scene_uncertainty=data.get("s"),
             )
             comparison = compare_order(order, observations)
-        except (KeyError, TypeError, ValueError):
+        except (IndexError, KeyError, TypeError, ValueError):
             status = "failed"
     disposition = (
         {"pass": "verified", "fail": "pending", "unsure": "needs_review"}[comparison.verdict]
         if comparison
+        else "needs_review"
+        if status == "failed"
         else "pending"
     )
     return CheckResult(
@@ -143,20 +152,44 @@ class SquareCameraChecks:
         metadata = dict(reserved.get("metadata") or {})
         record = read_record(metadata)
         record["s"] = "failed" if observations is None else "completed"
+        comparison = None
         if observations is not None:
+            comparison = compare_order(self._snapshot(reserved), observations)
             by_id = {entry.target_id: entry for entry in observations.targets}
             values = []
             for target in targets_for(self._snapshot(reserved)):
                 entry = by_id[target.target_id]
                 if entry.observed_quantity is not None and entry.observed_quantity > 100000:
                     raise ValueError("Invalid observed quantity")
-                values.append([entry.status[0], entry.observed_quantity])
+                value = [
+                    "u" if observations.scene_uncertainty else entry.status[0],
+                    entry.observed_quantity,
+                ]
+                if entry.status == "unsure":
+                    value.append(
+                        next(
+                            (
+                                code
+                                for code, reason in STORED_REASONS.items()
+                                if reason == entry.reason
+                            ),
+                            "u",
+                        )
+                    )
+                values.append(value)
             # Keep within Square's two 255-character values. Names are display
             # hints only; retaining any unexpected item preserves the verdict.
-            extras = [item.name[:100] for item in observations.unexpected_items[:1]]
-            packed = json.dumps(
-                {"o": values, "u": extras}, separators=(",", ":"), ensure_ascii=False
-            )
+            extras = [item.name[:60] for item in observations.unexpected_items[:1]]
+            payload = {"o": values, "u": extras}
+            if observations.scene_uncertainty:
+                payload["s"] = observations.scene_uncertainty[:80]
+            packed = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
+            # Escaped names can grow; shorten display hints, never observations.
+            if len(packed) > 510:
+                payload["u"] = ["Unidentified item"] if extras else []
+                if "s" in payload:
+                    payload["s"] = "Improve the camera view and check again."
+                packed = json.dumps(payload, separators=(",", ":"), ensure_ascii=False)
             if len(packed) > 510:
                 raise ValueError("Check result exceeds the demo storage limit")
             # Square rejects empty metadata values. Always write both chunks,
@@ -168,6 +201,9 @@ class SquareCameraChecks:
             ):
                 metadata[result_key] = chunk
         record["t"] = int(time.time())
+        metadata[COMPLETED_AT_KEY] = str(
+            record["t"] if comparison and comparison.verdict == "pass" else 0
+        )
         metadata[CHECK_KEY] = json.dumps(record, separators=(",", ":"))
         # An edit or manual decision while inference runs must win. Never retry
         # this write with a fresh revision or re-run the paid model call.
