@@ -241,7 +241,7 @@ it("keeps automatic mode enabled across tab switches and waits for visible settl
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-  await observe(80, 375);
+  await observe(80, 875);
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   await observe(80, 250);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -595,7 +595,7 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
     expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
     vi.spyOn(document, "hidden", "get").mockReturnValue(false);
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-    await observe(0, 1000);
+    await observe(0, 1500);
     expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
     await observe(0, 4000);
     expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
@@ -792,7 +792,7 @@ it("advances a passed order as soon as the mat is bare, and logs each clear chec
   await camera();
   await act(async () => vi.advanceTimersByTimeAsync(1000)); // learns the bare mat
   show(true);
-  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  await act(async () => vi.advanceTimersByTimeAsync(1500));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   expect(onResult.mock.calls[0][1]).toBe(true);
   await act(async () => vi.advanceTimersByTimeAsync(1500));
@@ -862,7 +862,7 @@ it("stays on an amber order when the mat is cleared", async () => {
   await camera();
   await act(async () => vi.advanceTimersByTimeAsync(1000));
   show(true);
-  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  await act(async () => vi.advanceTimersByTimeAsync(1500));
   await render(onResult.mock.calls[0][0]);
   expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("amber");
   show(false);
@@ -883,7 +883,7 @@ it("moves past a red order when the worker bags it anyway, keeping it red", asyn
   await camera();
   await act(async () => vi.advanceTimersByTimeAsync(1000));
   show(true);
-  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  await act(async () => vi.advanceTimersByTimeAsync(1500));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   await render(onResult.mock.calls[0][0]);
   expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("red");
@@ -908,7 +908,7 @@ it("stays on a red order whose photo showed none of it when the mat clears", asy
   await camera();
   await act(async () => vi.advanceTimersByTimeAsync(1000));
   show(true);
-  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  await act(async () => vi.advanceTimersByTimeAsync(1500));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   await render(onResult.mock.calls[0][0]);
   expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("red");

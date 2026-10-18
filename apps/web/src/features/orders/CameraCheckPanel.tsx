@@ -4,7 +4,7 @@ import { readSettings } from "../../settings";
 import { useEffect, useRef, useState } from "react";
 import { orderApi, ApiError, type MenuPhoto } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
-import { SAMPLE_MS, SceneGuard, SceneTrigger } from "./sceneTrigger";
+import { KITCHEN_SETTLE_MS, SAMPLE_MS, SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { toScreenState } from "../station/screenState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
@@ -57,7 +57,7 @@ export function CameraCheckPanel(props: Props) {
   const stream = useRef<MediaStream | null>(null);
   const generation = useRef(0);
   const mounted = useRef(true);
-  const trigger = useRef(new SceneTrigger());
+  const trigger = useRef(new SceneTrigger(KITCHEN_SETTLE_MS));
   // A passed order waiting for the mat to clear; the screen stays green until then.
   const bagging = useRef<string | null>(null);
   // The passed check's log, where each clear-check decision is written.
