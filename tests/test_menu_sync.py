@@ -89,6 +89,10 @@ class SquareCatalog:
                     return httpx.Response(400, json={"errors": [{"code": "VERSION_MISMATCH"}]})
                 obj["version"] += 1
                 self.objects.remove(existing)
+            elif obj["type"] == "CATEGORY":
+                assert obj["present_at_location_ids"] == ["our-location"]
+                obj["id"] = f"category-{len(self.objects)}"
+                obj["version"] = 1
             else:
                 assert obj["present_at_all_locations"] is False
                 assert obj["present_at_location_ids"] == ["our-location"]
@@ -292,6 +296,65 @@ def test_concurrent_item_edit_is_rejected_and_identical_retry_is_safe():
         assert response.status_code == 409
         assert (
             client.get("/v1/menu/current", headers=HEADERS).json()["items"][0]["price_cents"] == 500
+        )
+
+
+def add_category(client, name, key="category-1"):
+    response = client.post(
+        "/v1/menu/categories", json={"name": name}, headers={**HEADERS, "Idempotency-Key": key}
+    )
+    assert response.status_code == 200, response.text
+    return response.json()
+
+
+def test_items_can_be_filed_under_categories_that_persist_in_square():
+    square = SquareCatalog()
+    with client_for(square) as client:
+        add_item(client)
+        menu = add_category(client, "  Sides ")
+        assert [c["name"] for c in menu["categories"]] == ["Sides"]
+        # The same name again, in any case, is a retry rather than a second category.
+        assert add_category(client, "sides", "category-2")["categories"] == menu["categories"]
+        sides = menu["categories"][0]["category_id"]
+        response = client.post(
+            "/v1/menu/items",
+            json=edit(version=1, category_id=sides),
+            headers={**EDIT_HEADERS, "Idempotency-Key": "edit-2"},
+        )
+        assert response.status_code == 200, response.text
+        assert response.json()["items"][0]["category_id"] == sides
+        assert response.json()["revision"] != menu["revision"]
+    with client_for(square) as ordering:
+        current = ordering.get("/v1/menu/current", headers=HEADERS).json()
+        assert current["items"][0]["category_id"] == sides
+        assert [c["name"] for c in current["categories"]] == ["Sides"]
+        moved = ordering.post(
+            "/v1/menu/items",
+            json=edit(version=2),
+            headers={**EDIT_HEADERS, "Idempotency-Key": "edit-3"},
+        )
+        assert moved.json()["items"][0]["category_id"] is None
+    item = next(obj for obj in square.objects if obj["type"] == "ITEM")
+    assert "categories" not in item["item_data"]
+
+
+def test_an_item_cannot_be_filed_under_a_missing_category():
+    square = SquareCatalog()
+    with client_for(square) as client:
+        add_item(client)
+        response = client.post(
+            "/v1/menu/items",
+            json=edit(version=1, category_id="gone"),
+            headers={**EDIT_HEADERS, "Idempotency-Key": "edit-2"},
+        )
+        assert response.status_code == 409
+        assert (
+            client.post(
+                "/v1/menu/categories",
+                json={"name": "   "},
+                headers={**HEADERS, "Idempotency-Key": "c"},
+            ).status_code
+            == 422
         )
 
 

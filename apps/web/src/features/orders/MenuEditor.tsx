@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState, type FormEvent } from "react";
 import { ApiError, orderApi, type MenuEdit, type MenuEntry, type MenuSnapshot } from "../../api/client";
 import { MenuPhotoPicker } from "./MenuPhotoPicker";
+import { groupMenu } from "./menuGroups";
 
 type Draft = Omit<MenuEdit, "price_cents"> & { price: string; savedPhotoUrl: string | null };
 type Attempt = { body: MenuEdit; key: string; action: "save" | "delete" };
 const money = (cents: number) => new Intl.NumberFormat("en-US", { style: "currency", currency: "USD" }).format(cents / 100);
-const draftFor = (item: MenuEntry): Draft => ({ item_id: item.item_id, name: item.name, price: (item.price_cents / 100).toFixed(2), available: item.available, archived: item.archived, version: item.version, savedPhotoUrl: item.photo_url });
+const draftFor = (item: MenuEntry): Draft => ({ item_id: item.item_id, name: item.name, price: (item.price_cents / 100).toFixed(2), available: item.available, archived: item.archived, version: item.version, savedPhotoUrl: item.photo_url, category_id: item.category_id ?? null });
 
 export function MenuEditor() {
   const [menu, setMenu] = useState<MenuSnapshot | null>(null);
@@ -17,6 +18,7 @@ export function MenuEditor() {
   const [error, setError] = useState<string | null>(null);
   const [notice, setNotice] = useState("");
   const [refresh, setRefresh] = useState(0);
+  const [category, setCategory] = useState<string | null>(null);
   const menuEpoch = useRef(0);
   const saving = useRef(false);
 
@@ -43,8 +45,23 @@ export function MenuEditor() {
     setDraft(draftFor(item)); setPending(null); setError(null); setNotice(""); setConfirmDelete(false); setPhotoBusy(false);
   }
   function add() {
-    setDraft({ item_id: "item_" + crypto.randomUUID().replaceAll("-", ""), name: "", price: "", available: true, archived: false, version: 0, savedPhotoUrl: null });
+    setDraft({ item_id: "item_" + crypto.randomUUID().replaceAll("-", ""), name: "", price: "", available: true, archived: false, version: 0, savedPhotoUrl: null, category_id: null });
     setPending(null); setError(null); setNotice(""); setConfirmDelete(false); setPhotoBusy(false);
+  }
+
+  async function addCategory(event: FormEvent) {
+    event.preventDefault();
+    const name = category?.trim();
+    if (!name || busy) return;
+    saving.current = true; menuEpoch.current++;
+    setBusy(true); setError(null); setNotice("");
+    try {
+      // Adding a name that already exists is harmless, so a retry can use a new key.
+      setMenu(await orderApi.addMenuCategory(name, crypto.randomUUID()));
+      setCategory(null); setNotice(`Added ${name}.`);
+    } catch (error) {
+      setError(error instanceof Error ? error.message : "Could not add the category. Try again.");
+    } finally { saving.current = false; setBusy(false); }
   }
 
   async function submit(attempt: Attempt) {
@@ -69,11 +86,12 @@ export function MenuEditor() {
     if (!draft.version && !draft.photo) { setError("Add a photo before saving this item."); return; }
     void submit({ key: crypto.randomUUID(), action: "save", body: {
       item_id: draft.item_id, name: draft.name.trim(), price_cents: Math.round(Number(draft.price) * 100),
-      available: draft.available, archived: false, version: draft.version, ...(draft.photo ? { photo: draft.photo } : {}),
+      available: draft.available, archived: false, version: draft.version, category_id: draft.category_id ?? null, ...(draft.photo ? { photo: draft.photo } : {}),
     } });
   }
 
   const visible = menu?.items.filter(item => !item.archived) ?? [];
+  const categories = menu?.categories ?? [];
   const latest = menu?.items.find(item => item.item_id === draft?.item_id);
   const changedElsewhere = !!(latest && draft && (latest.archived || latest.version !== draft.version));
   const locked = busy || !!pending;
@@ -83,26 +101,39 @@ export function MenuEditor() {
     if (!draft || !latest || locked || photoBusy || changedElsewhere) return;
     void submit({ key: crypto.randomUUID(), action: "delete", body: {
       item_id: latest.item_id, name: latest.name, price_cents: latest.price_cents,
-      available: latest.available, archived: true, version: draft.version,
+      available: latest.available, archived: true, version: draft.version, category_id: latest.category_id ?? null,
     } });
   }
 
   return <main className="menu-management">
     <div className="menu-management-heading"><h1>Menu</h1>
-      <div className="menu-actions"><button className="primary-button" disabled={locked || !!draft} onClick={add}>+ Add item</button></div>
+      <div className="menu-actions">
+        <button className="secondary-button" disabled={locked || category !== null} onClick={() => { setCategory(""); setError(null); setNotice(""); }}>+ Add category</button>
+        <button className="primary-button" disabled={locked || !!draft} onClick={add}>+ Add item</button>
+      </div>
     </div>
+    {category !== null && <form className="category-form" onSubmit={addCategory}>
+      <label htmlFor="category-name">New category</label>
+      <input id="category-name" value={category} maxLength={40} placeholder="Mains, Sides, Sauces…" autoFocus disabled={busy} onChange={event => setCategory(event.target.value)} />
+      <button type="button" className="secondary-button" disabled={busy} onClick={() => setCategory(null)}>Cancel</button>
+      <button className="primary-button" disabled={busy || !category.trim()}>{busy ? "Adding…" : "Add"}</button>
+    </form>}
     {notice && <p className="success-banner" role="status">{notice}</p>}
     {!draft && error && <p className="error-banner" role="alert">{error}</p>}
     <div className="menu-management-layout">
       <section aria-label="Menu items">
         {!menu && <p role="status">Loading menu…</p>}
         {menu && !visible.length && <p className="menu-empty">Add your first menu item.</p>}
-        {visible.map(item => <article className="managed-menu-item" key={item.item_id}>
-          {item.photo_url ? <img className="menu-item-thumbnail" src={item.photo_url} alt={item.name} loading="lazy" /> : <span className="menu-item-thumbnail missing-photo">No photo</span>}
-          <div><h2>{item.name}</h2><span>{money(item.price_cents)}</span></div>
-          <span className={`availability ${item.available ? "available" : "sold-out"}`}>{item.available ? "Available" : "Sold out"}</span>
-          <button className="secondary-button" aria-label={`Edit ${item.name}`} disabled={locked || !!draft} onClick={() => select(item)}>Edit</button>
-        </article>)}
+        {menu && groupMenu(visible, categories).map(group => <section className="menu-group" key={group.id} aria-label={group.name ?? undefined}>
+          {group.name && <h3 className="menu-group-name">{group.name}<span>{group.items.length}</span></h3>}
+          {group.name && !group.items.length && <p className="menu-group-empty">No items yet. Edit an item to put it here.</p>}
+          {group.items.map(item => <article className="managed-menu-item" key={item.item_id}>
+            {item.photo_url ? <img className="menu-item-thumbnail" src={item.photo_url} alt={item.name} loading="lazy" /> : <span className="menu-item-thumbnail missing-photo">No photo</span>}
+            <div><h2>{item.name}</h2><span>{money(item.price_cents)}</span></div>
+            <span className={`availability ${item.available ? "available" : "sold-out"}`}>{item.available ? "Available" : "Sold out"}</span>
+            <button className="secondary-button" aria-label={`Edit ${item.name}`} disabled={locked || !!draft} onClick={() => select(item)}>Edit</button>
+          </article>)}
+        </section>)}
       </section>
       {draft ? <form className="menu-edit-card" onSubmit={save}>
         <h2>{draft.version ? "Edit item" : "New item"}</h2>
@@ -110,6 +141,11 @@ export function MenuEditor() {
         <fieldset disabled={locked}>
           <MenuPhotoPicker key={draft.item_id + ":" + draft.version} photo={draft.photo} savedUrl={draft.savedPhotoUrl} disabled={locked || changedElsewhere} onChange={photo => setDraft(current => current ? { ...current, photo } : null)} onBusyChange={setPhotoBusy} />
           <label htmlFor="item-name">Name</label><input id="item-name" value={draft.name} maxLength={120} required onChange={event => setDraft({ ...draft, name: event.target.value })} />
+          <label htmlFor="item-category">Category</label>
+          <select id="item-category" value={draft.category_id ?? ""} onChange={event => setDraft({ ...draft, category_id: event.target.value || null })}>
+            <option value="">No category</option>
+            {categories.map(category => <option key={category.category_id} value={category.category_id}>{category.name}</option>)}
+          </select>
           <label htmlFor="item-price">Price ($)</label><input id="item-price" inputMode="decimal" value={draft.price} required onChange={event => setDraft({ ...draft, price: event.target.value })} />
           <label className="check-label"><input type="checkbox" checked={draft.available} onChange={event => setDraft({ ...draft, available: event.target.checked })} />Available to order</label>
         </fieldset>
@@ -119,7 +155,7 @@ export function MenuEditor() {
           {confirmDelete ? <><p>Delete {latest?.name}?</p><div className="photo-actions"><button type="button" className="secondary-button" disabled={locked} onClick={() => setConfirmDelete(false)}>Keep item</button><button type="button" className="danger-button" disabled={locked || photoBusy || changedElsewhere} onClick={remove}>Delete</button></div></>
             : <button type="button" className="delete-link" disabled={locked || photoBusy || changedElsewhere} onClick={() => setConfirmDelete(true)}>Delete item</button>}
         </div>}
-      </form> : <aside className="menu-editor-hint"><span>↖</span><p>Select an item to edit its photo, name, or price.</p></aside>}
+      </form> : <aside className="menu-editor-hint"><span>↖</span><p>Select an item to edit its photo, name, category, or price.</p></aside>}
     </div>
   </main>;
 }

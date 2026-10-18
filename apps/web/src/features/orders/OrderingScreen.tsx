@@ -1,6 +1,7 @@
 import { learnOrderNumbers, orderNumber } from "../../orderNumber";
 import { useEffect, useRef, useState } from "react";
-import { ApiError, orderApi, type CreateOrderInput, type MenuEntry } from "../../api/client";
+import { ApiError, orderApi, type CreateOrderInput, type MenuCategory, type MenuEntry } from "../../api/client";
+import { groupMenu } from "./menuGroups";
 import type { OrderSnapshot } from "../../api/generated/contracts";
 import { siteScreen } from "../../site";
 
@@ -30,6 +31,7 @@ export function OrderingScreen() {
     Object.fromEntries((readPending()?.body.items ?? []).map(item => [item.item_id, item.quantity])),
   );
   const [menu, setMenu] = useState<MenuEntry[]>([]);
+  const [categories, setCategories] = useState<MenuCategory[]>([]);
   const [revision, setRevision] = useState("");
   const [needsReview, setNeedsReview] = useState(false);
   const [loading, setLoading] = useState(true);
@@ -65,7 +67,7 @@ export function OrderingScreen() {
         if (affected && !pendingRef.current) setNeedsReview(true);
         // Keep unavailable basket lines visible until the customer removes them.
         const missing = old.filter(item => quantitiesRef.current[item.item_id] > 0 && !data.items.some(next => next.item_id === item.item_id)).map(item => ({ ...item, available: false, archived: true }));
-        setMenu([...data.items, ...missing]); setRevision(data.revision); setMenuError(null);
+        setMenu([...data.items, ...missing]); setCategories(data.categories ?? []); setRevision(data.revision); setMenuError(null);
       } catch (error) {
         if (!controller.signal.aborted) setMenuError(error instanceof Error ? error.message : "Could not refresh menu.");
       } finally {
@@ -84,6 +86,8 @@ export function OrderingScreen() {
   const total = selected.reduce((sum, item) => sum + item.price_cents * quantities[item.item_id], 0);
   const count = selected.reduce((sum, item) => sum + quantities[item.item_id], 0);
   const unavailable = selected.some(item => !item.available || item.archived);
+  // Customers only see categories that have something in them.
+  const groups = groupMenu(menu.filter(item => !item.archived), categories).filter(group => group.items.length);
 
   function adjust(id: string, amount: number) {
     if (pending || sending) return;
@@ -134,14 +138,20 @@ export function OrderingScreen() {
           <div className="section-heading"><h1>Menu</h1><span className="menu-sync-label">{menuError ? "Sync interrupted" : "Updates automatically"}</span></div>
           {loading && <p role="status">Loading menu…</p>}
           {menuError && <div className="error-banner" role="alert">{menuError} <button onClick={() => setRefresh(value => value + 1)}>Retry</button></div>}
-          {!loading && menu.filter(item => !item.archived).map(item => <article className={`menu-card ${!item.available ? "unavailable-item" : ""}`} key={item.item_id}>
-            <div className="menu-copy"><h2>{item.name}</h2><span>{money(item.price_cents, item.currency)}</span></div>
-            {!item.available ? <span className="availability sold-out">Sold out</span> : <div className="quantity-picker" role="group" aria-label={`${item.name} quantity`}>
-              <button aria-label={`Remove one ${item.name}`} disabled={!!pending || sending || !quantities[item.item_id]} onClick={() => adjust(item.item_id, -1)}>−</button>
-              <output aria-label={`${item.name} count`}>{quantities[item.item_id] ?? 0}</output>
-              <button aria-label={`Add one ${item.name}`} disabled={!!pending || sending || quantities[item.item_id] >= 50} onClick={() => adjust(item.item_id, 1)}>+</button>
-            </div>}
-          </article>)}
+          {!loading && groups.length > 1 && <nav className="category-chips" aria-label="Menu categories">
+            {groups.map(group => <a key={group.id} href={`#menu-${group.id}`} onClick={event => { event.preventDefault(); document.getElementById(`menu-${group.id}`)?.scrollIntoView({ behavior: "smooth", block: "start" }); }}>{group.name}</a>)}
+          </nav>}
+          {!loading && groups.map(group => <section className="menu-group" id={`menu-${group.id}`} key={group.id} aria-label={group.name ?? undefined}>
+            {group.name && <h3 className="menu-group-name">{group.name}</h3>}
+            {group.items.map(item => <article className={`menu-card ${!item.available ? "unavailable-item" : ""}`} key={item.item_id}>
+              <div className="menu-copy"><h2>{item.name}</h2><span>{money(item.price_cents, item.currency)}</span></div>
+              {!item.available ? <span className="availability sold-out">Sold out</span> : <div className="quantity-picker" role="group" aria-label={`${item.name} quantity`}>
+                <button aria-label={`Remove one ${item.name}`} disabled={!!pending || sending || !quantities[item.item_id]} onClick={() => adjust(item.item_id, -1)}>−</button>
+                <output aria-label={`${item.name} count`}>{quantities[item.item_id] ?? 0}</output>
+                <button aria-label={`Add one ${item.name}`} disabled={!!pending || sending || quantities[item.item_id] >= 50} onClick={() => adjust(item.item_id, 1)}>+</button>
+              </div>}
+            </article>)}
+          </section>)}
           {!loading && !menuError && !menu.some(item => !item.archived) && <p className="menu-empty">The menu is being updated. Check back shortly.</p>}
         </section>
         <aside className="basket" aria-label="Your order">

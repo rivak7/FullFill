@@ -4,7 +4,12 @@ from typing import Annotated
 
 from fastapi import APIRouter, Depends, Header
 
-from fullfill.application.order_source import MenuEdit, MenuSnapshot, OrderSource
+from fullfill.application.order_source import (
+    MenuCategoryEdit,
+    MenuEdit,
+    MenuSnapshot,
+    OrderSource,
+)
 
 from .order_source import get_order_source
 
@@ -31,3 +36,14 @@ async def save_item(
     ],
 ):
     return await source.save_menu(edit, idempotency_key)
+
+
+@router.post("/categories", response_model=MenuSnapshot)
+async def add_category(
+    edit: MenuCategoryEdit,
+    source: Source,
+    idempotency_key: Annotated[
+        str, Header(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    ],
+):
+    return await source.add_menu_category(edit, idempotency_key)

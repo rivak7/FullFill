@@ -22,11 +22,30 @@ class MenuEntry(Contract):
     version: int = 0
     photo_id: str | None = None
     photo_url: str | None = None
+    category_id: str | None = None
+
+
+class MenuCategory(Contract):
+    category_id: str
+    name: str
 
 
 class MenuSnapshot(Contract):
     revision: str
     items: list[MenuEntry]
+    # Sorted by name; items without a category go under "Other" on screen.
+    categories: list[MenuCategory] = Field(default_factory=list)
+
+
+class MenuCategoryEdit(Contract):
+    name: str = Field(min_length=1, max_length=40)
+
+    @model_validator(mode="after")
+    def clean_name(self):
+        self.name = " ".join(self.name.split())
+        if not self.name:
+            raise ValueError("Enter a category name.")
+        return self
 
 
 class MenuEdit(Contract):
@@ -37,6 +56,7 @@ class MenuEdit(Contract):
     archived: bool = False
     version: int = Field(ge=0, strict=True)
     photo: MenuPhoto | None = None
+    category_id: str | None = Field(default=None, min_length=1, max_length=192)
 
     @model_validator(mode="after")
     def clean_name(self):
@@ -99,6 +119,10 @@ class OrderSource(Protocol):
     async def menu(self) -> MenuSnapshot: ...
 
     async def save_menu(self, edit: MenuEdit, idempotency_key: str) -> MenuSnapshot: ...
+
+    async def add_menu_category(
+        self, edit: MenuCategoryEdit, idempotency_key: str
+    ) -> MenuSnapshot: ...
 
     async def prepare_order(self, request: CreateOrder, idempotency_key: str) -> CreateOrder: ...
 

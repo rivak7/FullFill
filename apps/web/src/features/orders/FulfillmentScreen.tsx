@@ -5,6 +5,7 @@ import { StationScreen } from "../station/StationScreen";
 import { amberReason, toScreenState } from "../station/screenState";
 import { advancePastHeld, heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
+import { StartFreshButton } from "./StartFreshButton";
 
 type StatusAttempt = { id: string; body: OrderStatusEdit; key: string; restoreSelection?: boolean };
 type Undo = { id: string; revision: number; expires: number };
@@ -177,7 +178,7 @@ export function FulfillmentScreen() {
           })}
         </nav>
         <span className="queue-status"><span className={`connection-dot ${error ? "offline" : loading ? "loading" : ""}`} />{error ? "Reconnecting…" : loading ? "Connecting…" : waiting ? `${waiting} to check` : "All caught up"}</span>
-        <button className="icon-button" disabled={busy} onClick={() => setRefresh(value => value + 1)} aria-label="Refresh" title="Refresh">↻</button>
+        <StartFreshButton />
       </div>
       {error && <div className="connection-error" role="alert">{error}</div>}
       {actionError && <div className="connection-error" role="alert">{actionError}{pending && <button className="secondary-button" disabled={busy} onClick={() => void submit(pending)}>{busy ? "Saving…" : "Retry status"}</button>}</div>}

@@ -24,11 +24,13 @@ export interface MenuEntry {
   version: number;
   photo_id: string | null;
   photo_url: string | null;
+  category_id?: string | null;
 }
 
-export interface MenuSnapshot { revision: string; items: MenuEntry[] }
+export interface MenuCategory { category_id: string; name: string }
+export interface MenuSnapshot { revision: string; items: MenuEntry[]; categories?: MenuCategory[] }
 export interface MenuPhoto { data_base64: string }
-export interface MenuEdit { item_id: string; name: string; price_cents: number; available: boolean; archived: boolean; version: number; photo?: MenuPhoto }
+export interface MenuEdit { item_id: string; name: string; price_cents: number; available: boolean; archived: boolean; version: number; photo?: MenuPhoto; category_id?: string | null }
 export interface OrderStatusEdit { worker_id: string; status: "unfulfilled" | "unsure" | "fulfilled"; expected_revision: number }
 
 export interface CreateOrderInput {
@@ -120,6 +122,9 @@ export const orderApi = {
   managedMenu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/manage", { signal }),
   saveMenu: (body: MenuEdit, key: string) => request<MenuSnapshot>("/menu/items", {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
+  }),
+  addMenuCategory: (name: string, key: string) => request<MenuSnapshot>("/menu/categories", {
+    method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify({ name }),
   }),
   station: (signal?: AbortSignal) => request<StationSnapshot>("/stations/main/refresh", { method: "POST", signal }),
   clearStation: () => request<StationSnapshot>("/stations/main/clear", { method: "POST" }),
