@@ -55,7 +55,7 @@ def create_app(order_source: OrderSource | None = None) -> FastAPI:
             CORSMiddleware,
             allow_origins=origins,
             allow_methods=["GET", "POST"],
-            allow_headers=["Authorization", "Content-Type", "Idempotency-Key"],
+            allow_headers=["Authorization", "Content-Type", "Idempotency-Key", "X-Menu-Key"],
         )
 
     @app.get("/v1/session", tags=["access"])
@@ -64,6 +64,14 @@ def create_app(order_source: OrderSource | None = None) -> FastAPI:
 
     @app.get("/v1/menu", response_model=list[MenuEntry], tags=["orders"])
     async def menu():
+        if order_source is not None:
+            return [item for item in (await order_source.menu()).items if not item.archived]
+        if os.getenv("SQUARE_ACCESS_TOKEN") and os.getenv("SQUARE_LOCATION_ID"):
+            from .adapters.orders.square import SquareOrders
+
+            return [
+                item for item in (await SquareOrders.from_env().menu()).items if not item.archived
+            ]
         return demo_menu()
 
     app.include_router(router)

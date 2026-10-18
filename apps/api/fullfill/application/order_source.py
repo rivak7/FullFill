@@ -14,6 +14,30 @@ class MenuEntry(Contract):
     price_cents: int = Field(ge=0)
     currency: str = "USD"
     verification_mode: VerificationMode = "visible_item"
+    available: bool = True
+    archived: bool = False
+    version: int = 0
+
+
+class MenuSnapshot(Contract):
+    revision: str
+    items: list[MenuEntry]
+
+
+class MenuEdit(Contract):
+    item_id: str = Field(min_length=1, max_length=80, pattern=r"^[a-zA-Z0-9_-]+$")
+    name: str = Field(min_length=1, max_length=120)
+    price_cents: int = Field(ge=0, le=1000000, strict=True)
+    available: bool = True
+    archived: bool = False
+    version: int = Field(ge=0, strict=True)
+
+    @model_validator(mode="after")
+    def clean_name(self):
+        self.name = self.name.strip()
+        if not self.name:
+            raise ValueError("Enter an item name.")
+        return self
 
 
 class RequestedItem(Contract):
@@ -23,6 +47,8 @@ class RequestedItem(Contract):
 
 class CreateOrder(Contract):
     items: list[RequestedItem] = Field(min_length=1, max_length=20)
+    menu_revision: str | None = Field(default=None, max_length=64)
+    quote: str | None = Field(default=None, max_length=40000)
 
     @model_validator(mode="after")
     def unique_items(self):
@@ -38,7 +64,15 @@ class OrderSourceError(Exception):
 
 
 class OrderSource(Protocol):
+    async def menu(self) -> MenuSnapshot: ...
+
+    async def save_menu(self, edit: MenuEdit, idempotency_key: str) -> MenuSnapshot: ...
+
+    async def prepare_order(self, request: CreateOrder, idempotency_key: str) -> CreateOrder: ...
+
     async def list_orders(self) -> list[OrderSnapshot]: ...
+
+    async def refresh_orders(self) -> list[OrderSnapshot]: ...
 
     async def get_order(self, order_id: str) -> OrderSnapshot: ...
 

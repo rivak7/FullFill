@@ -33,6 +33,8 @@ Set these only on the API project, as server-side secrets:
 - `SQUARE_ENVIRONMENT=sandbox`
 - `SQUARE_ACCESS_TOKEN` and `SQUARE_LOCATION_ID` from the Sandbox account
 - `FULLFILL_ACCESS_KEY`: a randomly generated access code, at least 32 characters
+- `FULLFILL_MENU_KEY`: a separate random code, at least 32 characters, for kitchen
+  menu editing. Store it in the ignored local `.env` too; share only with staff.
 - `FULLFILL_WEB_ORIGINS`: the exact order and kitchen HTTPS origins, separated
   by a comma, without trailing slashes
 
@@ -46,6 +48,12 @@ order reads and writes. Hosted deployments fail closed if the code is missing
 or too short; local development without a code remains available. Rotating the
 code invalidates existing sessions. This shared demo code is not per-user access
 control and is intended for the Sandbox demonstration.
+
+The kitchen **Menu** tab additionally requires the menu editing code, sent as
+`X-Menu-Key`. It can be locked again without signing out of the kitchen queue.
+Run `uv run python scripts/seed_square_menu.py` once against the same Sandbox
+location before deploying the catalog-backed menu. Menu edits persist in Square;
+deployment does not overwrite them. See [the menu workflow](square-demo.md).
 
 ## Deploy
 
@@ -65,13 +73,11 @@ on the API and redeploy the API. Use stable production aliases, not changing
 deployment URLs. `.vercelignore` excludes `.env`, dependencies, local output,
 and agent configuration from CLI uploads. `.vercel/` stays out of Git.
 
-Automatic deployments require the Vercel GitHub integration to have access to
-`rivak7/FullFill`. If importing the repository reports that it cannot be found,
-the repository owner must grant the integration access before connecting it.
-CLI deployments work from the authorized checkout independently of that Git
-connection. Git pushes alone do not redeploy projects without a Git connection.
-The initial deployment used the CLI because the account's GitHub integration
-could not see this shared repository; the Git connection is still outstanding.
+These projects currently deploy through the CLI. Git pushes alone do not redeploy
+them. Connecting a collaborator-owned personal GitHub repository has ownership
+restrictions; granting repository access alone may not make it importable.
+A separately configured GitHub Actions workflow using the Vercel CLI is another
+option, but no such deployment workflow is configured here yet.
 
 ## Local development and checks
 

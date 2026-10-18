@@ -29,6 +29,17 @@ async def create_order(
     return await source.create_order(body, idempotency_key)
 
 
+@router.post("/prepare", response_model=CreateOrder)
+async def prepare_order(
+    body: CreateOrder,
+    source: Source,
+    idempotency_key: Annotated[
+        str, Header(min_length=1, max_length=192, pattern=r"^[A-Za-z0-9_-]+$")
+    ],
+):
+    return await source.prepare_order(body, idempotency_key)
+
+
 @router.get("/{order_id}", response_model=OrderSnapshot)
 async def get_order(order_id: str, source: Source):
     return await source.get_order(order_id)

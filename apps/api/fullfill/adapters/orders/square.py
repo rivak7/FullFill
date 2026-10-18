@@ -1,5 +1,9 @@
 """Sandbox order ingress. No payment calls or customer information are retained."""
 
+import base64
+import binascii
+import hashlib
+import hmac
 import json
 import os
 from decimal import Decimal, InvalidOperation
@@ -10,7 +14,15 @@ import httpx
 from fullfill_contracts.orders import OrderLine, OrderSnapshot
 from pydantic import ValidationError
 
-from fullfill.application.order_source import CreateOrder, MenuEntry, OrderSourceError
+from fullfill.application.order_source import (
+    CreateOrder,
+    MenuEdit,
+    MenuEntry,
+    MenuSnapshot,
+    OrderSourceError,
+)
+
+from .menu import SquareMenu, menu_snapshot
 
 
 def demo_menu() -> list[MenuEntry]:
@@ -20,6 +32,7 @@ def demo_menu() -> list[MenuEntry]:
 
 class SquareOrders:
     base_url = "https://connect.squareupsandbox.com"
+    queue_limit = 30
 
     def __init__(
         self,
@@ -27,11 +40,13 @@ class SquareOrders:
         location_id: str,
         *,
         transport: httpx.AsyncBaseTransport | None = None,
+        catalog: bool = False,
     ):
         self._token = token
         self.location_id = location_id
         self._transport = transport
         self._menu = {item.item_id: item for item in demo_menu()}
+        self.catalog = SquareMenu(self._request, location_id) if catalog else None
 
     @classmethod
     def from_env(cls):
@@ -45,7 +60,7 @@ class SquareOrders:
                 "on the backend, then restart it.",
                 503,
             )
-        return cls(token, location)
+        return cls(token, location, catalog=True)
 
     async def _request(self, method: str, path: str, payload: dict | None = None) -> dict:
         try:
@@ -75,6 +90,17 @@ class SquareOrders:
         if response.status_code == 429:
             raise OrderSourceError("Square is busy. Wait a moment and retry.", 503)
         if response.status_code >= 400:
+            try:
+                errors = response.json().get("errors", [])
+                if any(
+                    error.get("code") in ("VERSION_MISMATCH", "OBJECT_VERSION_MISMATCH")
+                    for error in errors
+                ):
+                    raise OrderSourceError(
+                        "This item changed on another screen. Reload it before saving.", 409
+                    )
+            except (ValueError, AttributeError, TypeError):
+                pass
             raise OrderSourceError(
                 "Square could not process this request. Retry with the same order."
             )
@@ -118,7 +144,7 @@ class SquareOrders:
                         None,
                     )
                 line_id = line.get("uid") or f"line-{index}"
-                item_id = (
+                item_id = metadata.get("fullfill_item_id") or (
                     known.item_id
                     if known
                     else (f"square:{line.get('catalog_object_id') or order['id'] + ':' + line_id}")
@@ -133,7 +159,8 @@ class SquareOrders:
                         item_id=item_id,
                         name=name + (" — " + ", ".join(details) if details else ""),
                         quantity=int(quantity),
-                        verification_mode=known.verification_mode if known else "visible_item",
+                        verification_mode=metadata.get("fullfill_verification_mode")
+                        or (known.verification_mode if known else "visible_item"),
                     )
                 )
             return OrderSnapshot(
@@ -144,7 +171,7 @@ class SquareOrders:
                 "An order has unsupported item data. This demo requires positive whole-item quantities."
             ) from None
 
-    async def list_orders(self) -> list[OrderSnapshot]:
+    async def _queue_records(self, *, limit: int | None = None) -> list[dict]:
         payload = {
             "location_ids": [self.location_id],
             "return_entries": False,
@@ -154,7 +181,7 @@ class SquareOrders:
                 "sort": {"sort_field": "CREATED_AT", "sort_order": "DESC"},
             },
         }
-        orders: dict[str, OrderSnapshot] = {}
+        orders: dict[str, dict] = {}
         seen_cursors = set()
         for _ in range(20):
             result = await self._request("POST", "/v2/orders/search", payload)
@@ -163,9 +190,15 @@ class SquareOrders:
                 raise OrderSourceError("Square returned an unreadable queue. Please retry.")
             for order in page:
                 # Empty orders aren't checkable tickets; terminal orders aren't pending work.
-                if order.get("state") == "OPEN" and order.get("line_items"):
+                if (
+                    order.get("state") == "OPEN"
+                    and order.get("line_items")
+                    and (order.get("metadata") or {}).get("fullfill_queue_archived") != "true"
+                ):
                     snapshot = self._snapshot(order)
-                    orders[snapshot.order_id] = snapshot
+                    orders[snapshot.order_id] = order
+                    if limit and len(orders) == limit:
+                        return list(orders.values())
             cursor = result.get("cursor")
             if not cursor:
                 return list(orders.values())
@@ -177,35 +210,141 @@ class SquareOrders:
             payload["cursor"] = cursor
         raise OrderSourceError("The order queue is too large to load completely. Try again later.")
 
+    async def list_orders(self) -> list[OrderSnapshot]:
+        return [
+            self._snapshot(order) for order in await self._queue_records(limit=self.queue_limit)
+        ]
+
+    async def refresh_orders(self) -> list[OrderSnapshot]:
+        orders = await self._queue_records()
+        # Persist removal on Square, so an old ticket cannot reappear when newer
+        # orders finish or a different browser/server handles the next refresh.
+        for order in reversed(orders[self.queue_limit :]):
+            await self._archive_from_queue(order)
+        return [self._snapshot(order) for order in orders[: self.queue_limit]]
+
+    async def _archive_from_queue(self, order: dict):
+        for _ in range(3):
+            if (
+                order.get("state") != "OPEN"
+                or (order.get("metadata") or {}).get("fullfill_queue_archived") == "true"
+            ):
+                return
+            self._snapshot(order)  # Validate the location before any mutation.
+            path = f"/v2/orders/{quote(order['id'], safe='')}"
+            key = hashlib.sha256(
+                f"queue-archive:{order['id']}:{order['version']}".encode()
+            ).hexdigest()
+            try:
+                await self._request(
+                    "PUT",
+                    path,
+                    {
+                        "idempotency_key": key,
+                        "order": {
+                            "location_id": self.location_id,
+                            "version": order["version"],
+                            "metadata": {
+                                **(order.get("metadata") or {}),
+                                "fullfill_queue_archived": "true",
+                            },
+                        },
+                    },
+                )
+                return
+            except OrderSourceError as error:
+                if error.status_code != 409:
+                    raise
+                result = await self._request("GET", path)
+                order = result.get("order", {})
+        raise OrderSourceError("The queue changed during cleanup. Refresh to try again.", 503)
+
     async def get_order(self, order_id: str) -> OrderSnapshot:
         result = await self._request("GET", f"/v2/orders/{quote(order_id, safe='')}")
         return self._snapshot(result.get("order", {}))
 
-    async def create_order(self, request: CreateOrder, idempotency_key: str) -> OrderSnapshot:
+    async def menu(self) -> MenuSnapshot:
+        return (
+            await self.catalog.snapshot()
+            if self.catalog
+            else menu_snapshot(list(self._menu.values()))
+        )
+
+    async def save_menu(self, edit: MenuEdit, idempotency_key: str) -> MenuSnapshot:
+        if not self.catalog:
+            raise OrderSourceError("Square menu editing is not configured.", 503)
+        return await self.catalog.save(edit, idempotency_key)
+
+    def _order_payload(
+        self, request: CreateOrder, idempotency_key: str, menu: dict[str, MenuEntry]
+    ) -> dict:
         lines = []
         for requested in sorted(request.items, key=lambda item: item.item_id):
-            item = self._menu.get(requested.item_id)
-            if item is None:
+            item = menu.get(requested.item_id)
+            if item is None or item.archived or not item.available:
                 raise OrderSourceError("That menu item is unavailable. Refresh the menu.", 422)
             lines.append(
                 {
                     "name": item.name,
                     "quantity": str(requested.quantity),
-                    "metadata": {"fullfill_item_id": item.item_id},
+                    "metadata": {
+                        "fullfill_item_id": item.item_id,
+                        "fullfill_verification_mode": item.verification_mode,
+                    },
                     "base_price_money": {"amount": item.price_cents, "currency": item.currency},
                 }
             )
-        result = await self._request(
-            "POST",
-            "/v2/orders",
-            {
-                "idempotency_key": idempotency_key,
-                "order": {
-                    "location_id": self.location_id,
-                    "reference_id": f"FF-{idempotency_key[:32]}",
-                    "state": "OPEN",
-                    "line_items": lines,
-                },
+        return {
+            "idempotency_key": idempotency_key,
+            "order": {
+                "location_id": self.location_id,
+                "reference_id": f"FF-{idempotency_key[:32]}",
+                "state": "OPEN",
+                "line_items": lines,
             },
+        }
+
+    def _signature(self, encoded: str) -> str:
+        return hmac.new(
+            self._token.encode(), ("fullfill-quote-v1:" + encoded).encode(), hashlib.sha256
+        ).hexdigest()
+
+    async def prepare_order(self, request: CreateOrder, idempotency_key: str) -> CreateOrder:
+        snapshot = await self.menu()
+        if request.menu_revision != snapshot.revision:
+            raise OrderSourceError("The menu changed. Review your order and try again.", 409)
+        payload = self._order_payload(
+            request, idempotency_key, {item.item_id: item for item in snapshot.items}
         )
+        approved = {"items": [item.model_dump() for item in request.items], "payload": payload}
+        encoded = base64.urlsafe_b64encode(
+            json.dumps(approved, sort_keys=True, separators=(",", ":")).encode()
+        ).decode()
+        return request.model_copy(update={"quote": encoded + "." + self._signature(encoded)})
+
+    async def create_order(self, request: CreateOrder, idempotency_key: str) -> OrderSnapshot:
+        if request.quote:
+            try:
+                encoded, signature = request.quote.rsplit(".", 1)
+                if not hmac.compare_digest(signature, self._signature(encoded)):
+                    raise ValueError
+                approved = json.loads(base64.urlsafe_b64decode(encoded))
+                payload = approved["payload"]
+                if (
+                    payload["idempotency_key"] != idempotency_key
+                    or payload["order"]["location_id"] != self.location_id
+                    or approved["items"] != [item.model_dump() for item in request.items]
+                ):
+                    raise ValueError
+            except (ValueError, KeyError, TypeError, binascii.Error, UnicodeError):
+                raise OrderSourceError(
+                    "This checkout could not be verified. Reload the menu.", 422
+                ) from None
+        else:
+            if self.catalog:
+                raise OrderSourceError("Refresh this website before placing an order.", 422)
+            payload = self._order_payload(request, idempotency_key, self._menu)
+        # Prepared checkouts are immutable. Retrying after a menu edit sends exactly the
+        # same Square request/key, even across independent serverless instances.
+        result = await self._request("POST", "/v2/orders", payload)
         return self._snapshot(result.get("order", {}))

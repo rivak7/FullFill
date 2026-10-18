@@ -11,14 +11,38 @@ not charge payments, run camera checks, or mark orders fulfilled.
 2. Set `SQUARE_ENVIRONMENT=sandbox`, `SQUARE_ACCESS_TOKEN`, and
    `SQUARE_LOCATION_ID` in the root `.env`. `SQUARE_APPLICATION_ID` may stay there
    for future integrations; these server-side order calls don't require it.
-3. Run `make dev-api`. It reads `.env`; restart it after changing credentials.
-4. In another terminal run `make dev-web`.
-5. Open `http://127.0.0.1:5173/order` and `http://127.0.0.1:5173/fulfill`.
-6. Place an order. It joins the fulfillment queue automatically. Select its
+3. Set `FULLFILL_MENU_KEY` to a separate random code of at least 32 characters.
+   Run `uv run python scripts/seed_square_menu.py` once to add missing starter items
+   to Square Catalog. This preserves any existing edits, including archived items.
+4. Run `make dev-api`. It reads `.env`; restart it after changing credentials.
+5. In another terminal run `make dev-web`.
+6. Open `http://127.0.0.1:5173/order` and `http://127.0.0.1:5173/fulfill`.
+7. Place an order. It joins the fulfillment queue automatically. Select its
    ticket to see the item quantities. New arrivals never replace a selected ticket.
 
 The original screen-state examples are available separately at `/demo`.
 The `/` route opens the live fulfillment queue.
+
+## Edit the shared menu
+
+Open **Menu** on the kitchen site and enter the menu editing code. Staff can add
+items, change names and prices, mark items sold out, and archive or restore items.
+The ordering screen refreshes every five seconds and when returning to the tab.
+If a selected item changes, checkout pauses until the customer reviews the basket.
+Unavailable items must be removed before placing a new order.
+
+Menu data persists in Square Sandbox Catalog across computers and deployments.
+Only FullFill-managed catalog items at the configured location are editable here.
+Each variation's `user_data` holds the stable FullFill item ID, location, availability,
+and verification mode. Version checks reject conflicting simultaneous edits.
+New items still need vision reference enrollment; adding a menu item does not train
+the vision checker. Existing burritos retain label verification.
+
+The active kitchen queue shows the newest **30** nonempty open orders. When order
+31 arrives, the oldest drops out of every kitchen screen on the next refresh.
+The kitchen refresh archives overflow tickets using Square order metadata, so
+they stay out after reloads or after newer orders finish. The original Square order
+remains retrievable by ID; its payment and fulfillment state are unchanged.
 
 ## Two computers
 
@@ -43,16 +67,21 @@ is not authentication. The local servers do not need to be exposed publicly.
 
 | Route | Behavior |
 | --- | --- |
-| `GET /v1/menu` | Returns the server-owned demo menu, prices, and item IDs |
-| `POST /v1/orders` | Creates an order; requires an `Idempotency-Key` header |
-| `GET /v1/orders` | Lists open, nonempty orders at the configured location |
+| `GET /v1/menu/current` | Returns the shared catalog menu and its revision |
+| `GET /v1/menu/manage` | Reads the menu with staff authorization |
+| `POST /v1/menu/items` | Saves an item; requires `X-Menu-Key` and `Idempotency-Key` |
+| `POST /v1/orders/prepare` | Validates the menu revision and returns a signed checkout |
+| `POST /v1/orders` | Creates an order from that checkout with the same `Idempotency-Key` |
+| `GET /v1/orders` | Lists the newest 30 open, nonempty orders at the configured location |
 | `GET /v1/orders/{id}` | Retrieves the shared `OrderSnapshot` for a vision consumer |
 | `GET /v1/stations/main` | Returns those orders as a `StationSnapshot` |
+| `POST /v1/stations/main/refresh` | Archives queue overflow and returns the latest station snapshot |
 
-Creation body example:
+Preparation body example (use the revision returned by `/v1/menu/current`):
 
 ```json
 {
+  "menu_revision": "CURRENT_MENU_REVISION",
   "items": [
     {"item_id": "chicken_burrito", "quantity": 2},
     {"item_id": "fries", "quantity": 1},
@@ -61,19 +90,27 @@ Creation body example:
 }
 ```
 
+Submit the entire preparation response, including its opaque `quote`, to
+`POST /v1/orders` with the same idempotency key. Preparation does not create an order.
 The server chooses prices. Whole-item quantities are required. The browser retains
-an unconfirmed request and its idempotency key across reloads in that tab, and
-retries the same request so a lost response does not create another order.
+the prepared checkout, original basket details, and idempotency key across reloads
+in that tab. Retries send an identical Square request even if staff subsequently
+change the menu, so a lost response cannot create another order or reprice it.
+Prepared checkouts remain valid after menu edits; new checkouts use the current menu.
+Rotating the Square credential invalidates outstanding signed checkouts.
 An HTTP failure is shown explicitly and never substituted with fake orders.
 
-The adapter reads every page of the queue, up to a bounded 2,000-order demo limit.
+The adapter follows queue pages until it has 30 eligible tickets, with a bounded
+2,000-record scan if most records are empty or otherwise ineligible.
 Empty and terminal orders are excluded. Unsupported quantities produce a visible
 error instead of being rounded or silently omitted. Order IDs, line IDs, and
 Square revisions are retained. Customer records and payment details aren't sent
 to the frontend.
 
-The menu lives in `apps/api/fullfill/adapters/orders/demo-menu.json`; the UI loads
-it from the API. Created lines store `fullfill_item_id` in Square metadata. Earlier
+The starter menu lives in `apps/api/fullfill/adapters/orders/demo-menu.json`; live
+menu data comes from Square Catalog. Created lines store `fullfill_item_id` and
+`fullfill_verification_mode` in Square metadata. Renaming or archiving an item never
+rewrites existing order lines. Earlier
 ad hoc sample orders map by exact demo item name. Catalog-linked unknown items
 keep a `square:` ID and need explicit catalog/reference enrollment before vision
 checks are enabled. Burritos use label verification rather than guessing fillings.
@@ -93,9 +130,10 @@ call is triggered by these pages.
 
 ## Verification
 
-`python -m pytest -q tests/test_square_orders.py` covers request validation,
+`python -m pytest -q tests/test_square_orders.py tests/test_menu_sync.py` covers request validation,
 server-owned prices, idempotency forwarding, independent API instances, pagination,
-location isolation, provider failures, and pending check state. Run it in the
+location isolation, provider failures, the 30-ticket cap, shared menu editing,
+staff authorization, conflicting edits, safe checkout retries, and pending check state. Run it in the
 workspace virtual environment. `npm --prefix apps/web run build` checks TypeScript
 and builds both pages. Live Sandbox testing should use an explicitly identified
 test basket and verify that it appears in the other browser's queue.

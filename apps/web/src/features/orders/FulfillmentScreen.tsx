@@ -20,7 +20,7 @@ export function FulfillmentScreen() {
         const incoming = snapshot.orders ?? [];
         setOrders(incoming);
         // Incoming orders join the queue without replacing the ticket a worker is handling.
-        setSelected(current => current ?? incoming[0]?.order.order_id ?? null);
+        setSelected(current => incoming.some(state => state.order.order_id === current) ? current : incoming[0]?.order.order_id ?? null);
         setError(null);
       } catch (error) {
         if (!controller.signal.aborted) setError(error instanceof Error ? error.message : "Could not refresh orders.");

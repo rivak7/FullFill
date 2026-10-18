@@ -16,10 +16,18 @@ export interface MenuEntry {
   description: string;
   price_cents: number;
   currency: string;
+  available: boolean;
+  archived: boolean;
+  version: number;
 }
+
+export interface MenuSnapshot { revision: string; items: MenuEntry[] }
+export interface MenuEdit { item_id: string; name: string; price_cents: number; available: boolean; archived: boolean; version: number }
 
 export interface CreateOrderInput {
   items: { item_id: string; quantity: number }[];
+  menu_revision?: string;
+  quote?: string;
 }
 
 export class ApiError extends Error {
@@ -32,7 +40,19 @@ export class ApiError extends Error {
 const apiBase = (import.meta.env.VITE_API_BASE_URL ?? "").replace(/\/$/, "");
 const accessStorageKey = "fullfill.access.v1";
 let accessKey = "";
+let menuKey = "";
 try { accessKey = sessionStorage.getItem(accessStorageKey) ?? ""; } catch { /* In-memory access still works. */ }
+try { menuKey = sessionStorage.getItem("fullfill.menu-access.v1") ?? ""; } catch { /* In-memory access still works. */ }
+
+export function setMenuKey(value: string) {
+  menuKey = value;
+  try {
+    if (value) sessionStorage.setItem("fullfill.menu-access.v1", value);
+    else sessionStorage.removeItem("fullfill.menu-access.v1");
+  } catch { /* Keep the code in memory when storage is unavailable. */ }
+}
+
+export const hasMenuKey = () => !!menuKey;
 
 export function setAccessKey(value: string) {
   accessKey = value;
@@ -79,8 +99,15 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 
 export const orderApi = {
   session: (signal?: AbortSignal) => request<{ required: boolean; authenticated: boolean }>("/session", { signal }),
-  menu: (signal?: AbortSignal) => request<MenuEntry[]>("/menu", { signal }),
-  station: (signal?: AbortSignal) => request<StationSnapshot>("/stations/main", { signal }),
+  menu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/current", { signal }),
+  managedMenu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/manage", { signal, headers: { "X-Menu-Key": menuKey } }),
+  saveMenu: (body: MenuEdit, key: string) => request<MenuSnapshot>("/menu/items", {
+    method: "POST", headers: { "X-Menu-Key": menuKey, "Idempotency-Key": key }, body: JSON.stringify(body),
+  }),
+  station: (signal?: AbortSignal) => request<StationSnapshot>("/stations/main/refresh", { method: "POST", signal }),
+  prepare: (body: CreateOrderInput, key: string) => request<CreateOrderInput>("/orders/prepare", {
+    method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
+  }),
   create: (body: CreateOrderInput, key: string) => request<OrderSnapshot>("/orders", {
     method: "POST",
     headers: { "Idempotency-Key": key },

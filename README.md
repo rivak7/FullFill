@@ -3,7 +3,9 @@
 DubHacks '26 order checker. [order-checker.md](order-checker.md) is the main project plan.
 
 **Current status:** Square Sandbox order entry and the live fulfillment queue work
-at `/order` and `/fulfill`. See [the Square demo setup](docs/square-demo.md).
+at `/order` and `/fulfill`. Kitchen staff can edit a shared Square Catalog menu;
+ordering screens pick up prices, sold-out items, and archived items automatically.
+The kitchen queue keeps the newest 30 open tickets. See [the Square demo setup](docs/square-demo.md).
 The vision adapter and comparison logic exist, but camera/check orchestration,
 persistence, and result delivery still need integration. Existing `config.py`
 and `camera_input_number.py` are preserved.

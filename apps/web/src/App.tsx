@@ -4,6 +4,7 @@ import { FulfillmentScreen } from "./features/orders/FulfillmentScreen";
 import { StationScreen } from "./features/station/StationScreen";
 import { scenarios } from "./features/station/fakeOrders";
 import { AccessGate } from "./features/access/AccessGate";
+import { MenuEditor } from "./features/orders/MenuEditor";
 import { homePath, siteScreen } from "./site";
 import "./app.css";
 
@@ -24,9 +25,18 @@ export function App() {
       </header>
       {!valid ? (
         <main className="empty-state"><h1>Page not found</h1><a href={homePath}>Go back</a></main>
-      ) : <AccessGate>{ordering ? <OrderingScreen /> : <FulfillmentScreen />}</AccessGate>}
+      ) : <AccessGate>{ordering ? <OrderingScreen /> : <KitchenScreen />}</AccessGate>}
     </div>
   );
+}
+
+function KitchenScreen() {
+  const [menu, setMenu] = useState(window.location.hash === "#menu");
+  function navigate(value: boolean) { setMenu(value); window.history.replaceState(null, "", window.location.pathname + window.location.search + (value ? "#menu" : "")); }
+  return <>
+    <nav className="kitchen-tabs" aria-label="Kitchen navigation"><button aria-current={!menu ? "page" : undefined} onClick={() => navigate(false)}>Orders</button><button aria-current={menu ? "page" : undefined} onClick={() => navigate(true)}>Menu</button></nav>
+    {menu ? <MenuEditor /> : <FulfillmentScreen />}
+  </>;
 }
 
 function DemoScreen() {
