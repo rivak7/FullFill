@@ -4,6 +4,7 @@ import { StationScreen } from "../station/StationScreen";
 import { amberReason, toScreenState } from "../station/screenState";
 import { heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
+import { forgetLocalHistory, isDevMode } from "../../devMode";
 
 type StatusAttempt = { id: string; body: OrderStatusEdit; key: string; restoreSelection?: boolean };
 type Undo = { id: string; revision: number; expires: number };
@@ -154,11 +155,23 @@ export function FulfillmentScreen() {
     void submit({ id: undo.id, body: { worker_id: workerId, status: "unfulfilled", expected_revision: undo.revision }, key: crypto.randomUUID(), restoreSelection: true });
   }
 
+  // Dev mode: hide every ticket (archived in Square, not cancelled), forget this
+  // browser's logs and counters, and reload for a clean session.
+  async function startFresh() {
+    if (!window.confirm("Clear the kitchen queue and this browser's logs?")) return;
+    try { await orderApi.clearStation(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : "Could not clear the queue."); return; }
+    forgetLocalHistory();
+    window.location.reload();
+  }
+
   return (
     <div className="fulfillment-page">
       <div className="queue-toolbar">
         <div><span className={`connection-dot ${error ? "offline" : loading ? "loading" : ""}`} /><strong>{error ? "Disconnected" : loading ? "Connecting…" : "Kitchen queue"}</strong>{!error && !loading && <span className="queue-count">{waiting} to do · {orders.length - waiting} fulfilled</span>}</div>
-        <button disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
+        <div>
+          {isDevMode() && <button disabled={busy} onClick={() => void startFresh()}>Start fresh</button>}
+          <button disabled={busy} onClick={() => setRefresh(value => value + 1)}>Refresh</button>
+        </div>
       </div>
       {error && <div className="connection-error" role="alert">{error}</div>}
       {actionError && <div className="connection-error" role="alert">{actionError}{pending && <button className="secondary-button" disabled={busy} onClick={() => void submit(pending)}>{busy ? "Saving…" : "Retry status"}</button>}</div>}

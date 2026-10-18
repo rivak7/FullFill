@@ -845,6 +845,13 @@ def test_visual_diagnostics_return_exact_inputs_without_persisting_photos(fails)
         else:
             assert diagnostic["observations"]["targets"][0]["status"] == "unsure"
             assert diagnostic["observations"]["unexpected_items"][0]["name"] == "Drink"
+            assert set(diagnostic["timings_ms"]) == {
+                "square_order",
+                "square_menu",
+                "reference_photos",
+                "perceptron",
+                "saving_result",
+            }
         assert "data:image" not in json.dumps(square.order)
         assert "diagnostics" not in client.get("/v1/stations/main").text
         duplicate = client.post(

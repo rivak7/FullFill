@@ -465,3 +465,18 @@ def test_repeating_page_cursor_does_not_silently_return_a_partial_queue():
     ) as client:
         response = client.get("/v1/orders")
     assert response.status_code == 502
+
+
+def test_start_fresh_archives_every_ticket_without_cancelling_it():
+    orders = [square_order(f"order-{number}") for number in range(3)]
+    with_status(orders[0], "fulfilled")
+    with_status(orders[1], "unsure")
+    store = QueueStore(orders)
+    with client_for(store) as kitchen:
+        assert status_request(kitchen, "order-2", "fulfilled").status_code == 200
+        response = kitchen.post("/v1/stations/main/clear")
+        assert response.status_code == 200, response.text
+        assert response.json()["orders"] == []
+        assert kitchen.post("/v1/stations/main/refresh").json()["orders"] == []
+    assert all(order["metadata"]["fullfill_queue_archived"] == "true" for order in orders)
+    assert all(order["state"] == "OPEN" for order in orders)

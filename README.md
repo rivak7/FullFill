@@ -51,9 +51,8 @@ Camera checks require `PERCEPTRON_API_KEY` on the backend. Keep it out of `VITE_
 variables. Open the kitchen page and enable the camera once. **Automatic checks**
 start enabled and stay enabled as fulfilled tickets advance through the queue.
 Place the first order in view after the preview starts; a changed view that stays
-still for 750 ms triggers a check. An unchanged view is also checked after five
-seconds, then five seconds after each completed check while the ticket remains
-unresolved. **Check order** remains an optional manual
+still for 750 ms triggers a check. Turning automatic checks on also takes one look
+after five seconds, and an amber result gets one recheck. **Check order** remains an optional manual
 capture with no separate handoff confirmation.
 
 For subsequent tickets, the browser observes two transitions: the previous view
@@ -81,15 +80,22 @@ If the iPhone is unavailable, the browser camera is used. A manual dropdown choi
 is respected while that view remains mounted. Camera permission is still required.
 
 Open the **CV logs** tab for a scrollable per-check timeline, order/attempt IDs,
-trigger, elapsed time, and final decision. Each new check includes the exact normalized
+trigger, elapsed time, and final decision.
+
+**Dev mode** (open the kitchen with `?dev=1`; `?dev=0` turns it off) adds the heavy
+debugging data below and a **Start fresh** button. Start fresh archives every ticket in
+the queue (Square metadata only; nothing is cancelled), clears this browser's logs and
+check counter, and reloads. Normal mode skips the photos, boxes and timings so each
+check returns faster. In dev mode each check includes the exact normalized
 order image and selected reference images sent to Perceptron, plus its structured
-item counts, uncertainty, readable labels, and unexpected items. New checks request
+item counts, uncertainty, readable labels, unexpected items, and how long each server
+step took (Square, reference photos, Perceptron, saving). Dev-mode checks request
 normalized object boxes in the same model call and draw valid locations on the
 exact order image, with a toggle to hide them. Boxes label present/unsure/unexpected
 objects; they do not decide fulfillment. Invalid or absent geometry is omitted
 without invalidating a usable recognition result. Logs also show reported input and
 output tokens, model time, and the model name; no confidence percentages are invented. These model reports
-are separate from the final decision, which can reject a result after movement.
+are separate from the final decision.
 The latest 50 text reports persist in this browser tab's session; photos for the
 last 10 checks stay in memory until reload. **Copy logs** excludes photos, and
 **Clear logs** removes this history without resetting usage. Photos are returned
@@ -128,9 +134,10 @@ as are uncertain items and a poor camera view (with an instruction for improving
 contradictory, malformed, or stale results cannot produce a green screen.
 
 Camera results first persist as `awaiting_confirmation`. The capturing browser
-keeps sampling during inference, including manual checks, and confirms only if
-its view stayed unchanged. Movement, a hidden tab, camera loss, or a sampling gap
-invalidates the photo; missing confirmation expires to orange after 15 seconds.
+confirms it when the answer arrives. The result describes the photo that was sent,
+so movement afterwards (bagging, a hand) never revokes it; items added during the
+check start a new check once the mat settles. A changed ticket, a hidden tab or a
+lost camera invalidates the photo; missing confirmation expires to orange after 15 seconds.
 Confirmation also compares the current menu reference fingerprint against the one
 used for inference. Changed photos, names, modes, or catalog versions require a
 fresh check; a menu outage cannot approve the result. Catalog and order writes

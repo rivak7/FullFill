@@ -317,7 +317,7 @@ def test_boxes_are_requested_in_same_call_and_linked_to_observed_items():
             "unexpected_items": [{"name": "Unknown cup", "count": 1, "boxes": [box]}],
         }
     )
-    observed = run(vision(client).inspect(REQUEST))
+    observed = run(vision(client, boxes=True).inspect(REQUEST))
     assert len(client.requests) == 1
     sent = client.requests[0]
     schema = sent["response_format"]["json_schema"]["schema"]["properties"]
@@ -391,3 +391,16 @@ def test_rate_limit_spaces_calls_one_second_apart_without_a_cap(monkeypatch):
         now[0] += 0.25  # the next request arrives a quarter second later
     assert waits == [0.75, 0.75]
     assert limiter.calls == 3
+
+
+def test_boxes_are_left_out_unless_asked_for():
+    client = FakeClient(
+        {"items": [entry("chicken_burrito", label="C"), entry("mayo")], "unexpected_items": []}
+    )
+    observed = run(vision(client).inspect(REQUEST))
+    sent = client.requests[0]
+    schema = sent["response_format"]["json_schema"]["schema"]["properties"]
+    assert "boxes" not in schema["items"]["items"]["properties"]
+    assert "boxes" not in schema["unexpected_items"]["items"]["properties"]
+    assert "boxes" not in sent["messages"][0]["content"][-1]["text"]
+    assert observed.provider.prompt_version == "order-check-v6"

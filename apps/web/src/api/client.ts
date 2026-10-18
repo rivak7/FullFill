@@ -43,6 +43,7 @@ export interface CameraDiagnostics {
   targets: VerificationTarget[];
   references: { item_id: string; name: string; revision: number; role: "expected" | "alternative"; image: string | null }[];
   observations: Observations | null;
+  timings_ms?: Record<string, number>;
 }
 export type CameraResponse = OrderState & { diagnostics?: CameraDiagnostics | null };
 
@@ -120,6 +121,7 @@ export const orderApi = {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
   }),
   station: (signal?: AbortSignal) => request<StationSnapshot>("/stations/main/refresh", { method: "POST", signal }),
+  clearStation: () => request<StationSnapshot>("/stations/main/clear", { method: "POST" }),
   setStatus: (id: string, body: OrderStatusEdit, key: string) => request<OrderState>(`/orders/${encodeURIComponent(id)}/status`, {
     method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
   }),
