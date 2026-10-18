@@ -225,3 +225,83 @@ def test_label_without_aliases_must_name_the_item_not_just_contain_text():
             json.dumps({"items": [entry("fries", label=label)], "unexpected_items": []}), request
         )
         assert observations[0].status == expected
+
+
+def alternative_request(mode="visible_item"):
+    return VisionInput(
+        capture_id="alternatives",
+        image=IMAGE,
+        targets=(target("fries", "Fries"),),
+        references=(
+            ReferenceImage(
+                item_id="chips", name="Chips", revision=1, image=IMAGE, verification_mode=mode
+            ),
+        ),
+    )
+
+
+def alternative_answer(**changes):
+    extra = {
+        "name": "Model nickname",
+        "item_id": "chips",
+        "count": 1,
+        "instead_of_target_id": "fries",
+        "label_text": None,
+        **changes,
+    }
+    return {
+        "items": [entry("fries", "missing", 0)],
+        "unexpected_items": [extra],
+        "scene_status": "clear",
+    }
+
+
+def test_alternative_references_are_sent_once_and_identity_uses_saved_menu_name():
+    client = FakeClient(alternative_answer())
+    observed = run(vision(client).inspect(alternative_request()))
+    assert len(client.requests) == 1
+    sent = client.requests[0]
+    schema = sent["response_format"]["json_schema"]["schema"]
+    assert schema["properties"]["unexpected_items"]["items"]["properties"]["item_id"]["enum"] == [
+        "chips",
+        None,
+    ]
+    prompt = sent["messages"][0]["content"][-1]["text"]
+    assert "- chips: Chips" in prompt and "Never force a match" in prompt
+    extra = observed.unexpected_items[0]
+    assert (extra.name, extra.item_id, extra.quantity, extra.instead_of_target_id) == (
+        "Chips",
+        "chips",
+        1,
+        "fries",
+    )
+
+
+@pytest.mark.parametrize(
+    "changes",
+    [
+        {"item_id": "invented"},
+        {"item_id": "fries"},
+        {"count": True},
+        {"count": -1},
+        {"instead_of_target_id": "invented"},
+    ],
+)
+def test_invalid_alternative_identity_and_counts_are_rejected(changes):
+    with pytest.raises(VisionProviderError):
+        parse_answer(json.dumps(alternative_answer(**changes)), alternative_request())
+
+
+def test_unreadable_alternative_label_is_unidentified_not_a_forced_match():
+    _, extras = parse_answer(json.dumps(alternative_answer()), alternative_request("label"))
+    assert extras[0].item_id is None and extras[0].instead_of_target_id is None
+    _, extras = parse_answer(
+        json.dumps(alternative_answer(label_text="Chips")), alternative_request("label")
+    )
+    assert extras[0].item_id == "chips"
+
+
+def test_unknown_item_never_keeps_a_speculative_substitution():
+    _, extras = parse_answer(json.dumps(alternative_answer(item_id=None)), alternative_request())
+    assert extras[0].name == "Model nickname"
+    assert extras[0].item_id is None and extras[0].instead_of_target_id is None

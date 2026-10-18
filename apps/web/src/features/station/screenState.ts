@@ -49,7 +49,7 @@ export function toScreenState(state: OrderState): ScreenState {
     return {
       tone: "amber",
       headline: "Needs review",
-      detail: check.execution_status === "superseded" ? "The camera view changed or confirmation expired. Take a new photo." : "Camera check failed. Check manually or take a new photo.",
+      detail: check.error_code === "reference_changed" ? "Menu reference photos changed. Check this order again." : check.execution_status === "superseded" ? "The camera view changed or confirmation expired. Take a new photo." : "Camera check failed. Check manually or take a new photo.",
       lines,
       problems: [],
       confirmedByStaff: false,
@@ -59,7 +59,7 @@ export function toScreenState(state: OrderState): ScreenState {
     return { tone: "checking", headline: "Checking…", detail: null, lines, problems: [], confirmedByStaff: false };
   }
 
-  const isUnsure = (d: Discrepancy) => d.kind === "unsure" || (d.kind === "unexpected" && d.expected_quantity == null);
+  const isUnsure = (d: Discrepancy) => d.kind === "unsure" || d.kind === "unidentified" || (d.kind === "unexpected" && d.expected_quantity == null);
   const definite = discrepancies.filter((d) => !isUnsure(d));
   const unsure = discrepancies.filter(isUnsure);
 

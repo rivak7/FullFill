@@ -86,7 +86,9 @@ class OrderSource(Protocol):
         self, order_id: str, revision: int, image_digest: str, request_key: str, worker_id: str
     ) -> tuple[dict | None, OrderState]: ...
 
-    async def finish_camera_check(self, reserved: dict, observations=None) -> OrderState: ...
+    async def finish_camera_check(
+        self, reserved: dict, observations=None, reference_version=None
+    ) -> OrderState: ...
 
     async def confirm_camera_check(
         self, order_id: str, check_id: str, revision: int, worker_id: str, scene_unchanged: bool

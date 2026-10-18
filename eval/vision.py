@@ -2,7 +2,7 @@
 
 The request, prompt and answer parsing live in the app's Perceptron adapter
 (apps/api/fullfill/adapters/vision/perceptron.py), and verdicts come from
-fullfill.domain.compare_order, so the eval measures exactly what the app runs.
+fullfill.domain.compare_order, and reference candidates use the same local selector as the website.
 This file adds what only the eval needs: photos from disk, a persistent call
 budget, and plain dict results for scoring.
 """
@@ -17,6 +17,8 @@ from pathlib import Path
 import cv2
 from fullfill.adapters.vision import perceptron as adapter
 from fullfill.domain.compare_order import compare_order
+from fullfill.domain.reference_selection import choose_alternatives
+from fullfill.application.order_source import MenuEntry, MenuSnapshot
 from fullfill_contracts.orders import OrderLine, OrderSnapshot
 from fullfill_contracts.vision import (
     ImageInput,
@@ -39,7 +41,7 @@ OUTPUT_PRICE = 1.50
 
 # Lifetime cap across every eval run, so repeated runs can't add up either.
 MAX_TOTAL_CALLS = int(os.getenv("EVAL_MAX_TOTAL_CALLS", "200"))
-REFERENCE_MAX_SIDE = 512   # references can be smaller than the order photo
+REFERENCE_MAX_SIDE = 640   # references can be smaller than the order photo
 
 
 class BudgetExceeded(RuntimeError):
@@ -126,10 +128,23 @@ def make_target(item_id, menu):
 def build_request(image_path, item_ids, menu, use_references, refs_per_item):
     refs = []
     if use_references:
-        for item_id in item_ids:
-            for ref in reference_photos(item_id, refs_per_item):
-                image = ImageInput(jpeg_bytes(ref, REFERENCE_MAX_SIDE), "image/jpeg")
-                refs.append(ReferenceImage(item_id=item_id, revision=1, image=image))
+        saved = {i: [ImageInput(jpeg_bytes(path, REFERENCE_MAX_SIDE), "image/jpeg")
+                     for path in reference_photos(i, refs_per_item)] for i in menu}
+        snapshot = MenuSnapshot(revision="eval", items=[MenuEntry(
+            item_id=i, name=details["name"], description="", price_cents=0,
+            verification_mode="label" if details.get("label") else "visible_item")
+            for i, details in menu.items()])
+        first_images = {i: photos[0] for i, photos in saved.items() if photos}
+        missing = set(item_ids) - first_images.keys()
+        if missing:
+            raise FileNotFoundError("Missing reference photos: " + ", ".join(sorted(missing)))
+        alternatives = choose_alternatives(snapshot, set(item_ids), first_images)
+        included = list(item_ids) + [item.item_id for item in alternatives]
+        for item_id in included:
+            for image in saved[item_id]:
+                refs.append(ReferenceImage(item_id=item_id, revision=1, image=image,
+                                           name=menu[item_id]["name"],
+                                           verification_mode="label" if menu[item_id].get("label") else "visible_item"))
     image = ImageInput(jpeg_bytes(image_path, config.UPLOAD_MAX_SIDE), "image/jpeg")
     return VisionInput(capture_id=str(image_path), image=image,
                        targets=tuple(make_target(i, menu) for i in item_ids), references=tuple(refs))
@@ -151,6 +166,7 @@ class CheckResult:
     prompt_tokens: int | None = None
     completion_tokens: int | None = None
     n_references: int = 0
+    scene_uncertainty: str | None = None
 
     @property
     def cost(self):
@@ -173,7 +189,7 @@ def parse_answer(text, item_ids, menu=None):
         targets, unexpected = adapter.parse_answer(text, request)
     except adapter.VisionProviderError as exc:
         raise ValueError(str(exc)) from exc
-    return to_items(Observations(capture_id="parse", targets=targets)), unexpected
+    return to_items(Observations(capture_id="parse", targets=targets)), [item.model_dump(exclude_none=True) for item in unexpected]
 
 
 def make_client(model=None):
@@ -201,7 +217,8 @@ def check_order(vision, guard, image_path, item_ids, menu, use_references=True, 
     latency = time.perf_counter() - start
     provider = observations.provider
     return CheckResult(ok=True, latency_s=latency, items=to_items(observations),
-                       unexpected=[u.name for u in observations.unexpected_items],
+                       unexpected=[u.model_dump(exclude_none=True) for u in observations.unexpected_items],
+                       scene_uncertainty=observations.scene_uncertainty,
                        raw=observations.model_dump_json(), n_references=n_refs,
                        prompt_tokens=provider.prompt_tokens if provider else None,
                        completion_tokens=provider.completion_tokens if provider else None)
@@ -223,6 +240,8 @@ def verdict(order, result):
         TargetObservation(target_id=i, status=seen["status"], observed_quantity=seen["count"],
                           reason=seen.get("reason"), label_text=seen.get("label_text"))
         for i, seen in result.items.items() if i in order])
+    observations.scene_uncertainty = result.scene_uncertainty
     if result.unexpected:
-        observations.unexpected_items.extend(UnexpectedItem(name=n) for n in result.unexpected)
+        observations.unexpected_items.extend(UnexpectedItem(name=n) if isinstance(n, str) else UnexpectedItem(**n)
+                                            for n in result.unexpected)
     return COLORS[compare_order(snapshot, observations).verdict]

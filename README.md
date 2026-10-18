@@ -35,7 +35,8 @@ exceeded during this grace period. Cleanup and
 manual statuses leave Square's payment and native fulfillment state unchanged.
 Deleted menu items are archived in Square and hidden from the menu, with no
 restore option in the UI. Existing starter items can be edited without photos;
-new items require one. Camera checks use saved photos for items on the ticket as references.
+new items require one. Camera checks include saved photos for ticket items and
+up to six alternative menu items selected using local image and name similarity.
 
 The capture package still contains interfaces and TODOs for camera/replay sources,
 stillness triggering, QR decoding, cropping, and uploading. The browser uses its
@@ -47,7 +48,10 @@ such as “no onion.” A saved menu photo is a visual reference, not model trai
 
 Camera checks require `PERCEPTRON_API_KEY` on the backend. Keep it out of `VITE_`
 variables. Open the kitchen page, select an unresolved ticket, enable the camera,
-and choose **Check order**. **Auto check after movement** is off by default.
+clear the previous order, place the selected order in view, and select **New order
+placed** before **Check order**. Each ticket change, ticket-content edit, or camera
+restart requires this handoff again. This is a staff confirmation, not automatic
+proof that the counter was cleared. **Auto check after movement** is off by default.
 There are no application spending caps or forced cooldowns for browser checks.
 Only one check runs at a time for a ticket, duplicate requests remain idempotent,
 and failures are not automatically retried. Expand **Check activity** to count
@@ -62,7 +66,7 @@ Each kitchen screen reserves its selected unresolved order for two minutes,
 renewing while it works. Other screens skip that ticket and show “Working on
 another screen.” Switching releases unfinished work; closing or losing a screen
 lets the reservation expire. This coordinates software screens, not physical
-staff activity, and the shared demo code is still the access boundary.
+staff activity; the kitchen code is the staff access boundary.
 
 ### Camera decisions and corrections
 
@@ -70,14 +74,21 @@ The browser handles camera preview, cropping, movement detection, and stillness
 without installing Python or OpenCV. Only a selected still image is uploaded to
 the Vercel API, which calls Perceptron with the server-side key. Reference photos
 identify menu items; they do not train the model or prove hidden ingredients.
-Missing references block the provider call and name the items needing photos.
+Missing ticket references block the provider call and name the items needing photos.
+Alternative selection uses a cheap retrieval heuristic, not a trained identity
+classifier. All available active menu photos participate in retrieval; selected
+alternatives travel in the same model request. Downloads are cached by URL and
+catalog version. Broken reference downloads fail visibly before a paid call.
 Ticket lines with different options stay separate; variations, modifiers, and
 special instructions require staff confirmation even when the counts match.
 
 Perceptron reports observed counts and uncertainty; application rules decide the
 status. The expected counts remain outside the model prompt. Green means a clear
 snapshot match and advances upward in the queue. Red names definite shortages or
-excesses. Orange names uncertain items or gives an instruction for improving the
+excesses, or a confidently identified wrong menu item. A clear substitution can
+show both the missing item and what appeared instead. Unknown objects remain
+explicitly unidentified, without forcing a menu match. Orange names uncertain
+items or gives an instruction for improving the
 camera view. An API error is orange, never evidence that food is missing. Partial,
 contradictory, malformed, or stale results cannot produce a green screen.
 
@@ -85,6 +96,10 @@ Camera results first persist as `awaiting_confirmation`. The capturing browser
 keeps sampling during inference, including manual checks, and confirms only if
 its view stayed unchanged. Movement, a hidden tab, camera loss, or a sampling gap
 invalidates the photo; missing confirmation expires to orange after 15 seconds.
+Confirmation also compares the current menu reference fingerprint against the one
+used for inference. Changed photos, names, modes, or catalog versions require a
+fresh check; a menu outage cannot approve the result. Catalog and order writes
+are separate operations, so a change after the comparison is still possible.
 This is a motion heuristic, not proof against subtle visual changes. The final
 network acknowledgment also has a small race window; detected movement requests
 revocation of that same result without another model call.
@@ -186,7 +201,8 @@ development proxy forwards `/v1` requests to port 8000.
 | --- | --- |
 | `SQUARE_ENVIRONMENT` | Set to `sandbox`; the current adapter rejects production configuration. |
 | `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID` | Backend credentials/location for shared orders and catalog. |
-| `FULLFILL_ACCESS_KEY` | Optional local demo access code; required on Vercel. When set, it must contain at least 32 characters. |
+| `FULLFILL_ACCESS_KEY` | Ordering access code; at least 32 characters. Required with the kitchen code on Vercel or whenever either code is configured locally. |
+| `FULLFILL_KITCHEN_KEY` | Separate staff access code; at least 32 characters and different from the ordering code. |
 | `FULLFILL_WEB_ORIGINS` | Comma-separated exact frontend origins for API CORS when hosting sites separately. |
 | `VITE_API_BASE_URL` | Public API origin, configured before frontend builds. Separate-site builds require an HTTPS URL. Local development uses the proxy by default. |
 | `PERCEPTRON_API_KEY` | Required only for real vision/evaluation calls. |
@@ -195,8 +211,10 @@ development proxy forwards `/v1` requests to port 8000.
 
 Keep Square credentials, the Perceptron key, and the demo access code on the
 backend. Never prefix secrets with `VITE_`, which exposes values in browser builds.
-The hosted demo uses a shared bearer access code stored per browser tab; it is
-demo access control rather than individual user accounts.
+The hosted demo uses separate ordering and kitchen bearer codes stored per browser
+tab. Ordering access allows menu reads and checkout; kitchen access also allows
+queue reads, menu edits, claims, status changes, and camera checks. These are
+shared role codes, not individual user accounts.
 
 The repository supports three Vercel projects: one FastAPI backend plus separate
 order and kitchen sites. Separate builds use `build:order` and `build:fulfill`,
@@ -231,7 +249,8 @@ their version-checked reservations and results are shared through Square metadat
 
 All routes below use the `/v1` prefix. With an access code configured, API reads
 and writes require `Authorization: Bearer <demo-code>`; `/session` reports access
-state without requiring authentication.
+state and role without requiring authentication. `/session?scope=kitchen` checks
+staff access. Ordering credentials are denied all kitchen operations.
 
 | Method and path | Behavior |
 | --- | --- |

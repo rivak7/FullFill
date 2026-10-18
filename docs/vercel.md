@@ -11,9 +11,10 @@ Production URLs in the `iceberg-projects` Vercel account:
 - Kitchen: https://fullfill-kitchen.vercel.app
 - API: https://fullfill-api.vercel.app
 
-The demo access code is stored in the ignored root `.env` as
-`FULLFILL_ACCESS_KEY`. Share it with the people using the demonstration; do not
-share the Square access token. The API also stores this code as a Vercel secret.
+The ignored root `.env` stores `FULLFILL_ACCESS_KEY` for ordering and
+`FULLFILL_KITCHEN_KEY` for kitchen staff. Both are server-side Vercel secrets
+on the API project. Give each person the code for their role; never share the
+Square or Perceptron API token.
 
 | Project | Root directory | Framework | Build command | Output |
 | --- | --- | --- | --- | --- |
@@ -32,7 +33,8 @@ Set these only on the API project, as server-side secrets:
 
 - `SQUARE_ENVIRONMENT=sandbox`
 - `SQUARE_ACCESS_TOKEN` and `SQUARE_LOCATION_ID` from the Sandbox account
-- `FULLFILL_ACCESS_KEY`: a randomly generated access code, at least 32 characters
+- `FULLFILL_ACCESS_KEY`: a randomly generated ordering code, at least 32 characters
+- `FULLFILL_KITCHEN_KEY`: a different randomly generated kitchen code, at least 32 characters
 - `FULLFILL_WEB_ORIGINS`: the exact order and kitchen HTTPS origins, separated
   by a comma, without trailing slashes
 
@@ -40,14 +42,15 @@ On both frontend projects, set `VITE_API_BASE_URL` to the API's production HTTPS
 origin, without a path. This URL is public. Never put an access code or Square
 credential in a `VITE_` variable: Vite includes those values in browser code.
 
-Each site asks for the demo access code once per tab session. It is sent in an
-Authorization header and remembered in session storage. The API checks it on
-order reads and writes. Hosted deployments fail closed if the code is missing
-or too short; local development without a code remains available. Rotating the
-code invalidates existing sessions. This shared demo code is not per-user access
-control and is intended for the Sandbox demonstration.
+Each site asks for its role’s code once per tab session. It is sent in an
+Authorization header and remembered in session storage. The API restricts the
+ordering code to public menu reads and checkout; staff operations require the
+kitchen code regardless of the caller’s origin. Deployments fail closed if
+either configured code is missing, too short, or identical to the other. Local
+development with neither code remains available. Rotating a code invalidates
+its sessions. These shared role codes are intended for the Sandbox demo.
 
-The kitchen **Menu** tab opens directly using the existing demo session.
+The kitchen **Menu** tab opens directly using the kitchen session.
 There is no additional menu editing code or secret to configure.
 Run `uv run python scripts/seed_square_menu.py` once against the same Sandbox
 location before deploying the catalog-backed menu. Menu edits persist in Square;

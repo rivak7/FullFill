@@ -29,6 +29,8 @@ class TargetObservation(Contract):
 
 class UnexpectedItem(Contract):
     name: str
+    item_id: Identifier | None = None
+    instead_of_target_id: Identifier | None = None
     quantity: PositiveQuantity | None = None
 
 
@@ -62,6 +64,8 @@ class ReferenceImage:
     item_id: str
     revision: int
     image: ImageInput
+    name: str = ""
+    verification_mode: VerificationMode = "visible_item"
 
 
 @dataclass(frozen=True)

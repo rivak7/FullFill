@@ -165,7 +165,7 @@ def saved_reference_photos(monkeypatch):
             ],
         )
 
-    async def reference(_url):
+    async def reference(_url, revision=0):
         return ImageInput(b"fake-reference", "image/jpeg")
 
     monkeypatch.setattr(SquareOrders, "menu", menu)
@@ -308,7 +308,7 @@ def test_missing_references_never_fall_back_to_names_only(monkeypatch):
 
 
 def test_unavailable_reference_does_not_call_vision(monkeypatch):
-    async def unavailable(_url):
+    async def unavailable(_url, revision=0):
         raise httpx.ConnectError("unavailable")
 
     monkeypatch.setattr("fullfill.http.checks.reference_image", unavailable)
@@ -442,7 +442,7 @@ def test_ticket_edit_invalidates_a_completed_check():
     assert state["disposition"] == "pending"
 
 
-def test_uses_only_saved_references_for_ticket_items(monkeypatch):
+def test_uses_saved_ticket_and_alternative_references(monkeypatch):
     from fullfill.application.order_source import MenuEntry, MenuSnapshot
     from fullfill_contracts.vision import ImageInput
 
@@ -469,7 +469,7 @@ def test_uses_only_saved_references_for_ticket_items(monkeypatch):
             ],
         )
 
-    async def reference(url):
+    async def reference(url, revision=0):
         seen.append(url)
         return ImageInput(b"reference", "image/jpeg")
 
@@ -478,7 +478,9 @@ def test_uses_only_saved_references_for_ticket_items(monkeypatch):
     square, vision = Square(), Vision()
     with TestClient(square.app(vision)) as client:
         assert send(client).status_code == 200
-    assert len(seen) == 1 and seen[0].endswith("fries.jpg")
+    assert len(seen) == 2
+    assert {ref.item_id for ref in vision.calls[0].references} == {"fries", "drink"}
+    assert {ref.name for ref in vision.calls[0].references} == {"Fries", "Drink"}
     assert vision.calls[0].references[0].item_id == "fries"
 
 
@@ -702,3 +704,81 @@ def test_duplicate_provider_targets_cannot_be_compacted_into_a_pass():
         assert send(client).status_code == 502
         assert client.get("/v1/stations/main").json()["orders"][0]["disposition"] == "needs_review"
     assert len(vision.calls) == 1
+
+
+@pytest.mark.parametrize("moment", ["inference", "confirmation"])
+def test_reference_photo_change_rejects_old_evidence(monkeypatch, moment):
+    version = 1
+
+    async def menu(_source):
+        return MenuSnapshot(
+            revision=str(version),
+            items=[
+                MenuEntry(
+                    item_id="fries",
+                    name="Fries",
+                    description="",
+                    price_cents=400,
+                    version=version,
+                    photo_id=f"photo-{version}",
+                    photo_url="https://items-images-production.s3.amazonaws.com/fries.jpg",
+                )
+            ],
+        )
+
+    def change_photo():
+        nonlocal version
+        version += 1
+
+    monkeypatch.setattr(SquareOrders, "menu", menu)
+    square, vision = Square(), Vision()
+    if moment == "inference":
+        vision.before_result = change_photo
+    with TestClient(square.app(vision)) as client:
+        pending = send(client, confirm=False)
+        assert pending.status_code == 200, pending.text
+        if moment == "confirmation":
+            change_photo()
+        result = confirmation(client, pending.json())
+        assert result.status_code == 200, result.text
+        assert result.json()["disposition"] == "needs_review"
+        assert result.json()["current_check"]["error_code"] == "reference_changed"
+        assert result.json()["current_check"]["execution_status"] == "superseded"
+    assert len(vision.calls) == 1
+
+
+def test_menu_failure_during_confirmation_cannot_turn_ticket_green(monkeypatch):
+    from fullfill.application.order_source import OrderSourceError
+
+    async def unavailable(_source):
+        raise OrderSourceError("Menu unavailable", 503)
+
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        pending = send(client, confirm=False)
+        monkeypatch.setattr(SquareOrders, "menu", unavailable)
+        assert confirmation(client, pending.json()).status_code == 503
+        assert client.get("/v1/stations/main").json()["orders"][0]["disposition"] != "verified"
+
+
+def test_wrong_and_unknown_item_details_survive_square_storage():
+    class ExtrasVision(Vision):
+        async def inspect(self, request):
+            observed = await super().inspect(request)
+            observed.unexpected_items = [
+                UnexpectedItem(
+                    name="Chips", item_id="chips", quantity=1, instead_of_target_id="fries"
+                ),
+                UnexpectedItem(name="Covered container", quantity=1),
+            ]
+            return observed
+
+    square = Square()
+    with TestClient(square.app(ExtrasVision(count=1))) as client:
+        result = send(client)
+        assert result.status_code == 200, result.text
+        issues = result.json()["current_check"]["discrepancies"]
+        assert [issue["kind"] for issue in issues] == ["missing", "wrong_item", "unidentified"]
+        assert issues[1]["target_id"] == "fries" and issues[1]["observed_quantity"] == 1
+    with TestClient(square.app()) as other:
+        assert other.get("/v1/stations/main").json()["orders"][0] == result.json()

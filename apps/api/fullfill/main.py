@@ -1,6 +1,7 @@
 """ASGI entry point for the order entry and fulfillment screens."""
 
 import os
+from typing import Literal
 
 from fastapi import FastAPI, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
@@ -9,7 +10,7 @@ from fastapi.responses import JSONResponse
 from .adapters.orders.square import demo_menu
 from .application.order_source import MenuEntry, OrderSource, OrderSourceError
 from .http import router
-from .http.access import access_state
+from .http.access import access_state, authorize
 
 
 def create_app(order_source: OrderSource | None = None) -> FastAPI:
@@ -36,10 +37,7 @@ def create_app(order_source: OrderSource | None = None) -> FastAPI:
             and request.method != "OPTIONS"
         ):
             try:
-                if not access_state(request)["authenticated"]:
-                    response = JSONResponse(
-                        status_code=401, content={"detail": "Enter the demo access code."}
-                    )
+                authorize(request)
             except HTTPException as error:
                 response = JSONResponse(
                     status_code=error.status_code, content={"detail": error.detail}
@@ -59,8 +57,8 @@ def create_app(order_source: OrderSource | None = None) -> FastAPI:
         )
 
     @app.get("/v1/session", tags=["access"])
-    async def session(request: Request):
-        return access_state(request)
+    async def session(request: Request, scope: Literal["order", "kitchen"] = "order"):
+        return access_state(request, scope)
 
     @app.get("/v1/menu", response_model=list[MenuEntry], tags=["orders"])
     async def menu():
