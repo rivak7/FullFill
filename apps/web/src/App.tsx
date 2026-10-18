@@ -26,7 +26,6 @@ export function App() {
       <header className="app-header">
         <a className="brand" href={homePath}><img className="brand-logo" src="/fullfill-wordmark.svg" alt="FullFill" /></a>
         {siteScreen !== "order" && <nav aria-label="Main navigation">
-          {siteScreen === "combined" && <a href="/order" aria-current={ordering ? "page" : undefined}>Order</a>}
           <a href={kitchenPath} aria-current={!ordering && valid && !menu ? "page" : undefined}>Kitchen</a>
           <a href={`${kitchenPath}#menu`} aria-current={!ordering && valid && menu ? "page" : undefined}>Menu</a>
         </nav>}

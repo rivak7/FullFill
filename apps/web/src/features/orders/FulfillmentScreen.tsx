@@ -3,7 +3,7 @@ import { useEffect, useRef, useState } from "react";
 import { ApiError, orderApi, type OrderStatusEdit } from "../../api/client";
 import { StationScreen } from "../station/StationScreen";
 import { amberReason, toScreenState } from "../station/screenState";
-import { heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
+import { advancePastHeld, heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
 import { forgetLocalHistory, isDevMode } from "../../devMode";
 
@@ -26,6 +26,8 @@ export function FulfillmentScreen() {
   const [refresh, setRefresh] = useState(0);
   const [undo, setUndo] = useState<Undo | null>(null);
   const [cameraPause, setCameraPause] = useState(0);
+  // The order the camera just passed stays on screen while it is bagged.
+  const bagging = useRef<string | null>(null);
   const epoch = useRef(0);
   const saving = useRef(false);
   const list = useRef<HTMLElement>(null);
@@ -43,7 +45,7 @@ export function FulfillmentScreen() {
         const snapshot = await orderApi.station(controller.signal);
         if (controller.signal.aborted || started !== epoch.current) return;
         // The API keeps chronological order for cleanup; display newest at top.
-        setQueue(previous => reconcileQueue(previous, [...(snapshot.orders ?? [])].reverse(), workerId));
+        setQueue(previous => reconcileQueue(previous, [...(snapshot.orders ?? [])].reverse(), workerId, bagging.current));
         setError(null);
         retryDelay = 0;
       } catch (error) {
@@ -167,7 +169,8 @@ export function FulfillmentScreen() {
 
   learnOrderNumbers(orders.map(state => state.order));
   // Oldest on the left, like tickets on a rail; the API sends newest first.
-  const rail = [...orders].reverse();
+  // Fulfilled orders leave the rail; the one on screen stays until the mat is cleared.
+  const rail = [...orders].reverse().filter(state => !isFulfilled(state) || state.order.order_id === selected);
   return (
     <div className="fulfillment-page">
       <div className="queue-toolbar">
@@ -209,10 +212,15 @@ export function FulfillmentScreen() {
             saving.current = value; setBusy(value);
             if (value) epoch.current++;
             else setRefresh(count => count + 1);
-          }} onResult={updated => {
+          }} onResult={(updated, watching) => {
             if (isFulfilled(updated)) offerUndo(updated.order.order_id, updated.order.revision);
-            setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === updated.order.order_id ? updated : state), workerId));
+            bagging.current = watching ? updated.order.order_id : null;
+            setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === updated.order.order_id ? updated : state), workerId, bagging.current));
             setNotice(`#${orderNumber(updated.order.order_id)} · ${toScreenState(updated).headline}`);
+          }} onMatCleared={orderId => {
+            if (bagging.current !== orderId) return;
+            bagging.current = null;
+            setQueue(previous => previous.selected === orderId ? advancePastHeld(previous, workerId) : previous);
           }} />
       </div>
     </div>

@@ -189,7 +189,7 @@ a { color: inherit; }
 @keyframes scan { from { background-position: 0 -40%; } to { background-position: 0 140%; } }
 .camera-state { position: absolute; top: 14px; left: 14px; display: flex; align-items: center; gap: 8px; padding: 7px 14px 7px 12px; border-radius: 999px; background: rgba(255, 252, 246, .92); color: var(--text); font-size: 14px; font-weight: 700; box-shadow: 0 2px 8px #0002; }
 .camera-state::before { content: ""; width: 9px; height: 9px; border-radius: 50%; background: var(--muted); }
-.camera-state-live::before { background: var(--red); animation: pulse 1.6s infinite; }
+.camera-state[hidden] { display: none; }
 .camera-state-busy::before { background: var(--attention); animation: pulse .7s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
 .camera-check-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px 2px; }

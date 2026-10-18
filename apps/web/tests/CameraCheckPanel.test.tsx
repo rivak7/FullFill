@@ -63,7 +63,7 @@ it("takes one look when automatic checks start, then leaves a red or green view 
   await act(async () => vi.advanceTimersByTimeAsync(60000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
-  await click("Close camera");
+  await click("Turn off camera");
   expect(stopTrack).toHaveBeenCalledTimes(1);
 });
 
@@ -112,7 +112,7 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   await act(async () => resolve(checked()));
-  expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ order: expect.objectContaining({ order_id: "first" }) }));
+  expect(onResult).toHaveBeenCalledWith(expect.objectContaining({ order: expect.objectContaining({ order_id: "first" }) }), false);
   expect(onBusyChange.mock.calls.map(call => call[0])).toEqual([true, false]);
 });
 
@@ -374,7 +374,7 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
   } else if (kind === "hidden") {
     vi.spyOn(document, "hidden", "get").mockReturnValue(true);
     await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-  } else if (kind === "closed") await click("Close camera");
+  } else if (kind === "closed") await click("Turn off camera");
   const pending = checked(); pending.current_check!.execution_status = "awaiting_confirmation"; pending.current_check!.verdict = null;
   await act(async () => resolve(pending));
   // Movement after the photo (bagging, a hand) never revokes the result.
@@ -405,7 +405,7 @@ it("never revokes a green result after it is confirmed", async () => {
   let resolve!: (state: OrderState) => void;
   vi.mocked(orderApi.confirmCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await click("Check order");
-  await click("Close camera");
+  await click("Turn off camera");
   const accepted = checked(); accepted.current_check!.verdict = "pass";
   await act(async () => resolve(accepted));
   expect(vi.mocked(orderApi.confirmCamera).mock.calls.map(call => call[0].scene_unchanged)).toEqual([true]);
@@ -431,7 +431,7 @@ it("automatically checks consecutive identical meals without a handoff button or
   await render(ticket("second"));
   await observe(80, 10000); // Untouched food cannot check the next ticket.
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(container.textContent).toContain("Remove the previous order");
+  expect(container.textContent).toContain("Bag it and clear the mat");
   await observe(200, 250); await observe(80); // Brief hand wave.
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   await observe(0, 3000); // Cleared view is observed without an AI call.

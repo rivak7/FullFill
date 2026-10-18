@@ -15,7 +15,9 @@ interface Props {
   workerId: string;
   disabled: boolean;
   pauseToken?: number;
-  onResult: (state: OrderState) => void;
+  // `bagging` is true when the camera will watch this passed order get cleared off the mat.
+  onResult: (state: OrderState, bagging: boolean) => void;
+  onMatCleared?: (orderId: string) => void;
   onBusyChange: (busy: boolean) => void;
 }
 
@@ -50,6 +52,8 @@ export function CameraCheckPanel(props: Props) {
   const generation = useRef(0);
   const mounted = useRef(true);
   const trigger = useRef(new SceneTrigger());
+  // A passed order waiting for the mat to clear; the screen stays green until then.
+  const bagging = useRef<string | null>(null);
   const guard = useRef<SceneGuard | null>(null);
   const interruptedByTab = useRef(false);
   // One unprompted look when automatic checks start, and one recheck after an amber
@@ -57,6 +61,7 @@ export function CameraCheckPanel(props: Props) {
   const extraCheck = useRef<{ at: number; reason: CheckTrigger } | null>(null);
 
   function setAuto(value: boolean) {
+    if (!value && bagging.current) { const held = bagging.current; bagging.current = null; latest.current.onMatCleared?.(held); }
     extraCheck.current = value ? { at: Date.now() + 5000, reason: "first look" } : null;
     automaticRef.current = value; setAutomatic(value); trigger.current.reset();
   }
@@ -164,7 +169,9 @@ export function CameraCheckPanel(props: Props) {
       recheck = source !== "recheck after amber" && state.current_check?.execution_status === "completed" && state.current_check.verdict === "unsure";
       updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
       if (mounted.current) {
-        latest.current.onResult(state);
+        const watching = automaticRef.current && !!stream.current?.active && isFulfilled(state);
+        if (watching) { bagging.current = boundOrder.id; trigger.current.nextOrder(); setHandoff(trigger.current.handoff); }
+        latest.current.onResult(state, watching);
         if (state.current_check?.execution_status !== "completed") {
           const resume = interruptedByTab.current && automaticRef.current
             && state.current_check?.execution_status === "superseded"
@@ -206,6 +213,10 @@ export function CameraCheckPanel(props: Props) {
         const extra = extraCheck.current && now >= extraCheck.current.at ? extraCheck.current.reason : null;
         const settled = trigger.current.sample(sample(video.current), now, extra !== null);
         setHandoff(trigger.current.handoff);
+        if (bagging.current && trigger.current.handoff === "place") {
+          const cleared = bagging.current; bagging.current = null;
+          latest.current.onMatCleared?.(cleared);
+        }
         if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current(trigger.current.handoff ? "next order" : extra ?? "scene change");
       } catch { setAuto(false); trigger.current.interrupt(); setError("Camera processing stopped. Reopen the camera to continue."); }
     }, 250);
@@ -213,20 +224,20 @@ export function CameraCheckPanel(props: Props) {
   }, [open, ready]);
 
   const canCheck = ready && configured && !!props.order && !isFulfilled(props.order) && !props.disabled && !busy;
-  const status = busy ? "Checking… hold still" : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order" : automatic && handoff === "place" ? "Place the next order" : automatic ? "Watching the mat" : "Auto checks off";
+  const status = busy ? "Checking… hold still" : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Bag it and clear the mat" : automatic && handoff === "place" ? "Place the next order" : automatic ? null : "Auto-check is off";
   return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check">
     <div className="dock-bar">
       <div className="cv-tabs" role="tablist" aria-label="Camera and diagnostics">
         <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
         <button type="button" role="tab" id="logs-tab" aria-controls="logs-panel" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>CV logs</button>
       </div>
-      {open && <button className="text-button" onClick={stop}>Close camera</button>}
+      {open && <button className="text-button" onClick={stop}>Turn off camera</button>}
     </div>
     <div role="tabpanel" id="camera-panel" aria-labelledby="camera-tab" hidden={tab !== "camera"}>
     {open ? <div className="camera-check-body">
       <div className={`camera-frame${busy ? " camera-frame-busy" : ""}`}>
         <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
-        <span className={`camera-state${busy ? " camera-state-busy" : automatic && ready ? " camera-state-live" : ""}`} role="status">{status}</span>
+        <span className={`camera-state${busy ? " camera-state-busy" : ""}`} role="status" hidden={!status}>{status}</span>
       </div>
       <div className="camera-check-controls">
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>

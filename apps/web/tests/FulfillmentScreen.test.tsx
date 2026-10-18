@@ -6,7 +6,7 @@ import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { ApiError, orderApi } from "../src/api/client";
 import type { OrderState, StationSnapshot } from "../src/api/generated/contracts";
 import { FulfillmentScreen } from "../src/features/orders/FulfillmentScreen";
-import { reconcileQueue } from "../src/features/orders/queueState";
+import { advancePastHeld, reconcileQueue } from "../src/features/orders/queueState";
 
 vi.mock("../src/api/client", async importOriginal => ({
   ...await importOriginal<typeof import("../src/api/client")>(),
@@ -59,7 +59,7 @@ it("shows another screen's changes on the next one-second refresh", async () => 
   expect(orderApi.station).toHaveBeenCalledTimes(1);
   await act(async () => vi.advanceTimersByTimeAsync(1));
   expect(selected()).toContain(`#${orderNumber("second")}`);
-  expect(container.querySelector(".queue-green")?.textContent).toContain(`#${orderNumber("first")}`);
+  expect(container.querySelector(".order-queue")?.textContent).not.toContain(`#${orderNumber("first")}`);
 });
 
 it("waits for a slow refresh before starting another request", async () => {
@@ -91,7 +91,7 @@ it("backs off repeated failures up to thirty seconds and resumes fast refresh af
   expect(orderApi.station).toHaveBeenCalledTimes(++calls);
 });
 
-it("colors the queue, advances to orange work, and keeps completed tickets selectable", async () => {
+it("colors the queue, advances to orange work, and drops fulfilled tickets from the rail", async () => {
   await render();
   expect(selected()).toContain(`#${orderNumber("first")}`);
   expect([...container.querySelectorAll(".queue-ticket strong")].map(card => card.textContent)).toEqual([`#${orderNumber("first")}`, `#${orderNumber("second")}`, `#${orderNumber("third")}`]);
@@ -100,13 +100,9 @@ it("colors the queue, advances to orange work, and keeps completed tickets selec
   await click("Fulfill order");
   expect(selected()).toContain(`#${orderNumber("second")}`);
   expect(window.location.search).toBe("?order=second");
-  expect(container.querySelector(".queue-green")?.textContent).toContain(`#${orderNumber("first")}`);
+  expect(container.querySelector(".queue-green")).toBeNull();
   expect(container.querySelector(".station.tone-amber")).not.toBeNull();
-  await act(async () => (container.querySelector(".queue-green") as HTMLButtonElement).click());
-  await poll();
-  expect(selected()).toContain(`#${orderNumber("first")}`);
-  expect(container.querySelector(".station.tone-green")).not.toBeNull();
-  await click("Reopen");
+  await click("Undo");
   expect(selected()).toContain(`#${orderNumber("first")}`);
   expect(container.querySelector(".station.tone-red")).not.toBeNull();
 });
@@ -162,7 +158,16 @@ it("ignores an in-flight poll from before a status save", async () => {
   await click("Fulfill order");
   await act(async () => resolve(snapshot([ticket("first"), ticket("second", "needs_review"), ticket("third")])));
   expect(selected()).toContain(`#${orderNumber("second")}`);
-  expect(container.querySelector(".queue-green")?.textContent).toContain(`#${orderNumber("first")}`);
+  expect(container.querySelector(".queue-green")).toBeNull();
+});
+
+it("keeps a camera pass on screen while it is bagged, then moves on once the mat is cleared", () => {
+  const first = ticket("first", "overridden", 2);
+  const queue = { orders: [ticket("second"), ticket("first")], selected: "first" };
+  const held = reconcileQueue(queue, [ticket("second"), first], "worker", "first");
+  expect(held.selected).toBe("first");
+  expect(advancePastHeld(held, "worker").selected).toBe("second");
+  expect(reconcileQueue(queue, [ticket("second"), first], "worker").selected).toBe("second");
 });
 
 it("advances if cleanup removes the current ticket, keeps newer revisions, and skips green on initial load", () => {
@@ -193,7 +198,7 @@ it("moves upward past green cards to the next orange card", async () => {
   await render(); await click("Fulfill order");
   expect(selected()).toContain(`#${orderNumber("review")}`);
   expect(container.querySelector('.queue-ticket[aria-pressed="true"]')?.classList.contains("queue-amber")).toBe(true);
-  expect([...container.querySelectorAll(".queue-green")].map(card => card.textContent)).toEqual([expect.stringContaining(`#${orderNumber("current")}`), expect.stringContaining(`#${orderNumber("done")}`)]);
+  expect(container.querySelectorAll(".queue-green")).toHaveLength(0);
 });
 
 it("preserves the upward position when another screen completes and cleanup removes the current card", async () => {
