@@ -140,6 +140,7 @@ a { color: inherit; }
 .settings-menu > summary:hover, .settings-menu[open] > summary { color: var(--text); background: var(--surface-2); }
 .settings-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: min(320px, calc(100vw - 32px)); display: grid; gap: 14px; padding: 18px; background: var(--surface); border: 1px solid var(--field-line); border-radius: 20px; box-shadow: 0 12px 32px rgb(40 36 20 / 12%); }
 .settings-panel label { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; font-weight: 650; cursor: pointer; }
+.settings-panel select { flex: none; padding: 4px 8px; border-radius: 999px; border: 1.5px solid var(--field-line); background: var(--field); color: var(--text); font: inherit; }
 .settings-panel input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--accent); flex: none; }
 .settings-panel small { display: block; color: var(--muted); font-size: 12px; font-weight: 500; margin-top: 2px; }
 .settings-note, .settings-error { margin: 0; font-size: 12px; color: var(--muted); }

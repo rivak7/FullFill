@@ -7,7 +7,7 @@ import os
 import time
 from collections import OrderedDict
 from io import BytesIO
-from typing import Annotated
+from typing import Annotated, Literal
 from urllib.parse import urlsplit
 
 import httpx
@@ -48,6 +48,8 @@ class CameraCheck(Contract):
     # dev-mode flag and turns both on.
     boxes: bool = False
     photos: bool = False
+    # Perceptron's reasoning effort: slower, but may count large orders more carefully.
+    reasoning: Literal["none", "low", "high"] = "none"
     # Complete the check without the separate confirm call (one round trip less).
     confirmed: bool = False
     diagnostics: bool = False
@@ -241,8 +243,15 @@ async def check_camera(
                 observations = await PerceptronVision(
                     client=client,
                     limiter=PERCEPTRON_RATE,
-                    max_output_tokens=min(6000, 1600 + 200 * (len(targets) + len(alternatives))),
+                    # Reasoning is written into the same output budget as the answer.
+                    max_output_tokens=min(
+                        8000,
+                        1600
+                        + 200 * (len(targets) + len(alternatives))
+                        + {"none": 0, "low": 2000, "high": 4000}[body.reasoning],
+                    ),
                     boxes=boxes,
+                    reasoning=body.reasoning,
                 ).inspect(vision_input)
         lap("perceptron")
         diagnostics["observations"] = observations.model_dump(mode="json")

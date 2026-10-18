@@ -168,9 +168,9 @@ export function CameraCheckPanel(props: Props) {
     recordCheckAttempt(attemptId);
     updateCvLog(attemptId, `Snapshot sent. Expected: ${order.order.lines.map(line => `${line.quantity}× ${line.name}`).join(", ")}.`, "Analyzing");
     try {
-      const { boxes, photos } = readSettings();
+      const { boxes, photos, reasoning } = readSettings();
       const sentAt = performance.now();
-      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos, confirmed: true }, attemptId);
+      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos, reasoning, confirmed: true }, attemptId);
       const roundTrip = performance.now() - sentAt;
       if (response.diagnostics) attachCvVisuals(attemptId, { diagnostics: response.diagnostics });
       const steps = response.diagnostics?.timings_ms;

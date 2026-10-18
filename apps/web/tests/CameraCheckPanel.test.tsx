@@ -108,7 +108,9 @@ it("asks for boxes and model input only when they are turned on in settings", as
   vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: { provider_called: true, image: null, targets: [], references: [], observations: null, timings_ms: { square_order: 400, perceptron: 2100 } } });
   changeSetting("boxes", true);
   await render(); await camera(); await checkNow();
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toMatchObject({ boxes: true, photos: false });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toMatchObject({ boxes: true, photos: false, reasoning: "none" });
+  changeSetting("reasoning", "low"); await checkNow();
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[1][0]).toMatchObject({ reasoning: "low" });
   expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain("Server steps: square order 0.4 s, perceptron 2.1 s, network 0.0 s.");
 });
 
@@ -117,7 +119,7 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await checkNow();
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, boxes: false, photos: false, confirmed: true });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, boxes: false, photos: false, reasoning: "none", confirmed: true });
   await render(ticket("second"), true);
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);

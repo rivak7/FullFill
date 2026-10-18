@@ -950,3 +950,21 @@ def test_kitchen_can_skip_the_confirm_round_trip(count):
         # The kitchen can still withdraw it, e.g. when the tab was hidden mid-check.
         withdrawn = confirmation(client, result, unchanged=False).json()
         assert withdrawn["current_check"]["execution_status"] == "superseded"
+
+
+def test_unknown_reasoning_effort_is_rejected():
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        result = client.post(
+            "/v1/checks/camera",
+            headers={"Idempotency-Key": "reasoning"},
+            json={
+                "worker_id": "worker",
+                "order_id": "ticket",
+                "expected_revision": 3,
+                "photo": photo(),
+                "reasoning": "maximum",
+            },
+        )
+    assert result.status_code == 422
+    assert not vision.calls
