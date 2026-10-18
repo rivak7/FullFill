@@ -9,7 +9,7 @@ a { color: inherit; }
 button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offset: 4px; }
 .app-header { min-height: 76px; padding: 12px 4vw; background: #fffef9; border-bottom: 1px solid #dedfd5; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .brand { display: flex; align-items: center; gap: 10px; text-decoration: none; font-size: 25px; font-weight: 800; letter-spacing: -1px; }
-.brand-mark { width: 40px; height: 40px; border-radius: 12px 12px 12px 2px; display: grid; place-items: center; color: white; background: var(--forest); font-style: italic; font-size: 26px; }
+.brand-logo { height: 54px; width: auto; display: block; }
 .app-header nav { display: flex; gap: 6px; background: #eceee6; border-radius: 9px; padding: 4px; }
 .app-header nav a { text-decoration: none; padding: 10px 20px; border-radius: 6px; font-size: 14px; font-weight: 650; color: #62695e; }
 .app-header nav a[aria-current="page"] { background: white; color: var(--forest); box-shadow: 0 1px 3px #0001; }
@@ -142,6 +142,7 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
   .managed-menu-item h2 { font-size: 16px; }
   .app-header { padding: 14px 18px; gap: 10px; flex-wrap: wrap; }
   .brand { font-size: 21px; }
+  .brand-logo { height: 44px; }
   .app-header nav { order: 3; width: 100%; }
   .app-header nav a { flex: 1; text-align: center; }
   .ordering-layout { grid-template-columns: 1fr; }
