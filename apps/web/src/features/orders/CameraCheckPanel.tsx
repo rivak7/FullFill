@@ -1,10 +1,10 @@
 import { orderNumber } from "../../orderNumber";
 import { preferredCamera } from "./preferredCamera";
-import { isDevMode } from "../../devMode";
+import { readSettings } from "../../settings";
 import { useEffect, useRef, useState } from "react";
 import { orderApi, ApiError, type MenuPhoto } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
-import { SceneGuard, SceneTrigger } from "./sceneTrigger";
+import { SAMPLE_MS, SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
 import { cameraPhoto, cameraThumbnail } from "./cameraFraming";
@@ -148,10 +148,14 @@ export function CameraCheckPanel(props: Props) {
     recordCheckAttempt(attemptId);
     updateCvLog(attemptId, `Snapshot sent. Expected: ${order.order.lines.map(line => `${line.quantity}× ${line.name}`).join(", ")}.`, "Analyzing");
     try {
-      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, diagnostics: isDevMode() }, attemptId);
+      const { boxes, photos } = readSettings();
+      const sentAt = performance.now();
+      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos }, attemptId);
+      const roundTrip = performance.now() - sentAt;
       if (response.diagnostics) attachCvVisuals(attemptId, { diagnostics: response.diagnostics });
       const steps = response.diagnostics?.timings_ms;
-      if (steps) updateCvLog(attemptId, `Server steps: ${Object.entries(steps).map(([step, ms]) => `${step.replace("_", " ")} ${(ms / 1000).toFixed(1)} s`).join(", ")}.`);
+      // Whatever the server didn't spend is upload, download and function start-up.
+      if (steps) updateCvLog(attemptId, `Server steps: ${[...Object.entries(steps), ["network", roundTrip - Object.values(steps).reduce((a, b) => a + b, 0)] as const].map(([step, ms]) => `${step.replace("_", " ")} ${(Math.max(0, ms) / 1000).toFixed(1)} s`).join(", ")}.`);
       let state: OrderState = response;
       updateCvLog(attemptId, `Server response: ${checkResultDetails(state)}. Check ID: ${state.current_check?.check_id ?? "none"}.`);
       const validateScene = () => {
@@ -164,7 +168,9 @@ export function CameraCheckPanel(props: Props) {
         const confirm = (unchanged: boolean) => orderApi.confirmCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, check_id: state.current_check!.check_id, expected_revision: state.order.revision, scene_unchanged: unchanged });
         const unchanged = validateScene();
         updateCvLog(attemptId, unchanged ? "Confirming result." : `Result invalidated by browser: ${sceneDiagnostic(guard.current?.reason)}.`, "Confirming");
+        const confirmAt = performance.now();
         state = await confirm(unchanged);
+        updateCvLog(attemptId, `Confirmed in ${((performance.now() - confirmAt) / 1000).toFixed(1)} s.`);
       }
       recheck = source !== "recheck after amber" && state.current_check?.execution_status === "completed" && state.current_check.verdict === "unsure";
       updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
@@ -219,7 +225,7 @@ export function CameraCheckPanel(props: Props) {
         }
         if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current(trigger.current.handoff ? "next order" : extra ?? "scene change");
       } catch { setAuto(false); trigger.current.interrupt(); setError("Camera processing stopped. Reopen the camera to continue."); }
-    }, 250);
+    }, SAMPLE_MS);
     return () => window.clearInterval(timer);
   }, [open, ready]);
 

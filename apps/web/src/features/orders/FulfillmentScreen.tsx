@@ -5,7 +5,6 @@ import { StationScreen } from "../station/StationScreen";
 import { amberReason, toScreenState } from "../station/screenState";
 import { advancePastHeld, heldByOther, ownedBy, isFulfilled, reconcileQueue, type QueueState } from "./queueState";
 import { CameraCheckPanel } from "./CameraCheckPanel";
-import { forgetLocalHistory, isDevMode } from "../../devMode";
 
 type StatusAttempt = { id: string; body: OrderStatusEdit; key: string; restoreSelection?: boolean };
 type Undo = { id: string; revision: number; expires: number };
@@ -158,15 +157,6 @@ export function FulfillmentScreen() {
     void submit({ id: undo.id, body: { worker_id: workerId, status: "unfulfilled", expected_revision: undo.revision }, key: crypto.randomUUID(), restoreSelection: true });
   }
 
-  // Dev mode: hide every ticket (archived in Square, not cancelled), forget this
-  // browser's logs and counters, and reload for a clean session.
-  async function startFresh() {
-    if (!window.confirm("Clear the kitchen queue and this browser's logs?")) return;
-    try { await orderApi.clearStation(); } catch (cause) { setActionError(cause instanceof Error ? cause.message : "Could not clear the queue."); return; }
-    forgetLocalHistory();
-    window.location.reload();
-  }
-
   learnOrderNumbers(orders.map(state => state.order));
   // Oldest on the left, like tickets on a rail; the API sends newest first.
   // Fulfilled orders leave the rail; the one on screen stays until the mat is cleared.
@@ -186,7 +176,6 @@ export function FulfillmentScreen() {
           })}
         </nav>
         <span className="queue-status"><span className={`connection-dot ${error ? "offline" : loading ? "loading" : ""}`} />{error ? "Reconnecting…" : loading ? "Connecting…" : waiting ? `${waiting} to check` : "All caught up"}</span>
-        {isDevMode() && <button className="secondary-button" disabled={busy} onClick={() => void startFresh()}>Start fresh</button>}
         <button className="icon-button" disabled={busy} onClick={() => setRefresh(value => value + 1)} aria-label="Refresh" title="Refresh">↻</button>
       </div>
       {error && <div className="connection-error" role="alert">{error}</div>}

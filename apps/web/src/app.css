@@ -120,8 +120,17 @@ a { color: inherit; }
 .app-header nav a { text-decoration: none; padding: 9px 18px; border-radius: 999px; font-size: 15px; font-weight: 650; color: var(--muted); }
 .app-header nav a:hover { color: var(--text); }
 .app-header nav a[aria-current="page"] { background: var(--accent-soft); color: var(--accent-text); }
-.environment-label { margin-left: auto; color: #8a5f1c; background: #fbefd9; border-radius: 999px; padding: 4px 12px; font-size: 12px; font-weight: 700; }
-.app-header nav + .environment-label { margin-left: 0; }
+.settings-menu { margin-left: auto; position: relative; }
+.app-header nav + .settings-menu { margin-left: 0; }
+.settings-menu > summary { list-style: none; cursor: pointer; padding: 9px 18px; border-radius: 999px; font-size: 15px; font-weight: 650; color: var(--muted); }
+.settings-menu > summary::-webkit-details-marker { display: none; }
+.settings-menu > summary:hover, .settings-menu[open] > summary { color: var(--text); background: var(--surface-2); }
+.settings-panel { position: absolute; right: 0; top: calc(100% + 8px); z-index: 20; width: min(320px, calc(100vw - 32px)); display: grid; gap: 14px; padding: 18px; background: var(--surface); border: 1px solid var(--field-line); border-radius: 20px; box-shadow: 0 12px 32px rgb(40 36 20 / 12%); }
+.settings-panel label { display: flex; gap: 10px; align-items: flex-start; font-size: 14px; font-weight: 650; cursor: pointer; }
+.settings-panel input { width: 18px; height: 18px; margin-top: 1px; accent-color: var(--accent); flex: none; }
+.settings-panel small { display: block; color: var(--muted); font-size: 12px; font-weight: 500; margin-top: 2px; }
+.settings-note, .settings-error { margin: 0; font-size: 12px; color: var(--muted); }
+.settings-error { color: var(--danger, #b3412f); }
 .primary-button { background: var(--accent); color: var(--on-accent); border: 0; width: 100%; padding: 16px; border-radius: 999px; font-weight: 750; }
 .primary-button:not(:disabled):hover { background: var(--accent-hover); }
 .secondary-button { border: 1.5px solid var(--field-line); color: var(--accent-text); background: var(--surface); border-radius: 999px; padding: 9px 16px; font-weight: 700; font-size: 13px; }

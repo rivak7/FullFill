@@ -82,16 +82,17 @@ is respected while that view remains mounted. Camera permission is still require
 Open the **CV logs** tab for a scrollable per-check timeline, order/attempt IDs,
 trigger, elapsed time, and final decision.
 
-**Dev mode** (open the kitchen with `?dev=1`; `?dev=0` turns it off) adds the heavy
-debugging data below and a **Start fresh** button. Start fresh archives every ticket in
-the queue (Square metadata only; nothing is cancelled), clears this browser's logs and
-check counter, and reloads. Normal mode skips the photos, boxes and timings so each
-check returns faster. In dev mode each check includes the exact normalized
-order image and selected reference images sent to Perceptron, plus its structured
-item counts, uncertainty, readable labels, unexpected items, and how long each server
-step took (Square, reference photos, Perceptron, saving). Dev-mode checks request
-normalized object boxes in the same model call and draw valid locations on the
-exact order image, with a toggle to hide them. Boxes label present/unsure/unexpected
+Every check's log shows what Perceptron reported (item counts, uncertainty, readable
+labels, unexpected items) and how long each step took (Square, reference photos,
+Perceptron, saving, network), plus how long the confirmation took. **Settings** in the
+kitchen header holds the slower debugging options, all off by default and remembered
+per browser: **Boxes and labels in CV logs** asks Perceptron for normalized object
+boxes in the same call and draws them on the log photo (never on the live feed);
+**Model input in CV logs** returns the exact normalized order image and reference
+images sent to Perceptron. **Start fresh** archives every ticket in the queue (Square
+metadata only; nothing is cancelled), clears this browser's logs and check counter,
+and reloads. Boxes are drawn on the log photo
+with a toggle to hide them. Boxes label present/unsure/unexpected
 objects; they do not decide fulfillment. Invalid or absent geometry is omitted
 without invalidating a usable recognition result. Logs also show reported input and
 output tokens, model time, and the model name; no confidence percentages are invented. These model reports

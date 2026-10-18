@@ -7,7 +7,8 @@ import { JSDOM } from "jsdom";
 import { orderApi } from "../src/api/client";
 import type { OrderState } from "../src/api/generated/contracts";
 import { CameraCheckPanel } from "../src/features/orders/CameraCheckPanel";
-import { SceneGuard, SceneTrigger } from "../src/features/orders/sceneTrigger";
+import { SceneGuard, SceneTrigger, isEmptyMat } from "../src/features/orders/sceneTrigger";
+import { changeSetting } from "../src/settings";
 import { amberReason, toScreenState } from "../src/features/station/screenState";
 import { readCheckActivity, recordCheckAttempt } from "../src/features/orders/CheckActivity";
 import { readCvLogs } from "../src/features/orders/CvLogs";
@@ -94,12 +95,12 @@ it("does not periodically check fulfilled orders, unclaimed orders, or an empty 
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
 });
 
-it("asks for photos, boxes and timings only in dev mode", async () => {
+it("asks for boxes and model input only when they are turned on in settings", async () => {
   vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: { provider_called: true, image: null, targets: [], references: [], observations: null, timings_ms: { square_order: 400, perceptron: 2100 } } });
-  localStorage.setItem("fullfill.dev.v1", "1");
+  changeSetting("boxes", true);
   await render(); await camera(); await click("Check order");
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0].diagnostics).toBe(true);
-  expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain("Server steps: square order 0.4 s, perceptron 2.1 s.");
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toMatchObject({ boxes: true, photos: false });
+  expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain("Server steps: square order 0.4 s, perceptron 2.1 s, network 0.0 s.");
 });
 
 it("binds one snapshot to the captured ticket and never relabels a late result", async () => {
@@ -107,7 +108,7 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await click("Check order");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, diagnostics: false });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, boxes: false, photos: false });
   await render(ticket("second"), true);
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -213,7 +214,7 @@ it("keeps automatic mode enabled across tab switches and waits for visible settl
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   vi.spyOn(document, "hidden", "get").mockReturnValue(false);
   await act(async () => document.dispatchEvent(new Event("visibilitychange")));
-  await observe(80, 750);
+  await observe(80, 375);
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
   await observe(80, 250);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -236,8 +237,8 @@ it("requires movement and settling, ignores hand waves, and suppresses unchanged
   const scene = new SceneTrigger();
   const frame = (value: number) => new Uint8Array(1024).fill(value);
   expect(sampled(scene, frame(0), 0, 3000)).toBe(false);
-  expect(sampled(scene, frame(80), 3250, 3750)).toBe(false);
-  expect(scene.sample(frame(80), 4000)).toBe(true);
+  expect(sampled(scene, frame(80), 3250, 3500)).toBe(false);
+  expect(scene.sample(frame(80), 3750)).toBe(true);
   scene.submitted(frame(80));
   expect(sampled(scene, frame(80), 5000, 9000)).toBe(false);
   scene.sample(frame(200), 9250);
@@ -259,8 +260,8 @@ it("waits for a stable intermediate scene before checking an identical next meal
   expect(scene.handoff).toBe("remove");
   expect(sampled(scene, empty, 5750, 9000)).toBe(false);
   expect(scene.handoff).toBe("place");
-  expect(sampled(scene, meal, 9250, 9750)).toBe(false);
-  expect(scene.sample(meal, 10000)).toBe(true);
+  expect(sampled(scene, meal, 9250, 9500)).toBe(false);
+  expect(scene.sample(meal, 9750)).toBe(true);
 });
 
 it("does not treat time away from the camera as handoff evidence", () => {
@@ -328,8 +329,39 @@ it("detects a small added packet while ignoring an isolated noisy pixel", () => 
   expect(sampled(scene, noise, 250, 2000)).toBe(false);
   const packet = baseline.slice();
   for (let row = 0; row < 4; row++) for (let col = 0; col < 8; col++) packet[row * 32 + col] = 200;
-  expect(sampled(scene, packet, 2250, 2750)).toBe(false);
-  expect(scene.sample(packet, 3000)).toBe(true);
+  expect(sampled(scene, packet, 2250, 2500)).toBe(false);
+  expect(scene.sample(packet, 2750)).toBe(true);
+});
+
+// Two sauce packets cover only a few pixels of the 32-px preview and barely move
+// the averages, so clearing them used to leave "Bag it and clear the mat" up.
+function withPackets(bare: Uint8Array) {
+  const frame = bare.slice();
+  for (const [row, col] of [[10, 10], [10, 11], [11, 10], [20, 22], [21, 22]]) frame[row * 32 + col] = 150;
+  return frame;
+}
+
+it("sees the mat cleared when only two small packets are taken off", () => {
+  const scene = new SceneTrigger();
+  const bare = new Uint8Array(1024).fill(210);
+  scene.learnEmptyMat();
+  sampled(scene, bare, 0, 1000);
+  const packets = withPackets(bare);
+  scene.submitted(packets); scene.nextOrder();
+  sampled(scene, packets, 1250, 3000);
+  expect(scene.handoff).toBe("remove");
+  sampled(scene, bare, 3250, 4500);
+  expect(scene.handoff).toBe("place");
+  // And two packets placed on the bare mat start a check.
+  expect(sampled(scene, packets, 4750, 6000)).toBe(true);
+});
+
+it("still sees the bare mat after the phone shifts by a pixel", () => {
+  const bare = new Uint8Array(1024).fill(210);
+  for (let row = 0; row < 32; row++) for (let col = 0; col < 6; col++) bare[row * 32 + col] = 60; // carpet edge
+  const shifted = bare.map((_, i) => bare[Math.floor(i / 32) * 32 + Math.max(0, (i % 32) - 1)]);
+  expect(isEmptyMat(shifted, bare)).toBe(true);
+  expect(isEmptyMat(withPackets(shifted), bare)).toBe(false);
 });
 
 it("shows an unexpected unidentified item as orange, matching the comparison verdict", () => {

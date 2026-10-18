@@ -19,14 +19,42 @@ export function frameDifference(a: Uint8Array, b: Uint8Array): number {
   return difference;
 }
 
-// Pixels that differ from the empty mat once a whole-frame exposure shift is removed.
-// A 32-px preview makes a sauce packet only a pixel or two, so two pixels count.
-export function isEmptyMat(frame: Uint8Array, empty: Uint8Array): boolean {
-  if (frame.length !== empty.length) return false;
-  const shift = Array.from(frame, (value, i) => value - empty[i]).sort((a, b) => a - b)[frame.length >> 1];
+// How long the mat must stay still before a photo is taken, and how often it is sampled.
+export const SETTLE_MS = 500;
+export const SAMPLE_MS = 125;
+
+// Pixels of `frame` that differ from `before` once a whole-frame exposure shift is
+// removed. A pixel only counts if it differs from all of its neighbours in `before`
+// too, so a phone nudged by a pixel doesn't light up every paper edge. A 32-px
+// preview makes a sauce packet only a pixel or two, so the caller compares to 2.
+export function changedPixels(frame: Uint8Array, before: Uint8Array, stopAt = Infinity): number {
+  if (frame.length !== before.length || !frame.length) return Infinity;
+  const shift = Array.from(frame, (value, i) => value - before[i]).sort((a, b) => a - b)[frame.length >> 1];
+  const edge = Math.sqrt(frame.length);
+  const square = Number.isInteger(edge);
   let changed = 0;
-  for (let i = 0; i < frame.length; i++) if (Math.abs(frame[i] - empty[i] - shift) > 25 && ++changed >= 2) return false;
-  return true;
+  for (let i = 0; i < frame.length; i++) {
+    if (Math.abs(frame[i] - before[i] - shift) <= 25) continue;
+    let moved = false;
+    if (square) {
+      const row = Math.floor(i / edge), col = i % edge;
+      for (let y = Math.max(0, row - 1); y <= Math.min(edge - 1, row + 1) && !moved; y++)
+        for (let x = Math.max(0, col - 1); x <= Math.min(edge - 1, col + 1); x++)
+          if (Math.abs(frame[i] - before[y * edge + x] - shift) <= 25) { moved = true; break; }
+    }
+    if (!moved && ++changed >= stopAt) return changed;
+  }
+  return changed;
+}
+
+export function isEmptyMat(frame: Uint8Array, empty: Uint8Array): boolean {
+  return changedPixels(frame, empty, 2) < 2;
+}
+
+// A real change to what is on the mat: a big average change, or a small object
+// (one packet) that the averages in frameDifference wash out.
+export function sceneChanged(frame: Uint8Array, before: Uint8Array): boolean {
+  return frameDifference(frame, before) > 12 || changedPixels(frame, before, 2) >= 2;
 }
 
 export class SceneTrigger {
@@ -110,18 +138,17 @@ export class SceneTrigger {
     }
     this.previous = frame.slice();
     const settledFor = now - this.stableSince;
-    if (this.learning && settledFor >= 750) {
+    if (this.learning && settledFor >= SETTLE_MS) {
       this.learning = false;
       // The previous order is still on the mat; without a bare mat, fall back below.
-      if (!this.handoffFrom || frameDifference(frame, this.handoffFrom) > 12) this.empty = frame.slice();
+      if (!this.handoffFrom || sceneChanged(frame, this.handoffFrom)) this.empty = frame.slice();
     }
     if (this.handoffFrom) {
       if (!this.betweenOrders) {
-        // Observe a changed scene for 750 ms before accepting a second transition.
-        // With a learned bare mat that scene must be the empty mat; without one this
-        // is only a heuristic for removal.
-        if (frameDifference(frame, this.handoffFrom) > 12 && settledFor >= 750
-          && (!this.empty || isEmptyMat(frame, this.empty))) {
+        // Observe a settled scene before accepting a second transition. With a learned
+        // bare mat that scene must be the empty mat (small packets alone barely move the
+        // averages, so this compares pixels); without one any settled change counts.
+        if (settledFor >= SETTLE_MS && (this.empty ? isEmptyMat(frame, this.empty) : sceneChanged(frame, this.handoffFrom))) {
           if (this.empty) this.empty = frame.slice(); // follow slow lighting drift
           this.betweenOrders = frame.slice();
           this.reset(frame);
@@ -130,10 +157,10 @@ export class SceneTrigger {
       }
       // Do not spend a check on the intermediate/cleared view. Identical meals
       // can pass this gate after the observed removal-and-replacement sequence.
-      return frameDifference(frame, this.betweenOrders) > 12 && settledFor >= 750;
+      return settledFor >= SETTLE_MS && sceneChanged(frame, this.betweenOrders);
     }
-    return (extraDue || this.retryPending || frameDifference(frame, this.baseline) > 12) && settledFor >= 750
-      && (extraDue || !this.lastSent || frameDifference(frame, this.lastSent) > 12);
+    return settledFor >= SETTLE_MS && (extraDue || this.retryPending || sceneChanged(frame, this.baseline))
+      && (extraDue || !this.lastSent || sceneChanged(frame, this.lastSent));
   }
 }
 

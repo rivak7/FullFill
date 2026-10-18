@@ -620,6 +620,7 @@ def test_pending_camera_result_is_never_green_until_same_worker_confirms():
         state = send(client, confirm=False).json()
         assert state["disposition"] == "pending"
         assert state["current_check"]["execution_status"] == "awaiting_confirmation"
+        state.pop("diagnostics")
         assert client.get("/v1/stations/main").json()["orders"][0] == state
         assert confirmation(client, state, worker="other").status_code == 409
         accepted = confirmation(client, state)
@@ -808,6 +809,18 @@ def test_wrong_and_unknown_item_details_survive_square_storage():
         assert other.get("/v1/stations/main").json()["orders"][0] == result.json()
 
 
+def test_every_check_returns_model_answer_and_timings_but_no_photos_by_default():
+    square, vision = Square(), Vision(status="unsure", unexpected=True)
+    with TestClient(square.app(vision)) as client:
+        result = send(client, confirm=False)
+    diagnostic = result.json()["diagnostics"]
+    assert diagnostic["image"] is None
+    assert all(ref["image"] is None for ref in diagnostic["references"])
+    assert diagnostic["observations"]["targets"][0]["status"] == "unsure"
+    assert "perceptron" in diagnostic["timings_ms"]
+    assert len(result.content) < 20_000
+
+
 @pytest.mark.parametrize("fails", [False, True])
 def test_visual_diagnostics_return_exact_inputs_without_persisting_photos(fails):
     class DiagnosticVision(Vision):
@@ -827,7 +840,7 @@ def test_visual_diagnostics_return_exact_inputs_without_persisting_photos(fails)
                 "order_id": "ticket",
                 "expected_revision": 3,
                 "photo": photo(),
-                "diagnostics": True,
+                "photos": True,
             },
         )
         assert result.status_code == (502 if fails else 200), result.text
