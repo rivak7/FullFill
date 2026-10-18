@@ -119,7 +119,11 @@ identify menu items; they do not train the model or prove hidden ingredients.
 Missing ticket references block the provider call and name the items needing photos.
 Alternative selection uses a cheap retrieval heuristic, not a trained identity
 classifier. All available active menu photos participate in retrieval; selected
-alternatives travel in the same model request. Downloads are cached by URL and
+alternatives travel in the same model request. The prompt is a blind inventory: ticket
+items and lookalikes are listed alike, in id order, and Perceptron counts every one, so
+it is never told which item the ticket expects. The backend then compares that inventory
+with the ticket: a lookalike seen clearly is a wrong item (red), one it can't confirm is
+unidentified (amber). Downloads are cached by URL and
 catalog version. Broken reference downloads fail visibly before a paid call.
 Ticket lines with different options stay separate; variations, modifiers, and
 special instructions require staff confirmation even when the counts match.
