@@ -378,6 +378,15 @@ it("sees the mat cleared when only two small packets are taken off", () => {
   expect(sampled(scene, packets, 4750, 6000)).toBe(true);
 });
 
+it("sees a mustard packet on cardboard even though both are equally bright", () => {
+  const cardboard = new Uint8Array(32 * 32 * 3);
+  for (let p = 0; p < 1024; p++) cardboard.set([190, 150, 110], p * 3); // grey ≈ 150
+  const packet = cardboard.slice();
+  for (const p of [330, 331, 362]) packet.set([230, 185, 35], p * 3); // mustard, grey ≈ 150
+  expect(isEmptyMat(cardboard, cardboard)).toBe(true);
+  expect(isEmptyMat(packet, cardboard)).toBe(false);
+});
+
 it("still sees the bare mat after the phone shifts by a pixel", () => {
   const bare = new Uint8Array(1024).fill(210);
   for (let row = 0; row < 32; row++) for (let col = 0; col < 6; col++) bare[row * 32 + col] = 60; // carpet edge

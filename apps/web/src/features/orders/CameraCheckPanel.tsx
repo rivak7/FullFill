@@ -26,9 +26,10 @@ interface Props {
 function sample(video: HTMLVideoElement): Uint8Array {
   const canvas = cameraThumbnail(video, 32);
   const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
-  const gray = new Uint8Array(data.length / 4);
-  for (let i = 0; i < gray.length; i++) gray[i] = (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2]) / 3;
-  return gray;
+  // RGB, dropping alpha: colour changes count, not just brightness.
+  const rgb = new Uint8Array(data.length / 4 * 3);
+  for (let i = 0; i < data.length / 4; i++) for (let c = 0; c < 3; c++) rgb[i * 3 + c] = data[i * 4 + c];
+  return rgb;
 }
 
 export function CameraCheckPanel(props: Props) {
