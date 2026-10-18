@@ -100,6 +100,17 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   expect(onBusyChange.mock.calls.map(call => call[0])).toEqual([true, false]);
 });
 
+it("captures the same centered square and JPEG resolution as menu photos", async () => {
+  vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(1920);
+  vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(1080);
+  const drawImage = vi.fn();
+  vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage, getImageData: () => ({ data: new Uint8ClampedArray(4096) }) } as unknown as CanvasRenderingContext2D);
+  await render(); await camera(); await click("Check order");
+  expect(drawImage).toHaveBeenCalledWith(container.querySelector("video"), 420, 0, 1080, 1080, 0, 0, 1024, 1024);
+  expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith("image/jpeg", 0.8);
+  expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 } } });
+});
+
 it("does not automatically retry failures and stops auto checking on error", async () => {
   vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new Error("Provider unavailable"));
   await render(); await camera();

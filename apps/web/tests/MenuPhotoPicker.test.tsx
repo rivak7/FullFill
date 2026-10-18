@@ -40,7 +40,8 @@ async function click(label: string) {
 }
 
 it("captures a photo and releases the camera immediately", async () => {
-  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ fillRect: vi.fn(), drawImage: vi.fn() } as unknown as CanvasRenderingContext2D);
+  const drawImage = vi.fn();
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ fillRect: vi.fn(), drawImage } as unknown as CanvasRenderingContext2D);
   vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/jpeg;base64,cGhvdG8=");
   await render(); await click("Take photo");
   expect(getUserMedia).toHaveBeenCalledWith(expect.objectContaining({ audio: false }));
@@ -48,6 +49,8 @@ it("captures a photo and releases the camera immediately", async () => {
   Object.defineProperties(video, { videoWidth: { value: 1920 }, videoHeight: { value: 1080 } });
   await act(async () => video.dispatchEvent(new Event("loadeddata")));
   await click("Capture photo");
+  expect(drawImage).toHaveBeenCalledWith(video, 420, 0, 1080, 1080, 0, 0, 1024, 1024);
+  expect(HTMLCanvasElement.prototype.toDataURL).toHaveBeenCalledWith("image/jpeg", 0.8);
   expect(onChange).toHaveBeenCalledWith({ data_base64: "cGhvdG8=" });
   expect(stop).toHaveBeenCalledTimes(1);
   expect(container.querySelector("video")).toBeNull();
@@ -88,7 +91,7 @@ it("switches to the selected phone camera and releases the previous stream", asy
   expect(select.textContent).toContain("iPhone Camera");
   await act(async () => { select.value = "phone"; select.dispatchEvent(new Event("change", { bubbles: true })); });
   expect(stop).toHaveBeenCalledTimes(1);
-  expect(getUserMedia).toHaveBeenLastCalledWith({ audio: false, video: { deviceId: { exact: "phone" }, width: { ideal: 1920 } } });
+  expect(getUserMedia).toHaveBeenLastCalledWith({ audio: false, video: { deviceId: { exact: "phone" }, width: { ideal: 1280 }, height: { ideal: 960 } } });
   expect(container.querySelector('video')!.srcObject).toBe(phone);
   await click("Close camera");
   expect(phoneStop).toHaveBeenCalledTimes(1);

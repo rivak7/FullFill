@@ -4,6 +4,7 @@ import type { OrderState } from "../../api/generated/contracts";
 import { SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
+import { cameraConstraints, cameraPhoto, cropCamera } from "./cameraFraming";
 
 interface Props {
   order?: OrderState;
@@ -14,20 +15,8 @@ interface Props {
   onBusyChange: (busy: boolean) => void;
 }
 
-function crop(video: HTMLVideoElement, width: number): HTMLCanvasElement {
-  if (!video.videoWidth || !video.videoHeight) throw new Error("Wait for the camera image.");
-  // The preview uses this same centered square, so the worker sees exactly what is sent.
-  const side = Math.min(video.videoWidth, video.videoHeight);
-  const canvas = document.createElement("canvas");
-  canvas.width = canvas.height = Math.min(width, side);
-  const context = canvas.getContext("2d");
-  if (!context) throw new Error("This browser cannot capture the camera.");
-  context.drawImage(video, (video.videoWidth - side) / 2, (video.videoHeight - side) / 2, side, side, 0, 0, canvas.width, canvas.height);
-  return canvas;
-}
-
 function sample(video: HTMLVideoElement): Uint8Array {
-  const canvas = crop(video, 32);
+  const canvas = cropCamera(video, 32);
   const data = canvas.getContext("2d")!.getImageData(0, 0, canvas.width, canvas.height).data;
   const gray = new Uint8Array(data.length / 4);
   for (let i = 0; i < gray.length; i++) gray[i] = (data[i * 4] + data[i * 4 + 1] + data[i * 4 + 2]) / 3;
@@ -105,7 +94,7 @@ export function CameraCheckPanel(props: Props) {
     const current = generation.current;
     try {
       if (!navigator.mediaDevices?.getUserMedia) throw new Error("Camera access requires HTTPS and a supported browser.");
-      const next = await navigator.mediaDevices.getUserMedia({ audio: false, video: { ...(id ? { deviceId: { exact: id } } : { facingMode: { ideal: "environment" } }), width: { ideal: 1280 }, height: { ideal: 960 } } });
+      const next = await navigator.mediaDevices.getUserMedia(cameraConstraints(id));
       if (!mounted.current || generation.current !== current) { next.getTracks().forEach(track => track.stop()); return; }
       stream.current = next;
       next.getVideoTracks()[0]?.addEventListener("ended", () => { if (generation.current === current) { stop(); setError("Camera disconnected. Enable it to reconnect."); } });
@@ -128,8 +117,7 @@ export function CameraCheckPanel(props: Props) {
     let photo: MenuPhoto;
     try {
       const frame = sample(video.current);
-      photo = { data_base64: crop(video.current, 1024).toDataURL("image/jpeg", 0.8).split(",")[1] };
-      if (photo.data_base64.length > 1_800_000) throw new Error("Camera image is too large.");
+      photo = cameraPhoto(video.current);
       trigger.current.submitted(frame); setHandoff(null);
       guard.current = new SceneGuard(frame, Date.now());
     } catch { setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
@@ -205,7 +193,7 @@ export function CameraCheckPanel(props: Props) {
   return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check">
     <div className="camera-check-heading"><strong>Camera check</strong>{open ? <button className="secondary-button" onClick={stop}>Close camera</button> : <button className="secondary-button" onClick={() => void start()}>Enable camera</button>}</div>
     {open && <div className="camera-check-body">
-      <video ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
+      <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
       <div className="camera-check-controls">
         {devices.length > 1 && <label>Camera<select aria-label="Camera" value={deviceId} onChange={event => { setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select></label>}
         <p role="status">{busy ? "Checking… keep the order in place." : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Remove the previous order from view." : automatic && handoff === "place" ? "Place the next order in view. Checking starts when it settles." : automatic ? "Place the order in view. Checking starts when it settles." : "Automatic checks paused. Check manually or turn them back on."}</p>
