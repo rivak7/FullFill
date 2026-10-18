@@ -816,6 +816,28 @@ it("moves on from a green order after 2 s even while it is still on the mat", as
   expect(readCvLogs()[0].events.map(event => event.message)).toContain("Green for 2 s: moving to the next order.");
 });
 
+it("keeps a green order on screen for at least 1 s when the mat clears at once", async () => {
+  const passed = checked(); passed.current_check!.verdict = "pass"; passed.disposition = "fulfilled";
+  vi.mocked(orderApi.checkCamera).mockResolvedValue(passed);
+  const onMatCleared = vi.fn();
+  const show = (meal: boolean) => vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({
+    data: Uint8ClampedArray.from({ length: 4096 }, (_, i) => { const p = i >> 2, row = p >> 5, col = p & 31; return i % 4 === 3 ? 255 : meal && row >= 8 && row < 20 && col >= 8 && col < 20 ? 70 : 210; }),
+  }) } as unknown as CanvasRenderingContext2D);
+  show(false);
+  await act(async () => root.render(<CameraCheckPanel workerId="worker" order={ticket()} pauseToken={0} checkToken={0} onResult={onResult} onBusyChange={onBusyChange} onMatCleared={onMatCleared} />));
+  await camera();
+  await act(async () => vi.advanceTimersByTimeAsync(1000)); // learns the bare mat
+  show(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  expect(onResult.mock.calls[0][1]).toBe(true);
+  show(false);
+  await act(async () => vi.advanceTimersByTimeAsync(500));
+  expect(onMatCleared).not.toHaveBeenCalled();
+  await act(async () => vi.advanceTimersByTimeAsync(625));
+  expect(onMatCleared).toHaveBeenCalledWith("first");
+});
+
 it("sees an order with a warning bagged anyway once its spots show the bare mat, without checking the bare mat", () => {
   const scene = new SceneTrigger();
   const bare = new Uint8Array(1024).fill(210), meal = bare.slice(), half = bare.slice();

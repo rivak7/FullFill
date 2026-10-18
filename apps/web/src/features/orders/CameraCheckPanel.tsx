@@ -71,6 +71,7 @@ export function CameraCheckPanel(props: Props) {
   // A green order moves on after GREEN_ADVANCE_MS whatever the mat shows; the next
   // order is still only checked once the mat clears and something new is placed.
   const greenAdvance = useRef<number | undefined>(undefined);
+  const greenAt = useRef(0);
 
   function setAuto(value: boolean) {
     if (!value && bagging.current) { const held = bagging.current; bagging.current = null; latest.current.onMatCleared?.(held); }
@@ -218,7 +219,7 @@ export function CameraCheckPanel(props: Props) {
           bagging.current = boundOrder.id; trigger.current.nextOrder(); setHandoff(trigger.current.handoff);
           clearLog.current = { id: attemptId, at: 0, text: "", lines: 0 };
           updateCvLog(attemptId, trigger.current.handoff === "place" ? "Mat already clear: moving to the next order." : "Watching for the mat to clear.");
-          window.clearTimeout(greenAdvance.current);
+          window.clearTimeout(greenAdvance.current); greenAt.current = Date.now();
           greenAdvance.current = window.setTimeout(() => {
             if (!mounted.current || bagging.current !== boundOrder.id) return;
             bagging.current = null; clearLog.current = null;
@@ -303,8 +304,9 @@ export function CameraCheckPanel(props: Props) {
         }
         setHandoff(trigger.current.handoff);
         if (bagging.current) logClearCheck(now);
-        if (bagging.current && trigger.current.handoff === "place") {
-          const cleared = bagging.current; bagging.current = null;
+        // Green stays on screen at least GREEN_MIN_MS, even when the mat clears at once.
+        if (bagging.current && trigger.current.handoff === "place" && now - greenAt.current >= GREEN_MIN_MS) {
+          const cleared = bagging.current; bagging.current = null; window.clearTimeout(greenAdvance.current);
           latest.current.onMatCleared?.(cleared);
         }
         if (settled && automaticRef.current && order && !disabled && !isFulfilled(order)) void checkRef.current(trigger.current.handoff ? "next order" : extra ?? "scene change");
@@ -346,6 +348,7 @@ export function CameraCheckPanel(props: Props) {
 }
 
 export const GREEN_ADVANCE_MS = 2000;
+export const GREEN_MIN_MS = 1000;
 
 // Every problem is an ordered item with none seen: the photo had nothing of this order.
 function sawNoneOfOrder(order: OrderState) {
