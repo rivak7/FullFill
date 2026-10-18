@@ -2,7 +2,7 @@
 
 **Main document: [order-checker.md](../order-checker.md).** It owns the product requirements, scope, workflow, team assignments, and acceptance targets. This document explains how to implement that plan with separate code modules and replaceable integrations. If the documents disagree, follow `order-checker.md` and update this design. Python **3.13** remains the agreed runtime for all Python components. The architecture below is the target, not a claim that the product is implemented.
 
-**Current implementation:** the repository contains minimal app entry points, shared models/interfaces, generated TypeScript, and placeholder modules. Product behavior is intentionally left for the team. See [team-development.md](team-development.md) for the actual scaffold and available commands; the larger tree and workflow below remain implementation targets.
+**Current implementation:** the repository contains minimal app entry points, shared models/interfaces, generated TypeScript, and placeholder modules. Product behavior is intentionally left for the team. See the [README](../README.md) for what runs today and the available commands; the larger tree and workflow below remain implementation targets.
 
 ## Plain language overview
 
@@ -581,7 +581,7 @@ When Photon is enabled, reference enrollment by text invokes the same catalog us
 
 ### Target runtime commands and configuration
 
-The integrated runtime commands in this section are future implementation targets. The current minimal scaffold commands are documented in [team-development.md](team-development.md). The repository's `.python-version` and package manifests specify Python 3.13. Use that runtime for local development, CI, and the eventual station deployment.
+The integrated runtime commands in this section are future implementation targets. The current minimal scaffold commands are documented in the [README](../README.md). The repository's `.python-version` and package manifests specify Python 3.13. Use that runtime for local development, CI, and the eventual station deployment.
 
 Use a root Python workspace with separate API, capture, and contracts packages; API and capture depend on contracts, while contracts depends on no application package. Lock Python dependencies in `uv.lock` and frontend dependencies in `package-lock.json`. The capture environment should not need the Perceptron integration to run.
 

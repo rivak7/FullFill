@@ -47,17 +47,10 @@ export type Verdict = ("pass" | "fail" | "unsure") | null;
 export type Discrepancies1 = Discrepancy[];
 export type Verdict1 = "pass" | "fail" | "unsure";
 export type Purpose2 = "check" | "reference";
-export type ErrorCode1 = string | null;
-export type ProviderReceipt = string | null;
-export type Status = "sent" | "failed";
 export type ItemId = string;
 export type LabelAliases = string[];
 export type Name = string;
 export type VerificationMode = "visible_item" | "label" | "container_count";
-export type DeduplicationKey = string;
-export type Kind1 = "error" | "override" | "shift_summary";
-export type Message1 = string;
-export type NotificationId = string;
 export type CaptureId3 = string;
 export type CompletionTokens = number | null;
 export type LatencyMs = number;
@@ -83,7 +76,7 @@ export type Boxes = BoundingBox[];
 export type LabelText = string | null;
 export type ObservedQuantity1 = number | null;
 export type Reason = string | null;
-export type Status1 = "present" | "missing" | "unsure";
+export type Status = "present" | "missing" | "unsure";
 export type TargetId1 = string;
 /**
  * @maxItems 32
@@ -156,9 +149,7 @@ export interface FullFillContracts {
   check_result: CheckResult;
   comparison: Comparison;
   create_capture_request: CreateCaptureRequest;
-  delivery_result: DeliveryResult;
   menu_item: MenuItem;
-  notification: Notification;
   observations: Observations;
   order: OrderSnapshot;
   override: OverrideRequest;
@@ -237,22 +228,11 @@ export interface CreateCaptureRequest {
   order_context?: OrderContext | null;
   purpose: Purpose2;
 }
-export interface DeliveryResult {
-  error_code?: ErrorCode1;
-  provider_receipt?: ProviderReceipt;
-  status: Status;
-}
 export interface MenuItem {
   item_id: ItemId;
   label_aliases?: LabelAliases;
   name: Name;
   verification_mode?: VerificationMode;
-}
-export interface Notification {
-  deduplication_key: DeduplicationKey;
-  kind: Kind1;
-  message: Message1;
-  notification_id: NotificationId;
 }
 export interface Observations {
   capture_id: CaptureId3;
@@ -276,7 +256,7 @@ export interface TargetObservation {
   label_text?: LabelText;
   observed_quantity?: ObservedQuantity1;
   reason?: Reason;
-  status: Status1;
+  status: Status;
   target_id: TargetId1;
 }
 /**

@@ -17,7 +17,6 @@ from fullfill_contracts.checks import (
 )
 from fullfill_contracts.common import Contract
 from fullfill_contracts.events import StationEvent, StationSnapshot
-from fullfill_contracts.notifications import DeliveryResult, Notification
 from fullfill_contracts.orders import MenuItem, OrderSnapshot, ReferenceSet
 from fullfill_contracts.vision import Observations, VerificationTarget
 
@@ -41,8 +40,6 @@ class FullFillContracts(Contract):
     vision_target: VerificationTarget
     station_event: StationEvent
     station_snapshot: StationSnapshot
-    notification: Notification
-    delivery_result: DeliveryResult
 
 
 if __name__ == "__main__":

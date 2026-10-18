@@ -2,8 +2,8 @@
 
 from fastapi import APIRouter
 
-from . import captures, catalog, checks, orders, stations
+from . import catalog, checks, orders, stations
 
 router = APIRouter(prefix="/v1")
-for component in (orders, catalog, captures, checks, stations):
+for component in (orders, catalog, checks, stations):
     router.include_router(component.router)

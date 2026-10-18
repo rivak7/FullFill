@@ -145,33 +145,3 @@ body {
   .ticket-line { font-size: 22px; grid-template-columns: 40px 1fr 30px; padding: 10px 8px; }
   .line-qty { width: 34px; height: 34px; }
 }
-
-/* Demo-only scenario switcher (see App.tsx). */
-.demo-bar {
-  position: fixed;
-  bottom: 12px;
-  left: 50%;
-  transform: translateX(-50%);
-  display: flex;
-  max-width: calc(100vw - 24px);
-  overflow-x: auto;
-  gap: 6px;
-  padding: 6px;
-  background: rgba(32, 42, 35, 0.85);
-  border-radius: 999px;
-}
-.demo-bar button {
-  font: inherit;
-  font-size: 14px;
-  padding: 6px 12px;
-  border: 1px solid #555;
-  border-radius: 999px;
-  background: #222;
-  color: #eee;
-  cursor: pointer;
-  white-space: nowrap;
-}
-.demo-bar button[aria-pressed="true"] {
-  background: #eee;
-  color: #111;
-}

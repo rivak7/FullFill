@@ -1,8 +1,6 @@
 import { useEffect, useState } from "react";
 import { OrderingScreen } from "./features/orders/OrderingScreen";
 import { FulfillmentScreen } from "./features/orders/FulfillmentScreen";
-import { StationScreen } from "./features/station/StationScreen";
-import { scenarios } from "./features/station/fakeOrders";
 import { AccessGate } from "./features/access/AccessGate";
 import { MenuEditor } from "./features/orders/MenuEditor";
 import { homePath, siteScreen } from "./site";
@@ -19,7 +17,6 @@ export function App() {
     window.addEventListener("hashchange", update);
     return () => window.removeEventListener("hashchange", update);
   }, []);
-  if (siteScreen === "combined" && path === "/demo") return <DemoScreen />;
   const kitchenPath = siteScreen === "combined" ? "/fulfill" : "/";
   return (
     <div className="app-shell">
@@ -38,20 +35,3 @@ export function App() {
   );
 }
 
-function DemoScreen() {
-  const [key, setKey] = useState("amber");
-
-  return (
-    <>
-      <StationScreen state={scenarios[key].state} />
-      <nav className="demo-bar" aria-label="Demo scenarios">
-        <a href="/fulfill">Live queue</a>
-        {Object.entries(scenarios).map(([k, s]) => (
-          <button key={k} aria-pressed={k === key} onClick={() => setKey(k)}>
-            {s.label}
-          </button>
-        ))}
-      </nav>
-    </>
-  );
-}

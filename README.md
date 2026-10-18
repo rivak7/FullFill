@@ -20,7 +20,6 @@ frames, the backend calls Perceptron, and compact results persist in Square.
 | Vision adapter | Send an order photo and labeled reference photos to Perceptron Mk1.5; validate structured observations. Browser checks require a reference for every ticket item. Expected quantities are kept out of the model prompt. |
 | Browser camera | Enable a local video preview, then check the selected ticket manually or opt into checks after movement settles. No Python camera installation is needed. Preview makes no Perceptron calls. |
 | Comparison rules | Red: a ticket item is definitely short or over, or a known menu item not on the ticket is present. Amber: anything else to look at (unsure or uncounted items, unreadable required labels, unidentified objects, lines needing manual review, a poor camera view) or a failed check. Green: every count matches and nothing is uncertain. Red wins over amber. Follows docs/system-design.md; the only implementation is `apps/api/fullfill/domain/compare_order.py`. |
-| Station preview | Explore hardcoded checking, pass, fail, unsure, and error states at `/demo` in the combined frontend. |
 | Evaluation | Run photo-based latency, order-accuracy, and lookalike/label checks, including names-only versus reference-photo comparisons and JSONL logging. |
 
 New orders start `pending`; manual review sets `needs_review` and manual fulfillment
@@ -228,7 +227,6 @@ Open these URLs (assuming Vite's default port is available):
 | --- | --- |
 | `http://127.0.0.1:5173/order` | Customer order entry |
 | `http://127.0.0.1:5173/fulfill` | Kitchen queue and **Menu** tab |
-| `http://127.0.0.1:5173/demo` | Static vision-state preview; no credentials or hardware required |
 | `http://127.0.0.1:8000/docs` | Interactive API documentation |
 
 `/` opens the kitchen queue. Place a Sandbox order at `/order`, then verify its
@@ -282,10 +280,9 @@ site, then kitchen site when deployment credentials are configured.
 | `packages/contracts/` | Pydantic models and provider protocols; generated JSON Schema and TypeScript contracts. |
 | `eval/` | Standalone photo capture, live vision evaluation, and offline evaluation tests. |
 | `tests/`, `apps/web/tests/` | Python tests for orders, menu photos, hosted access, vision, and comparison; frontend tests for queue behavior and menu/photo editing. |
-| `fixtures/`, `apps/photon_bridge/` | Placeholders for shared evaluation cases and optional messaging integration. |
 | `scripts/` | Square menu seeding and contract export. |
 | `app.py` | Vercel ASGI entry point; local development uses `fullfill.main:create_app`. |
-| `config.py`, `camera_input_number.py` | Shared evaluation settings and the original camera probe. The probe opens cameras only when run explicitly. |
+| `config.py` | Shared evaluation settings. |
 
 The current request flow is **browser → FastAPI → Square Orders/Catalog**. The
 browser consumes FullFill models rather than raw Square responses. Evaluation
@@ -375,10 +372,8 @@ same workspace environment.
 ## Plans and license
 
 [order-checker.md](order-checker.md) contains the original pitch and hackathon
-plan; [system-design.md](docs/system-design.md) describes the target architecture.
-The [team development guide](docs/team-development.md) records ownership and
-interface agreements. Some older scaffold notes in that guide and folder READMEs
-predate the implemented order/menu flow; use the current status above when
-assessing what runs today.
+plan; [system-design.md](docs/system-design.md) describes the target architecture
+and the verdict rules. Parts of both predate the implemented order/menu flow; use
+the current status above when assessing what runs today.
 
 FullFill is licensed under the [MIT License](LICENSE).
