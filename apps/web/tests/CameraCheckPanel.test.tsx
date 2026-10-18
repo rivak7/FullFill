@@ -4,7 +4,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { orderNumber } from "../src/orderNumber";
 import { afterEach, beforeEach, expect, it, vi } from "vitest";
 import { JSDOM } from "jsdom";
-import { orderApi } from "../src/api/client";
+import { ApiError, orderApi } from "../src/api/client";
 import type { OrderState } from "../src/api/generated/contracts";
 import { CameraCheckPanel } from "../src/features/orders/CameraCheckPanel";
 import { SceneGuard, SceneTrigger, isEmptyMat } from "../src/features/orders/sceneTrigger";
@@ -128,16 +128,30 @@ it("captures the whole frame at the same JPEG resolution as menu photos", async 
   expect(navigator.mediaDevices.getUserMedia).toHaveBeenCalledWith({ audio: false, video: { facingMode: { ideal: "environment" }, width: { ideal: 1280 }, height: { ideal: 960 } } });
 });
 
-it("does not automatically retry failures and stops auto checking on error", async () => {
-  vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new Error("Provider unavailable"));
+it("retries a failed check once with a new photo, then stops auto checking", async () => {
+  vi.mocked(orderApi.checkCamera).mockRejectedValue(new ApiError("Camera check failed during vision provider.", 502, { provider_called: true, image: null, targets: [], references: [], observations: null, raw_answer: "{\"items\": []}" }));
   await render(); await camera();
   await click("Check order");
-  expect(container.querySelector('[role="alert"]')?.textContent).toContain("Provider unavailable");
+  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(true);
+  expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain('Perceptron answered: {"items": []}');
+  await act(async () => vi.advanceTimersByTimeAsync(2000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  expect(readCvLogs()[0].trigger).toBe("retry after error");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("vision provider");
+  expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
+  await act(async () => vi.advanceTimersByTimeAsync(60000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(2);
+  expect(readCvLogs()[0].result).toBe("Request failed");
+});
+
+it("does not retry a request the server rejected", async () => {
+  vi.mocked(orderApi.checkCamera).mockRejectedValueOnce(new ApiError("This order changed. Refresh before checking it.", 409));
+  await render(); await camera();
+  await click("Check order");
+  expect(container.querySelector('[role="alert"]')?.textContent).toContain("This order changed");
   expect(container.querySelector<HTMLInputElement>('input[type="checkbox"]')!.checked).toBe(false);
   await act(async () => vi.advanceTimersByTimeAsync(60000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(readCvLogs()[0].result).toBe("Request failed");
-  expect(readCvLogs()[0].events.at(-1)?.message).toContain("Provider unavailable");
 });
 
 it("records and copies a diagnostic timeline without saving camera images", async () => {

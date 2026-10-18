@@ -299,10 +299,12 @@ async def check_camera(
         if diagnostics is not None:
             lap(phase)
             diagnostics["timings_ms"] = timings
-        detail = (
-            f"Camera check failed during {phase.replace('_', ' ')} ({phase}.{category}). "
-            "No automatic retry was sent. Check manually or try again."
-        )
+        detail = f"Camera check failed during {phase.replace('_', ' ')} ({phase}.{category})."
+        if getattr(error, "public_reason", None):
+            # Set only on our own checks of the model's answer, never on SDK errors.
+            detail += f" {error.public_reason}."
+            if diagnostics is not None and getattr(error, "raw_answer", None):
+                diagnostics["raw_answer"] = error.raw_answer
         return JSONResponse(status_code=502, content={"detail": detail, "diagnostics": diagnostics})
 
 

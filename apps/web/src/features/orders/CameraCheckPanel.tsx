@@ -132,6 +132,7 @@ export function CameraCheckPanel(props: Props) {
     startCvLog(attemptId, boundOrder.id, boundOrder.revision, source);
     let photo: MenuPhoto;
     let recheck = false;
+    let retry = false;
     extraCheck.current = null;
     try {
       const frame = sample(video.current);
@@ -192,10 +193,15 @@ export function CameraCheckPanel(props: Props) {
     } catch (cause) {
       if (cause instanceof ApiError && cause.diagnostics) attachCvVisuals(attemptId, { diagnostics: cause.diagnostics });
       const status = cause && typeof cause === "object" && "status" in cause && typeof cause.status === "number" ? `HTTP ${cause.status}: ` : "";
-      updateCvLog(attemptId, status + (cause instanceof Error ? cause.message : "Request failed"), "Request failed", true);
-      if (mounted.current) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
+      if (cause instanceof ApiError && cause.diagnostics?.raw_answer) updateCvLog(attemptId, `Perceptron answered: ${cause.diagnostics.raw_answer}`);
+      // One fresh photo after a failed call (server or network trouble, an answer we
+      // couldn't read). A rejected request (4xx) would only fail the same way again.
+      retry = automaticRef.current && source !== "retry after error" && !(cause instanceof ApiError && cause.status < 500);
+      updateCvLog(attemptId, status + (cause instanceof Error ? cause.message : "Request failed") + (retry ? " Retrying once with a new photo." : ""), "Request failed", true);
+      if (mounted.current && !retry) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
     } finally {
       if (recheck) extraCheck.current = { at: Date.now() + 5000, reason: "recheck after amber" };
+      if (retry) extraCheck.current = { at: Date.now() + 1500, reason: "retry after error" };
       guard.current = null;
       inFlight.current = false;
       if (mounted.current) { setBusy(false); latest.current.onBusyChange(false); }
@@ -247,7 +253,7 @@ export function CameraCheckPanel(props: Props) {
       </div>
       <div className="camera-check-controls">
         <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
-        <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto-check</label>
+        <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck; a failed check gets one retry."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto-check</label>
         {devices.length > 1 && <select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select>}
         {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{orderNumber(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${orderNumber(lastPhoto.orderId)}`} /></details>}
       </div>

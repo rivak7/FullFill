@@ -293,16 +293,27 @@ def parse_answer(
         target_id = entry.get("item_id")
         if not isinstance(target_id, str) or target_id not in {*targets, *alternatives}:
             raise VisionProviderError(f"unknown item_id {target_id!r}")
-        if target_id in reported:
-            raise VisionProviderError(f"duplicate item_id {target_id!r}")
-        reported.add(target_id)
         status, count = entry.get("status"), entry.get("count")
         if status not in STATUSES:
             raise VisionProviderError(f"bad status {status!r} for {target_id}")
         if count is not None and (type(count) is not int or not 0 <= count <= 100000):
             raise VisionProviderError(f"bad count {count!r} for {target_id}")
-        if (status == "missing" and count != 0) or (status == "present" and count == 0):
-            raise VisionProviderError("inconsistent status and count")
+        # Answers that contradict themselves are doubts about this item, not a failed
+        # check: the worker sees amber with a reason instead of "Check failed".
+        conflict = target_id in reported or (status == "present" and count == 0)
+        reported.add(target_id)
+        if status == "missing" and count is None:
+            count = 0
+        elif status == "missing" and count:
+            conflict = True
+        if conflict:
+            if target_id in seen:
+                seen[target_id] = seen[target_id].model_copy(
+                    update={"status": "unsure", "reason": REASONS["count"]}
+                )
+                continue
+            status, count = "unsure", count or None
+            entry = {**entry, "reason": "count"}
         reason_key = entry.get("reason", "unknown" if status == "unsure" else "none")
         if not isinstance(reason_key, str) or reason_key not in ("none", *REASONS):
             raise VisionProviderError("invalid uncertainty reason")
@@ -361,9 +372,14 @@ def parse_answer(
             label_text=label,
             boxes=[] if status == "missing" else valid_boxes(entry.get("boxes")),
         )
-    missing = sorted(set(targets) - set(seen))
-    if missing:
-        raise VisionProviderError(f"answer left out {missing}")
+    # An ordered item the model never mentioned wasn't confidently counted either way.
+    for target_id in sorted(set(targets) - set(seen)):
+        seen[target_id] = TargetObservation(
+            target_id=target_id,
+            status="unsure",
+            observed_quantity=None,
+            reason=REASONS["unknown"],
+        )
     extras = listed
     for item in unexpected:
         # Preserve old offline fixtures as unidentified observations.
@@ -476,13 +492,22 @@ class PerceptronVision(VisionProvider):
             raise VisionProviderError(f"{type(exc).__name__}: {exc}") from exc
         latency_ms = round((time.perf_counter() - start) * 1000)
         if completion.finish_reason != "stop":
-            raise VisionProviderError(
+            error = VisionProviderError(
                 f"incomplete answer: finish_reason={completion.finish_reason}"
             )
-        observations, unexpected = parse_answer(completion.text or "", request)
-        answer = json.loads(completion.text)
-        if "scene_status" not in answer:
-            raise VisionProviderError("answer left out scene status")
+            error.raw_answer = (completion.text or "")[:4000]
+            error.public_reason = str(error)
+            raise error
+        try:
+            observations, unexpected = parse_answer(completion.text or "", request)
+            answer = json.loads(completion.text)
+            if "scene_status" not in answer:
+                raise VisionProviderError("answer left out scene status")
+        except VisionProviderError as exc:
+            # The kitchen's CV log shows what the model said and why it was rejected.
+            exc.raw_answer = (completion.text or "")[:4000]
+            exc.public_reason = str(exc)[:300]
+            raise
         usage = completion.usage
         return Observations(
             capture_id=request.capture_id,

@@ -44,6 +44,7 @@ export interface CameraDiagnostics {
   references: { item_id: string; name: string; revision: number; role: "expected" | "alternative"; image: string | null }[];
   observations: Observations | null;
   timings_ms?: Record<string, number>;
+  raw_answer?: string;
 }
 export type CameraResponse = OrderState & { diagnostics?: CameraDiagnostics | null };
 

@@ -93,12 +93,13 @@ def test_verdicts():
 
 
 def test_invalid_answers_are_rejected():
+    # An ordered item left out is unsure, not a rejected answer.
+    items, _ = vision.parse_answer(json.dumps(answer(fries=1)), ["fries", "ranch_cup"])
+    assert items["ranch_cup"]["status"] == "unsure"
+    bad = answer(fries=1)
+    bad["items"][0]["status"] = "maybe"
     with pytest.raises(ValueError):
-        vision.parse_answer(json.dumps(answer(fries=1)), ["fries", "ranch_cup"])
-    dup = answer(fries=1, ranch_cup=1)
-    dup["items"][1]["item_id"] = "fries"
-    with pytest.raises(ValueError):
-        vision.parse_answer(json.dumps(dup), ["fries", "ranch_cup"])
+        vision.parse_answer(json.dumps(bad), ["fries"])
 
 
 def test_api_error_is_recorded_not_raised(tmp, image):
