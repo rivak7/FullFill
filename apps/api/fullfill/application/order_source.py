@@ -104,7 +104,9 @@ class OrderSource(Protocol):
 
     async def list_orders(self) -> list[OrderSnapshot]: ...
 
-    async def station_orders(self, *, cleanup: bool = False) -> list[OrderState]: ...
+    async def station_orders(
+        self, *, cleanup: bool = False, clear: bool = False
+    ) -> list[OrderState]: ...
 
     async def set_order_status(
         self, order_id: str, edit: OrderStatusEdit, idempotency_key: str

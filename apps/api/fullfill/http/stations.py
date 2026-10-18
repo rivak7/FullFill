@@ -22,6 +22,15 @@ async def refresh_station(
     )
 
 
+@router.post("/{station_id}/clear", response_model=StationSnapshot)
+async def clear_station(station_id: str, source: Annotated[OrderSource, Depends(get_order_source)]):
+    """Dev mode "Start fresh": archive every ticket in the kitchen queue."""
+    return StationSnapshot(
+        station_id=station_id,
+        orders=await source.station_orders(clear=True),
+    )
+
+
 @router.get("/{station_id}", response_model=StationSnapshot)
 async def get_station(station_id: str, source: Annotated[OrderSource, Depends(get_order_source)]):
     return StationSnapshot(

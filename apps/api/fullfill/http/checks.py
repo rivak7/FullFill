@@ -119,6 +119,14 @@ async def check_camera(
         str, Header(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
     ],
 ):
+    started = time.perf_counter()
+    timings = {}
+
+    def lap(name):
+        # Milliseconds per server step, so the CV logs show where a slow check went.
+        now = time.perf_counter()
+        timings[name] = round((now - started) * 1000) - sum(timings.values())
+
     provider = getattr(request.app.state, "vision_provider", None)
     if provider is None and not os.getenv("PERCEPTRON_API_KEY", "").strip():
         raise HTTPException(503, "Camera checks are not configured on the server.")
@@ -145,6 +153,7 @@ async def check_camera(
     reserved, state = await source.reserve_camera_check(
         body.order_id, body.expected_revision, body.photo.digest, idempotency_key, body.worker_id
     )
+    lap("square_order")
     if reserved is None:
         return state
 
@@ -153,6 +162,7 @@ async def check_camera(
     try:
         targets = targets_for(state.order)
         menu = await source.menu()
+        lap("square_menu")
         wanted = {target.item_id for target in targets}
         available = {item.item_id for item in menu.items if item.photo_url}
         missing = [target.name for target in targets if target.item_id not in available]
@@ -177,6 +187,7 @@ async def check_camera(
             # selected alternatives are sent to the model. Failure is explicit.
             images = dict(await asyncio.gather(*(load_reference(item) for item in candidates)))
         alternatives = choose_alternatives(menu, wanted, images)
+        lap("reference_photos")
         included = [item for item in menu.items if item.item_id in wanted] + alternatives
         references = tuple(
             ReferenceImage(
@@ -211,13 +222,18 @@ async def check_camera(
                     client=client,
                     limiter=PERCEPTRON_RATE,
                     max_output_tokens=min(6000, 1600 + 200 * (len(targets) + len(alternatives))),
+                    boxes=body.diagnostics,
                 ).inspect(vision_input)
+        lap("perceptron")
         if diagnostics is not None:
             diagnostics["observations"] = observations.model_dump(mode="json")
         phase = "saving_result"
         result = await source.finish_camera_check(
             reserved, observations, reference_fingerprint(menu)
         )
+        lap("saving_result")
+        if diagnostics is not None:
+            diagnostics["timings_ms"] = timings
         return CameraResponse(**result.model_dump(), diagnostics=diagnostics)
     except OrderSourceError as error:
         # A revision conflict preserves the worker's newer decision.

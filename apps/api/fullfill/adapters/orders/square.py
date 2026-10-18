@@ -259,11 +259,20 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
     async def list_orders(self) -> list[OrderSnapshot]:
         return [self._snapshot(order) for order in await self._queue_records()]
 
-    async def station_orders(self, *, cleanup: bool = False) -> list[OrderState]:
+    async def station_orders(
+        self, *, cleanup: bool = False, clear: bool = False
+    ) -> list[OrderState]:
         orders = await self._queue_records()
         excess = max(0, len(orders) - self.queue_limit) if cleanup else 0
         retained = []
         for order in orders:
+            if clear:
+                # Dev mode "Start fresh": hide every ticket. Archiving only sets Square
+                # metadata, so nothing is cancelled and an order can be restored.
+                order = await self._archive_from_queue(order, force=True)
+                if order is not None:
+                    retained.append(self._order_state(order))
+                continue
             if excess and self._order_state(order).disposition in ("overridden", "verified"):
                 order = await self._archive_from_queue(order)
                 if order is None:
@@ -272,7 +281,7 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
             retained.append(self._order_state(order))
         return retained
 
-    async def _archive_from_queue(self, order: dict) -> dict | None:
+    async def _archive_from_queue(self, order: dict, force: bool = False) -> dict | None:
         for _ in range(3):
             state = self._order_state(order)  # Validate location before any mutation.
             if (
@@ -280,17 +289,18 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
                 or (order.get("metadata") or {}).get("fullfill_queue_archived") == "true"
             ):
                 return None
-            # A different screen may have reopened this order since the search.
-            if state.disposition not in ("overridden", "verified"):
-                return order
-            # Keep newly completed tickets available for correcting a mistake,
-            # even when another kitchen screen is cleaning up overflow.
-            completed = (order.get("metadata") or {}).get(COMPLETED_AT_KEY, "0")
-            try:
-                if time.time() - int(completed) < UNDO_SECONDS:
+            if not force:
+                # A different screen may have reopened this order since the search.
+                if state.disposition not in ("overridden", "verified"):
                     return order
-            except ValueError:
-                return order
+                # Keep newly completed tickets available for correcting a mistake,
+                # even when another kitchen screen is cleaning up overflow.
+                completed = (order.get("metadata") or {}).get(COMPLETED_AT_KEY, "0")
+                try:
+                    if time.time() - int(completed) < UNDO_SECONDS:
+                        return order
+                except ValueError:
+                    return order
             path = f"/v2/orders/{quote(order['id'], safe='')}"
             key = hashlib.sha256(
                 f"queue-archive:{order['id']}:{order['version']}".encode()

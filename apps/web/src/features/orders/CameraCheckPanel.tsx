@@ -1,4 +1,5 @@
 import { preferredCamera } from "./preferredCamera";
+import { isDevMode } from "../../devMode";
 import { useEffect, useRef, useState } from "react";
 import { orderApi, ApiError, type MenuPhoto } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
@@ -141,8 +142,10 @@ export function CameraCheckPanel(props: Props) {
     recordCheckAttempt(attemptId);
     updateCvLog(attemptId, `Snapshot sent. Expected: ${order.order.lines.map(line => `${line.quantity}× ${line.name}`).join(", ")}.`, "Analyzing");
     try {
-      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, diagnostics: true }, attemptId);
+      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, diagnostics: isDevMode() }, attemptId);
       if (response.diagnostics) attachCvVisuals(attemptId, { diagnostics: response.diagnostics });
+      const steps = response.diagnostics?.timings_ms;
+      if (steps) updateCvLog(attemptId, `Server steps: ${Object.entries(steps).map(([step, ms]) => `${step.replace("_", " ")} ${(ms / 1000).toFixed(1)} s`).join(", ")}.`);
       let state: OrderState = response;
       updateCvLog(attemptId, `Server response: ${checkResultDetails(state)}. Check ID: ${state.current_check?.check_id ?? "none"}.`);
       const validateScene = () => {

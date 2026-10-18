@@ -93,12 +93,20 @@ it("does not periodically check fulfilled orders, unclaimed orders, or an empty 
   expect(orderApi.checkCamera).not.toHaveBeenCalled();
 });
 
+it("asks for photos, boxes and timings only in dev mode", async () => {
+  vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: { provider_called: true, image: null, targets: [], references: [], observations: null, timings_ms: { square_order: 400, perceptron: 2100 } } });
+  localStorage.setItem("fullfill.dev.v1", "1");
+  await render(); await camera(); await click("Check order");
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0].diagnostics).toBe(true);
+  expect(readCvLogs()[0].events.map(event => event.message).join(" ")).toContain("Server steps: square order 0.4 s, perceptron 2.1 s.");
+});
+
 it("binds one snapshot to the captured ticket and never relabels a late result", async () => {
   let resolve!: (state: OrderState) => void;
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await click("Check order");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, diagnostics: true });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, diagnostics: false });
   await render(ticket("second"), true);
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);

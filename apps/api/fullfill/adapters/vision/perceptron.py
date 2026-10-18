@@ -26,7 +26,7 @@ from fullfill_contracts.vision import (
 from fullfill.domain.vision_uncertainty import REASONS, SCENES
 
 DEFAULT_MODEL = "perceptron-mk1.5"
-PROMPT_VERSION = "order-check-v5-boxes"
+PROMPT_VERSION = "order-check-v6"
 STATUSES = ("present", "missing", "unsure")
 
 PROMPT = """\
@@ -66,19 +66,25 @@ and "label_text" (exact readable text, otherwise null). Unidentified objects MUS
 null item_id and null instead_of_target_id. Never force a match. An alternative's photo \
 is comparison evidence, not a request to find it. LABEL REQUIRED alternatives need \
 a matching readable name; never infer hidden ingredients. Ignore tickets, hands, and shadows.
-- For each ordered or unexpected item, return "boxes": one tight box per visible object \
-located ONLY in the LAST image (the order photo), never in reference photos. Each box has \
-x_min, y_min, x_max, y_max: integer coordinates normalized to 0–1000, origin top-left, \
-x increasing rightward and y downward. Use an empty array for missing/hidden objects \
-or when you cannot locate them. Do not invent boxes. Return at most 32 boxes in total; \
-counts must still describe all visible objects, even when the box limit is reached.
-- Do not decide whether the order is correct. Only report what you see.
+{box_rule}- Do not decide whether the order is correct. Only report what you see.
 
 ORDERED items to check:
 {items}
 
 ALTERNATIVE references (not ordered):
 {alternatives}
+"""
+
+
+# Boxes cost output tokens (about 30 per object) and so add latency. The design keeps
+# them out of the first call; the kitchen asks for them only in dev mode.
+BOX_RULE = """\
+- For each ordered or unexpected item, return "boxes": one tight box per visible object \
+located ONLY in the LAST image (the order photo), never in reference photos. Each box has \
+x_min, y_min, x_max, y_max: integer coordinates normalized to 0–1000, origin top-left, \
+x increasing rightward and y downward. Use an empty array for missing/hidden objects \
+or when you cannot locate them. Do not invent boxes. Return at most 32 boxes in total; \
+counts must still describe all visible objects, even when the box limit is reached.
 """
 
 
@@ -125,7 +131,7 @@ def _target_line(target: VerificationTarget) -> str:
     return line
 
 
-def build_messages(request: VisionInput) -> list[dict]:
+def build_messages(request: VisionInput, boxes: bool = False) -> list[dict]:
     # A base menu photo cannot demonstrate a ticket's specific modifications.
     names = {t.item_id: t.name.split(" — ", 1)[0] for t in request.targets}
     content: list[dict] = []
@@ -152,6 +158,7 @@ def build_messages(request: VisionInput) -> list[dict]:
         {
             "type": "text",
             "text": PROMPT.format(
+                box_rule=BOX_RULE if boxes else "",
                 items=items,
                 alternatives="\n".join(
                     f"- {ref.item_id}: {ref.name or ref.item_id}"
@@ -166,8 +173,10 @@ def build_messages(request: VisionInput) -> list[dict]:
     return [{"role": "user", "content": content}]
 
 
-def response_schema(target_ids: list[str], alternative_ids: list[str] | None = None) -> dict:
-    boxes = {
+def response_schema(
+    target_ids: list[str], alternative_ids: list[str] | None = None, boxes: bool = False
+) -> dict:
+    box_list = {
         "type": "array",
         "maxItems": 32,
         "items": {
@@ -190,7 +199,7 @@ def response_schema(target_ids: list[str], alternative_ids: list[str] | None = N
             "label_text",
             "unlabeled_count",
             "reason",
-            "boxes",
+            *(["boxes"] if boxes else []),
         ],
         "properties": {
             "item_id": {"type": "string", "enum": target_ids},
@@ -199,7 +208,7 @@ def response_schema(target_ids: list[str], alternative_ids: list[str] | None = N
             "reason": {"type": "string", "enum": ["none", *REASONS]},
             "label_text": {"type": ["string", "null"]},
             "unlabeled_count": {"type": "integer", "minimum": 0},
-            "boxes": boxes,
+            **({"boxes": box_list} if boxes else {}),
         },
     }
     return {
@@ -224,7 +233,7 @@ def response_schema(target_ids: list[str], alternative_ids: list[str] | None = N
                                 "count",
                                 "instead_of_target_id",
                                 "label_text",
-                                "boxes",
+                                *(["boxes"] if boxes else []),
                             ],
                             "properties": {
                                 "name": {"type": "string"},
@@ -242,7 +251,7 @@ def response_schema(target_ids: list[str], alternative_ids: list[str] | None = N
                                     "enum": [*target_ids, None],
                                 },
                                 "label_text": {"type": ["string", "null"]},
-                                "boxes": boxes,
+                                **({"boxes": box_list} if boxes else {}),
                             },
                         },
                     },
@@ -408,10 +417,12 @@ class PerceptronVision(VisionProvider):
         timeout_s: float = 30.0,
         limiter: CallLimiter | None = None,
         client=None,
+        boxes: bool = False,
     ):
         """``client`` is for tests; otherwise a Perceptron ``AsyncClient`` is built from the key."""
         self.model = model or os.getenv("PERCEPTRON_MODEL") or DEFAULT_MODEL
         self.max_output_tokens = max_output_tokens
+        self.boxes = boxes
         # Optional limits are for explicitly budgeted offline evaluations only.
         self.limiter = limiter
         if client is None:
@@ -427,7 +438,7 @@ class PerceptronVision(VisionProvider):
         if not request.targets:
             raise ValueError("a check needs at least one target")
         target_ids = [t.target_id for t in request.targets]
-        messages = build_messages(request)
+        messages = build_messages(request, self.boxes)
         if self.limiter is not None:
             await self.limiter.acquire()
         start = time.perf_counter()
@@ -442,6 +453,7 @@ class PerceptronVision(VisionProvider):
                         for ref in request.references
                         if ref.item_id not in {target.item_id for target in request.targets}
                     ],
+                    self.boxes,
                 ),
                 max_completion_tokens=self.max_output_tokens,
                 temperature=0,
@@ -467,7 +479,7 @@ class PerceptronVision(VisionProvider):
             provider=ProviderMetadata(
                 provider="perceptron",
                 model=self.model,
-                prompt_version=PROMPT_VERSION,
+                prompt_version=PROMPT_VERSION + ("-boxes" if self.boxes else ""),
                 latency_ms=latency_ms,
                 request_id=getattr(completion, "request_id", None),
                 prompt_tokens=usage.prompt_tokens if usage else None,
