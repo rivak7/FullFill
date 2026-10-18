@@ -1,5 +1,34 @@
-"""TODO: catalog endpoints. Contract and route plan: docs/team-development.md."""
+"""Read the shared menu; protect catalog writes with a separate staff code."""
 
-from fastapi import APIRouter
+from typing import Annotated
+
+from fastapi import APIRouter, Depends, Header
+
+from fullfill.application.order_source import MenuEdit, MenuSnapshot, OrderSource
+
+from .access import require_menu_access
+from .order_source import get_order_source
 
 router = APIRouter(prefix="/menu", tags=["catalog"])
+Source = Annotated[OrderSource, Depends(get_order_source)]
+
+
+@router.get("/current", response_model=MenuSnapshot)
+async def current_menu(source: Source):
+    return await source.menu()
+
+
+@router.get("/manage", dependencies=[Depends(require_menu_access)], response_model=MenuSnapshot)
+async def managed_menu(source: Source):
+    return await source.menu()
+
+
+@router.post("/items", dependencies=[Depends(require_menu_access)], response_model=MenuSnapshot)
+async def save_item(
+    edit: MenuEdit,
+    source: Source,
+    idempotency_key: Annotated[
+        str, Header(min_length=1, max_length=128, pattern=r"^[A-Za-z0-9_-]+$")
+    ],
+):
+    return await source.save_menu(edit, idempotency_key)

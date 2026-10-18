@@ -16,3 +16,12 @@ def access_state(request: Request) -> dict[str, bool]:
         scheme.lower() == "bearer" and hmac.compare_digest(supplied.encode(), key.encode())
     )
     return {"required": bool(key), "authenticated": authenticated}
+
+
+def require_menu_access(request: Request) -> None:
+    key = os.getenv("FULLFILL_MENU_KEY", "")
+    if len(key) < 32:
+        raise HTTPException(503, "Menu editing is not configured on the server.")
+    supplied = request.headers.get("X-Menu-Key", "")
+    if not hmac.compare_digest(supplied.encode(), key.encode()):
+        raise HTTPException(403, "Enter the menu editing code.")

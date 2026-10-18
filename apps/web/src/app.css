@@ -2,6 +2,7 @@
 :root { --forest: #173e32; --muted: #74776c; }
 body { background: #f4f3ee; color: #202a23; }
 button, a, input { -webkit-tap-highlight-color: transparent; }
+input { font: inherit; }
 button { font: inherit; cursor: pointer; }
 button:disabled { cursor: not-allowed; opacity: .45; }
 a { color: inherit; }
@@ -80,6 +81,48 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
 .empty-state { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; min-height: 50vh; padding: 40px; text-align: center; }
 .empty-state h1 { font-size: 36px; letter-spacing: -1px; margin: 12px 0; }
 .demo-bar a { color: white; align-self: center; font-size: 12px; padding: 0 8px; white-space: nowrap; }
+.kitchen-tabs { display: flex; gap: 8px; padding: 10px 24px; background: #fffef9; border-bottom: 1px solid #dedfd4; }
+.kitchen-tabs button { padding: 9px 22px; border: 0; border-radius: 7px; background: transparent; color: #62695e; font-size: 14px; font-weight: 650; }
+.kitchen-tabs button[aria-current="page"] { color: var(--forest); background: #e9eee1; }
+.secondary-button { border: 1px solid #cbd1c2; color: var(--forest); background: #fffef9; border-radius: 7px; padding: 10px 14px; font-weight: 600; font-size: 13px; }
+.secondary-button:not(:disabled):hover { background: #edf1e7; }
+.menu-management { max-width: 1180px; margin: auto; padding: 36px 40px 64px; }
+.menu-management-heading { display: flex; justify-content: space-between; gap: 24px; align-items: center; margin-bottom: 30px; }
+.menu-management h1 { margin: 0; font-size: 28px; letter-spacing: -.6px; }
+.menu-management-heading p { color: #66705f; font-size: 14px; margin: 8px 0 0; }
+.menu-actions { display: flex; gap: 10px; }
+.menu-actions .primary-button { width: auto; font-size: 13px; padding: 12px 18px; }
+.menu-management-layout { display: grid; grid-template-columns: minmax(0, 1.7fr) minmax(280px, 1fr); gap: 32px; align-items: start; }
+.menu-filter { display: flex; gap: 8px; margin-bottom: 18px; }
+.menu-filter button { border: 0; padding: 8px 12px; font-size: 13px; background: transparent; border-radius: 6px; color: #6b7564; }
+.menu-filter button[aria-pressed="true"] { background: #e3e8d9; color: var(--forest); font-weight: 650; }
+.managed-menu-item { display: flex; align-items: center; gap: 14px; background: #fffef9; border: 1px solid #dedfd4; border-radius: 10px; padding: 20px; margin-bottom: 12px; }
+.managed-menu-item > div { flex: 1; min-width: 0; }
+.managed-menu-item h2 { margin: 0 0 6px; font-size: 17px; overflow-wrap: anywhere; }
+.managed-menu-item > div > span { color: #65705e; font-size: 14px; }
+.availability { display: inline-flex; white-space: nowrap; padding: 5px 9px; border-radius: 5px; font-size: 11px; font-weight: 650; }
+.availability.available { color: #315335; background: #edf3e5; }
+.availability.sold-out { color: #855c25; background: #fbefda; }
+.availability.archived { color: #687063; background: #eceee8; }
+.menu-edit-card { background: #fffef9; border: 1px solid #d1d8c6; border-radius: 12px; padding: 24px; position: sticky; top: 24px; }
+.menu-edit-card h2 { margin: 0 0 24px; font-size: 21px; }
+.menu-edit-card fieldset { border: 0; padding: 0; margin: 0; min-width: 0; }
+.menu-edit-card label { display: block; margin: 0 0 7px; font-size: 13px; font-weight: 600; }
+.menu-edit-card input:not([type="checkbox"]) { width: 100%; padding: 11px 12px; border: 1px solid #c5ccbe; border-radius: 6px; margin-bottom: 22px; background: white; }
+.menu-edit-card .check-label { display: flex; align-items: center; gap: 9px; margin: 0 0 18px; font-weight: 400; }
+.check-label input { width: 17px; height: 17px; accent-color: var(--forest); }
+.edit-actions { display: flex; gap: 10px; margin-top: 20px; }
+.edit-actions .primary-button { padding: 12px; font-size: 13px; }
+.menu-editor-hint { color: #77806e; font-size: 14px; line-height: 1.6; padding: 60px 28px; }
+.menu-editor-hint > span { font-size: 28px; }
+.menu-empty { padding: 30px 16px; color: #68745f; font-size: 14px; }
+.menu-sync-label { color: #6b7564; font-size: 11px; }
+.unavailable-item { background: #eeeee8; }
+.unavailable-item h2 { color: #6e7668; }
+.basket-unavailable { display: block; color: #9b562d; font-size: 12px; margin-top: 6px; }
+.basket-unavailable button { background: none; border: 0; text-decoration: underline; color: inherit; padding: 0 4px; }
+.menu-review { background: #faf0d9; color: #735623; border: 1px solid #e7d3a6; border-radius: 8px; padding: 16px; margin: 18px 0; font-size: 13px; }
+.menu-review p { line-height: 1.5; margin: 7px 0 12px; }
 @media (max-width: 1000px) {
   .ordering-page { padding: 36px 24px; }
   .ordering-layout { gap: 20px; }
@@ -89,6 +132,14 @@ button:focus-visible, a:focus-visible { outline: 3px solid #d99732; outline-offs
   .active-ticket .status { order: -1; min-height: 260px; }
 }
 @media (max-width: 680px) {
+  .menu-management { padding: 24px 18px; }
+  .menu-management-heading { align-items: start; flex-direction: column; }
+  .menu-management-layout { grid-template-columns: 1fr; gap: 18px; }
+  .menu-edit-card { position: static; order: -1; }
+  .menu-editor-hint { display: none; }
+  .managed-menu-item { gap: 8px; padding: 16px 12px; flex-wrap: wrap; }
+  .managed-menu-item > div { flex-basis: 40%; }
+  .managed-menu-item h2 { font-size: 16px; }
   .app-header { padding: 14px 18px; gap: 10px; flex-wrap: wrap; }
   .brand { font-size: 21px; }
   .app-header nav { order: 3; width: 100%; }

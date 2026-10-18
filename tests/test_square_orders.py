@@ -147,6 +147,71 @@ def test_queue_follows_pagination_skips_empty_and_terminal_orders():
     assert requests[1]["cursor"] == "next"
 
 
+def test_thirty_first_order_drops_oldest_ticket_from_all_kitchen_screens():
+    orders = [square_order(f"order-{number}") for number in range(30, 0, -1)]
+
+    def square(request):
+        if request.method == "GET":
+            return httpx.Response(200, json={"order": orders[-1]})
+        body = json.loads(request.content)
+        assert body["query"]["sort"] == {"sort_field": "CREATED_AT", "sort_order": "DESC"}
+        return httpx.Response(200, json={"orders": orders})
+
+    with client_for(square) as kitchen:
+        initial = kitchen.get("/v1/orders").json()
+        assert len(initial) == 30
+        assert initial[-1]["order_id"] == "order-1"
+        orders.insert(0, square_order("order-31"))
+        updated = kitchen.get("/v1/orders").json()
+        assert len(updated) == 30
+        assert updated[0]["order_id"] == "order-31"
+        assert updated[-1]["order_id"] == "order-2"
+        assert kitchen.get("/v1/orders/order-1").status_code == 200
+    with client_for(square) as other_kitchen:
+        assert other_kitchen.get("/v1/orders").json() == updated
+
+
+@pytest.mark.parametrize("concurrent", [False, True])
+def test_queue_overflow_removal_persists_and_tolerates_another_kitchen_refresh(concurrent):
+    orders = [square_order(f"order-{number}") for number in range(31, 0, -1)]
+    orders[-1]["metadata"] = {"existing": "keep-me"}
+    writes = []
+
+    def square(request):
+        if request.url.path == "/v2/orders/search":
+            return httpx.Response(200, json={"orders": orders})
+        assert request.url.path == "/v2/orders/order-1"
+        if request.method == "GET":
+            return httpx.Response(200, json={"order": orders[-1]})
+        assert request.method == "PUT"
+        body = json.loads(request.content)
+        writes.append(body)
+        orders[-1]["metadata"].update(fullfill_queue_archived="true")
+        orders[-1]["version"] += 1
+        if concurrent:
+            return httpx.Response(400, json={"errors": [{"code": "VERSION_MISMATCH"}]})
+        return httpx.Response(200, json={"order": orders[-1]})
+
+    with client_for(square) as kitchen:
+        response = kitchen.post("/v1/stations/main/refresh")
+        assert response.status_code == 200, response.text
+        assert len(response.json()["orders"]) == 30
+        assert response.json()["orders"][-1]["order"]["order_id"] == "order-2"
+    assert len(writes) == 1
+    assert writes[0]["order"] == {
+        "location_id": "test-location",
+        "version": 3,
+        "metadata": {"existing": "keep-me", "fullfill_queue_archived": "true"},
+    }
+    assert orders[-1]["state"] == "OPEN"
+    for order in orders[:-1]:
+        order["state"] = "COMPLETED"
+    with client_for(square) as second_kitchen:
+        assert second_kitchen.post("/v1/stations/main/refresh").json()["orders"] == []
+        assert second_kitchen.get("/v1/orders/order-1").status_code == 200
+    assert len(writes) == 1
+
+
 @pytest.mark.parametrize("status", [401, 403, 429, 500])
 def test_provider_errors_are_visible_and_never_expose_credentials(status):
     with client_for(
