@@ -28,6 +28,7 @@ export class SceneTrigger {
   private stableFrame: Uint8Array | null = null;
   private stableSince = 0;
   private lastAt: number | null = null;
+  private retryPending = false;
 
   get handoff(): "remove" | "place" | null {
     return this.handoffFrom ? this.betweenOrders ? "place" : "remove" : null;
@@ -41,6 +42,7 @@ export class SceneTrigger {
   }
 
   nextOrder() {
+    this.retryPending = false;
     // Preserve an unfinished handoff through an empty queue or another selection.
     // A still frame from the previous ticket must never automatically check the next.
     this.handoffFrom ??= (this.lastSent ?? this.previous)?.slice() ?? null;
@@ -54,7 +56,23 @@ export class SceneTrigger {
     this.reset();
   }
 
+  suspend() {
+    // Keep the last scene baseline, but never count hidden time as stillness
+    // or as evidence that the previous order was removed.
+    this.previous = null;
+    this.stableFrame = null;
+    this.lastAt = null;
+    this.betweenOrders = null;
+  }
+
+  retryInterrupted() {
+    this.reset();
+    this.lastSent = null;
+    this.retryPending = true;
+  }
+
   submitted(frame: Uint8Array) {
+    this.retryPending = false;
     this.handoffFrom = null; this.betweenOrders = null;
     this.lastSent = frame.slice(); this.reset(frame);
   }
@@ -62,9 +80,8 @@ export class SceneTrigger {
   sample(frame: Uint8Array, now: number): boolean {
     if (this.lastAt !== null && now - this.lastAt > 1000) this.interrupt();
     this.lastAt = now;
-    if (!this.previous || !this.baseline) {
-      this.previous = frame.slice(); this.baseline = frame.slice();
-    }
+    this.previous ??= frame.slice();
+    this.baseline ??= frame.slice();
     if (!this.stableFrame || frameDifference(frame, this.previous) > 8
       || frameDifference(frame, this.stableFrame) > 8) {
       this.stableFrame = frame.slice(); this.stableSince = now;
@@ -83,9 +100,9 @@ export class SceneTrigger {
       }
       // Do not spend a check on the intermediate/cleared view. Identical meals
       // can pass this gate after the observed removal-and-replacement sequence.
-      return frameDifference(frame, this.betweenOrders) > 12 && settledFor >= 1500;
+      return frameDifference(frame, this.betweenOrders) > 12 && settledFor >= 750;
     }
-    return frameDifference(frame, this.baseline) > 12 && settledFor >= 1500
+    return (this.retryPending || frameDifference(frame, this.baseline) > 12) && settledFor >= 750
       && (!this.lastSent || frameDifference(frame, this.lastSent) > 12);
   }
 }
