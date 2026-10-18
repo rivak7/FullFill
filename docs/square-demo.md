@@ -1,9 +1,9 @@
 # Square order entry and fulfillment
 
 The order entry screen creates orders in Square Sandbox. The fulfillment screen
-polls that same location every three seconds. Square holds the orders; they are
+polls that same location one second after each successful response. Square holds the orders; they are
 not stored in a browser or an API process's memory. The current integration does
-not charge payments or run camera checks. Staff can mark tickets fulfilled,
+not charge payments. Staff can run camera checks, mark tickets fulfilled,
 flag them for review, or reopen them from the kitchen screen.
 
 ## Run locally
@@ -45,7 +45,7 @@ New items still need vision reference enrollment; adding a menu item does not tr
 the vision checker. Existing burritos retain label verification.
 
 Photos persist as Square Catalog images. Menu entries expose `photo_id` and
-`photo_url` for later vision integration; the checker does not consume them yet.
+`photo_url`; browser camera checks send the relevant saved menu photos as references.
 The browser resizes to at most 1920 pixels on the longest side, re-encodes to JPEG
 without camera metadata, and keeps uploads below 1.5 MB. The backend validates the
 actual image before uploading. `POST /v1/menu/items` accepts optional
@@ -83,7 +83,7 @@ items. Changed items or quantities invalidate the previous confirmation. Saves
 require the displayed Square revision and an idempotency key: stale screens get a
 409 instead of overwriting someone else's action, and lost responses can be retried.
 Cleanup also checks the current status after version conflicts, protecting orders
-reopened by another screen. Status changes appear elsewhere on the next three-second poll.
+reopened by another screen. Status changes appear elsewhere on the next one-second poll, plus request time.
 
 ## Two computers
 
@@ -165,10 +165,18 @@ custom order store can implement the same interface without changing the screens
 
 New tickets return `disposition="pending"`. Manual review uses `needs_review`;
 manual fulfillment uses `overridden`, never a fabricated vision pass. Live tickets
-still return `current_check=null`. Tickets never turn green just by arriving from Square. The vision
-workflow can fetch `OrderSnapshot` by ID and later supply its actual `CheckResult`
-through the station snapshot. Associate results with the order ID and revision;
-do not reuse a result after the order changes. The menu editor requests camera
+without a camera check return `current_check=null`. Tickets never turn green just by arriving from Square.
+The kitchen's **Enable camera** button opens a local browser preview; **Check order**
+submits a single cropped frame. Automatic checks are opt-in, wait for a changed
+scene to settle, and pause on failures or when the tab is hidden. The browser has
+a 10-check session cap, and Square stores a shared 20-attempt cap per order plus
+a reservation preventing simultaneous paid checks. Failed or uncertain attempts
+are not automatically retried. A crashed reservation expires as failed after 90
+seconds. Completed compact observations are shared through station snapshots.
+Neither camera images nor API keys are stored in Square metadata. The backend
+resizes images, loads saved references only for this ticket, and calls Perceptron
+once. New item edits or manual decisions invalidate outstanding checks through
+Square revision checks. The menu editor requests camera
 permission only when **Take photo** is clicked, and stops its camera when captured,
 closed, or navigated away from. It does not call the vision API.
 

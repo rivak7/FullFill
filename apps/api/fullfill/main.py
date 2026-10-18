@@ -16,7 +16,7 @@ def create_app(order_source: OrderSource | None = None) -> FastAPI:
     app = FastAPI(
         title="FullFill",
         version="0.1.0",
-        description="Square Sandbox order entry and queue. Camera/check routes are separate work.",
+        description="Square Sandbox ordering, shared kitchen queue, and browser camera checks.",
     )
     app.state.order_source = order_source
     origins = [

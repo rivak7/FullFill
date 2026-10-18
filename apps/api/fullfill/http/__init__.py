@@ -1,4 +1,4 @@
-"""HTTP boundary. These routers intentionally have no implemented endpoints."""
+"""HTTP boundary for ordering, catalog, stations, and camera checks."""
 
 from fastapi import APIRouter
 

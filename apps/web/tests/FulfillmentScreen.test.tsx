@@ -9,7 +9,7 @@ import { reconcileQueue } from "../src/features/orders/queueState";
 
 vi.mock("../src/api/client", async importOriginal => ({
   ...await importOriginal<typeof import("../src/api/client")>(),
-  orderApi: { station: vi.fn(), setStatus: vi.fn() },
+  orderApi: { station: vi.fn(), setStatus: vi.fn(), cameraConfig: vi.fn(), checkCamera: vi.fn() },
 }));
 
 function ticket(id: string, disposition: OrderState["disposition"] = "pending", revision = 1): OrderState {
@@ -24,6 +24,7 @@ beforeEach(() => {
   window.history.replaceState(null, "", "/fulfill");
   container = document.createElement("div"); document.body.append(container); root = createRoot(container);
   orders = [ticket("first"), ticket("second", "needs_review"), ticket("third")];
+  vi.mocked(orderApi.cameraConfig).mockResolvedValue({ configured: true, cooldown_seconds: 10, max_checks_per_order: 20 });
   vi.mocked(orderApi.station).mockImplementation(async () => snapshot(orders));
   vi.mocked(orderApi.setStatus).mockImplementation(async (id, edit) => {
     const updated = ticket(id, edit.status === "fulfilled" ? "overridden" : edit.status === "unsure" ? "needs_review" : "pending", edit.expected_revision + 1);

@@ -57,7 +57,7 @@ export function setAccessKey(value: string) {
 
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const controller = new AbortController();
-  const timer = window.setTimeout(() => controller.abort(), path === "/menu/items" ? 60000 : 20000);
+  const timer = window.setTimeout(() => controller.abort(), path === "/menu/items" || path === "/checks/camera" ? 60000 : 20000);
   const abort = () => controller.abort();
   options.signal?.addEventListener("abort", abort, { once: true });
   if (options.signal?.aborted) controller.abort();
@@ -91,6 +91,10 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
 }
 
 export const orderApi = {
+  cameraConfig: (signal?: AbortSignal) => request<{ configured: boolean; cooldown_seconds: number; max_checks_per_order: number }>("/checks/camera/config", { signal }),
+  checkCamera: (body: { order_id: string; expected_revision: number; photo: MenuPhoto }, key: string) => request<OrderState>("/checks/camera", {
+    method: "POST", headers: { "Idempotency-Key": key }, body: JSON.stringify(body),
+  }),
   session: (signal?: AbortSignal) => request<{ required: boolean; authenticated: boolean }>("/session", { signal }),
   menu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/current", { signal }),
   managedMenu: (signal?: AbortSignal) => request<MenuSnapshot>("/menu/manage", { signal }),
