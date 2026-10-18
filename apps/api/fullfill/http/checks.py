@@ -205,7 +205,7 @@ async def check_camera(
             ) as client:
                 observations = await PerceptronVision(
                     client=client,
-                    max_output_tokens=min(4000, 400 + 140 * (len(targets) + len(alternatives))),
+                    max_output_tokens=min(6000, 1600 + 200 * (len(targets) + len(alternatives))),
                 ).inspect(vision_input)
         if diagnostics is not None:
             diagnostics["observations"] = observations.model_dump(mode="json")

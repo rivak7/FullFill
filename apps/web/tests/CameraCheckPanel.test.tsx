@@ -492,7 +492,7 @@ it("shows exact input photos and model reports in a separate tab without stoppin
     provider_called: true, image: "data:image/jpeg;base64,bW9kZWw=",
     references: [{ item_id: "fries", name: "Fries", revision: 7, role: "expected" as const, image: "data:image/jpeg;base64,cmVm" }],
     targets: [{ target_id: "fries", line_ids: ["line"], item_id: "fries", name: "Fries", expected_quantity: 1 }],
-    observations: { schema_version: 1 as const, capture_id: "capture", targets: [{ target_id: "fries", status: "unsure" as const, observed_quantity: null, reason: "Covered" }], unexpected_items: [{ name: "Drink", quantity: 1 }], scene_uncertainty: "Hands in frame" },
+    observations: { schema_version: 1 as const, capture_id: "capture", targets: [{ target_id: "fries", status: "unsure" as const, observed_quantity: null, reason: "Covered" }], unexpected_items: [{ name: "Drink", quantity: 1 }], scene_uncertainty: "Hands in frame", provider: { provider: "perceptron", model: "test-model", prompt_version: "test", latency_ms: 2300, prompt_tokens: 1800, completion_tokens: 0 } },
   };
   vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: diagnostic });
   await render(); await camera(); await click("CV logs");
@@ -507,6 +507,9 @@ it("shows exact input photos and model reports in a separate tab without stoppin
   expect(logs.textContent).toContain("Covered");
   expect(logs.textContent).toContain("1 × Drink");
   expect(logs.textContent).toContain("Hands in frame");
+  expect(logs.textContent).toContain("Model time2.30 s");
+  expect(logs.textContent).toContain("Input tokens1,800");
+  expect(logs.textContent).toContain("Output tokens0");
   expect(JSON.stringify(readCvLogs())).not.toContain("data:image");
   expect(readCvLogs()[0].diagnostics?.observations?.targets[0].status).toBe("unsure");
   await click("Clear logs");

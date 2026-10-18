@@ -1,5 +1,43 @@
 {
   "$defs": {
+    "BoundingBox": {
+      "additionalProperties": false,
+      "description": "Coordinates on the order image, normalized to a 0\u20131000 grid.",
+      "properties": {
+        "x_max": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "X Max",
+          "type": "integer"
+        },
+        "x_min": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "X Min",
+          "type": "integer"
+        },
+        "y_max": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Y Max",
+          "type": "integer"
+        },
+        "y_min": {
+          "maximum": 1000,
+          "minimum": 0,
+          "title": "Y Min",
+          "type": "integer"
+        }
+      },
+      "required": [
+        "x_min",
+        "y_min",
+        "x_max",
+        "y_max"
+      ],
+      "title": "BoundingBox",
+      "type": "object"
+    },
     "CaptureMetadata": {
       "additionalProperties": false,
       "properties": {
@@ -1078,6 +1116,14 @@
     "TargetObservation": {
       "additionalProperties": false,
       "properties": {
+        "boxes": {
+          "items": {
+            "$ref": "#/$defs/BoundingBox"
+          },
+          "maxItems": 32,
+          "title": "Boxes",
+          "type": "array"
+        },
         "label_text": {
           "anyOf": [
             {
@@ -1140,6 +1186,14 @@
     "UnexpectedItem": {
       "additionalProperties": false,
       "properties": {
+        "boxes": {
+          "items": {
+            "$ref": "#/$defs/BoundingBox"
+          },
+          "maxItems": 32,
+          "title": "Boxes",
+          "type": "array"
+        },
         "instead_of_target_id": {
           "anyOf": [
             {

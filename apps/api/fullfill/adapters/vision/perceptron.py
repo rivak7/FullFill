@@ -14,6 +14,7 @@ import time
 
 from fullfill_contracts.ports import VisionProvider
 from fullfill_contracts.vision import (
+    BoundingBox,
     Observations,
     ProviderMetadata,
     TargetObservation,
@@ -25,7 +26,7 @@ from fullfill_contracts.vision import (
 from fullfill.domain.vision_uncertainty import REASONS, SCENES
 
 DEFAULT_MODEL = "perceptron-mk1.5"
-PROMPT_VERSION = "order-check-v4-lookalikes"
+PROMPT_VERSION = "order-check-v5-boxes"
 STATUSES = ("present", "missing", "unsure")
 
 PROMPT = """\
@@ -65,6 +66,12 @@ and "label_text" (exact readable text, otherwise null). Unidentified objects MUS
 null item_id and null instead_of_target_id. Never force a match. An alternative's photo \
 is comparison evidence, not a request to find it. LABEL REQUIRED alternatives need \
 a matching readable name; never infer hidden ingredients. Ignore tickets, hands, and shadows.
+- For each ordered or unexpected item, return "boxes": one tight box per visible object \
+located ONLY in the LAST image (the order photo), never in reference photos. Each box has \
+x_min, y_min, x_max, y_max: integer coordinates normalized to 0–1000, origin top-left, \
+x increasing rightward and y downward. Use an empty array for missing/hidden objects \
+or when you cannot locate them. Do not invent boxes. Return at most 32 boxes in total; \
+counts must still describe all visible objects, even when the box limit is reached.
 - Do not decide whether the order is correct. Only report what you see.
 
 ORDERED items to check:
@@ -160,10 +167,31 @@ def build_messages(request: VisionInput) -> list[dict]:
 
 
 def response_schema(target_ids: list[str], alternative_ids: list[str] | None = None) -> dict:
+    boxes = {
+        "type": "array",
+        "maxItems": 32,
+        "items": {
+            "type": "object",
+            "additionalProperties": False,
+            "required": ["x_min", "y_min", "x_max", "y_max"],
+            "properties": {
+                key: {"type": "integer", "minimum": 0, "maximum": 1000}
+                for key in ("x_min", "y_min", "x_max", "y_max")
+            },
+        },
+    }
     item = {
         "type": "object",
         "additionalProperties": False,
-        "required": ["item_id", "status", "count", "label_text", "unlabeled_count", "reason"],
+        "required": [
+            "item_id",
+            "status",
+            "count",
+            "label_text",
+            "unlabeled_count",
+            "reason",
+            "boxes",
+        ],
         "properties": {
             "item_id": {"type": "string", "enum": target_ids},
             "status": {"type": "string", "enum": list(STATUSES)},
@@ -171,6 +199,7 @@ def response_schema(target_ids: list[str], alternative_ids: list[str] | None = N
             "reason": {"type": "string", "enum": ["none", *REASONS]},
             "label_text": {"type": ["string", "null"]},
             "unlabeled_count": {"type": "integer", "minimum": 0},
+            "boxes": boxes,
         },
     }
     return {
@@ -195,6 +224,7 @@ def response_schema(target_ids: list[str], alternative_ids: list[str] | None = N
                                 "count",
                                 "instead_of_target_id",
                                 "label_text",
+                                "boxes",
                             ],
                             "properties": {
                                 "name": {"type": "string"},
@@ -212,6 +242,7 @@ def response_schema(target_ids: list[str], alternative_ids: list[str] | None = N
                                     "enum": [*target_ids, None],
                                 },
                                 "label_text": {"type": ["string", "null"]},
+                                "boxes": boxes,
                             },
                         },
                     },
@@ -220,6 +251,19 @@ def response_schema(target_ids: list[str], alternative_ids: list[str] | None = N
             },
         },
     }
+
+
+def valid_boxes(value):
+    """Bad optional geometry must not invalidate otherwise usable recognition."""
+    if not isinstance(value, list):
+        return []
+    boxes = []
+    for entry in value[:32]:
+        try:
+            boxes.append(BoundingBox.model_validate(entry))
+        except (ValueError, TypeError):
+            continue
+    return boxes
 
 
 def parse_answer(
@@ -288,6 +332,7 @@ def parse_answer(
             observed_quantity=count,
             reason=reason,
             label_text=label,
+            boxes=[] if status == "missing" else valid_boxes(entry.get("boxes")),
         )
     missing = sorted(set(targets) - set(seen))
     if missing:
@@ -347,6 +392,7 @@ def parse_answer(
                 item_id=identity,
                 instead_of_target_id=replacement,
                 quantity=count,
+                boxes=valid_boxes(item.get("boxes")),
             )
         )
     return [seen[t.target_id] for t in request.targets], extras

@@ -193,7 +193,10 @@ class SquareCameraChecks:
                 values.append(value)
             payload = {
                 "o": values,
-                "u": [item.model_dump(exclude_none=True) for item in observations.unexpected_items],
+                "u": [
+                    item.model_dump(exclude_none=True, exclude={"boxes"})
+                    for item in observations.unexpected_items
+                ],
                 "f": reference_version,
             }
             if observations.scene_uncertainty:

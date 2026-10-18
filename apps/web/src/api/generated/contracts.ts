@@ -72,11 +72,23 @@ export type SchemaVersion3 = 1;
  * @minItems 1
  */
 export type Targets = [TargetObservation, ...TargetObservation[]];
+export type XMax = number;
+export type XMin = number;
+export type YMax = number;
+export type YMin = number;
+/**
+ * @maxItems 32
+ */
+export type Boxes = BoundingBox[];
 export type LabelText = string | null;
 export type ObservedQuantity1 = number | null;
 export type Reason = string | null;
 export type Status1 = "present" | "missing" | "unsure";
 export type TargetId1 = string;
+/**
+ * @maxItems 32
+ */
+export type Boxes1 = BoundingBox[];
 export type InsteadOfTargetId = string | null;
 export type ItemId1 = string | null;
 export type Name1 = string;
@@ -259,13 +271,24 @@ export interface ProviderMetadata {
   request_id?: RequestId2;
 }
 export interface TargetObservation {
+  boxes?: Boxes;
   label_text?: LabelText;
   observed_quantity?: ObservedQuantity1;
   reason?: Reason;
   status: Status1;
   target_id: TargetId1;
 }
+/**
+ * Coordinates on the order image, normalized to a 0–1000 grid.
+ */
+export interface BoundingBox {
+  x_max: XMax;
+  x_min: XMin;
+  y_max: YMax;
+  y_min: YMin;
+}
 export interface UnexpectedItem {
+  boxes?: Boxes1;
   instead_of_target_id?: InsteadOfTargetId;
   item_id?: ItemId1;
   name: Name1;

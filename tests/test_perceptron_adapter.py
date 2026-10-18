@@ -305,3 +305,71 @@ def test_unknown_item_never_keeps_a_speculative_substitution():
     _, extras = parse_answer(json.dumps(alternative_answer(item_id=None)), alternative_request())
     assert extras[0].name == "Model nickname"
     assert extras[0].item_id is None and extras[0].instead_of_target_id is None
+
+
+def test_boxes_are_requested_in_same_call_and_linked_to_observed_items():
+    box = {"x_min": 120, "y_min": 230, "x_max": 450, "y_max": 670}
+    mayo = {**entry("mayo"), "boxes": [box]}
+    client = FakeClient(
+        {
+            "items": [entry("chicken_burrito", label="C"), mayo],
+            "unexpected_items": [{"name": "Unknown cup", "count": 1, "boxes": [box]}],
+        }
+    )
+    observed = run(vision(client).inspect(REQUEST))
+    assert len(client.requests) == 1
+    sent = client.requests[0]
+    schema = sent["response_format"]["json_schema"]["schema"]["properties"]
+    assert "boxes" in schema["items"]["items"]["required"]
+    assert "boxes" in schema["unexpected_items"]["items"]["required"]
+    assert "ONLY in the LAST image" in sent["messages"][0]["content"][-1]["text"]
+    assert observed.targets[1].boxes[0].model_dump() == box
+    assert observed.unexpected_items[0].boxes[0].model_dump() == box
+    assert observed.provider.prompt_tokens == 1800
+    assert observed.provider.completion_tokens == 40
+
+
+@pytest.mark.parametrize(
+    "bad",
+    [
+        None,
+        "box",
+        [{"x_min": -1, "y_min": 0, "x_max": 20, "y_max": 30}],
+        [{"x_min": 20, "y_min": 0, "x_max": 10, "y_max": 30}],
+        [{"x_min": 0, "y_min": 0, "x_max": 1001, "y_max": 30}],
+        [{"x_min": True, "y_min": 0, "x_max": 20, "y_max": 30}],
+        [{"x_min": 0, "y_min": 5, "x_max": 20, "y_max": 5}],
+    ],
+)
+def test_bad_optional_boxes_do_not_invalidate_recognition(bad):
+    observed, _ = parse_answer(
+        json.dumps(
+            {
+                "items": [entry("chicken_burrito", label="C"), {**entry("mayo"), "boxes": bad}],
+                "unexpected_items": [],
+            }
+        ),
+        REQUEST,
+    )
+    assert observed[1].status == "present"
+    assert observed[1].observed_quantity == 1
+    assert observed[1].boxes == []
+
+
+def test_missing_items_never_get_boxes():
+    observed, _ = parse_answer(
+        json.dumps(
+            {
+                "items": [
+                    entry("chicken_burrito", label="C"),
+                    {
+                        **entry("mayo", "missing", 0),
+                        "boxes": [{"x_min": 0, "y_min": 0, "x_max": 20, "y_max": 30}],
+                    },
+                ],
+                "unexpected_items": [],
+            }
+        ),
+        REQUEST,
+    )
+    assert observed[1].boxes == []
