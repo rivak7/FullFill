@@ -85,15 +85,12 @@ class SquareMenu:
             ) from None
 
     def _categories(self, objects: list[dict]) -> list[MenuCategory]:
-        # Square categories are shared with the restaurant's own catalog, so every
-        # category offered at this location is listed; FullFill only ever adds one.
+        # Square categories are shared with the restaurant's own catalog and always
+        # apply to every location, so all of them are listed; FullFill only adds one.
         categories = []
         for obj in objects:
             name = obj.get("category_data", {}).get("name")
-            at_location = obj.get("present_at_all_locations", True) or self.location_id in (
-                obj.get("present_at_location_ids") or []
-            )
-            if obj.get("type") == "CATEGORY" and at_location and isinstance(name, str) and name:
+            if obj.get("type") == "CATEGORY" and isinstance(name, str) and name:
                 categories.append(MenuCategory(category_id=obj["id"], name=name))
         return categories
 
@@ -166,13 +163,8 @@ class SquareMenu:
             return await self.snapshot()
         if len(categories) >= 30:
             raise OrderSourceError("This demo supports up to 30 categories.", 422)
-        category = {
-            "type": "CATEGORY",
-            "id": "#category",
-            "present_at_all_locations": False,
-            "present_at_location_ids": [self.location_id],
-            "category_data": {"name": name},
-        }
+        # Square rejects location fields on a CATEGORY: it is always global.
+        category = {"type": "CATEGORY", "id": "#category", "category_data": {"name": name}}
         await self.request(
             "POST", "/v2/catalog/object", {"idempotency_key": key, "object": category}
         )

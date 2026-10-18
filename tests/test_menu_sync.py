@@ -90,7 +90,11 @@ class SquareCatalog:
                 obj["version"] += 1
                 self.objects.remove(existing)
             elif obj["type"] == "CATEGORY":
-                assert obj["present_at_location_ids"] == ["our-location"]
+                # Square: CATEGORY objects "cannot use location-specific fields".
+                if {"present_at_all_locations", "present_at_location_ids"} & obj.keys():
+                    return httpx.Response(
+                        400, json={"errors": [{"code": "INVALID_VALUE", "field": "object"}]}
+                    )
                 obj["id"] = f"category-{len(self.objects)}"
                 obj["version"] = 1
             else:

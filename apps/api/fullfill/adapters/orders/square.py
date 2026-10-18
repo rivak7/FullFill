@@ -5,6 +5,7 @@ import binascii
 import hashlib
 import hmac
 import json
+import logging
 import os
 import time
 from decimal import Decimal, InvalidOperation
@@ -124,6 +125,14 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
         if response.status_code >= 400:
             try:
                 errors = response.json().get("errors", [])
+                # Square's error codes name the bad field; they carry no credentials.
+                logging.getLogger(__name__).warning(
+                    "Square %s %s returned %s: %s",
+                    method,
+                    path.split("?")[0],
+                    response.status_code,
+                    [(error.get("code"), error.get("field")) for error in errors],
+                )
                 if any(
                     error.get("code") in ("VERSION_MISMATCH", "OBJECT_VERSION_MISMATCH")
                     for error in errors
