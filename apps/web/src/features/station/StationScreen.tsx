@@ -1,6 +1,6 @@
 import { orderNumber } from "../../orderNumber";
 import type { OrderState } from "../../api/generated/contracts";
-import { toScreenState, type ScreenLine, type ScreenState, type Tone } from "./screenState";
+import { statusReason, toScreenState, type ScreenLine, type ScreenState, type Tone } from "./screenState";
 import "./station.css";
 
 interface Props {
@@ -56,20 +56,15 @@ function Ticket({ orderId, lines }: { orderId: string; lines: ScreenLine[] }) {
   );
 }
 
-// The ticket marks which lines are off; this panel says why, once.
+// The ticket marks which lines are off; this panel says why in one short line.
 function Status({ screen }: { screen: ScreenState }) {
+  const reason = statusReason(screen);
   return (
     <section className="status" aria-live="polite">
       <Face tone={screen.tone} />
       <div className="status-text">
         <h1 className="status-headline">{screen.headline}</h1>
-        {screen.problems.length > 0 ? (
-          <ul className="status-problems">
-            {screen.problems.map((p, i) => (
-              <li key={`${p.target_id ?? "scene"}:${p.kind}:${i}`}>{p.message}</li>
-            ))}
-          </ul>
-        ) : screen.detail && <p className="status-detail">{screen.detail}</p>}
+        {reason && <p className="status-detail">{reason}</p>}
       </div>
     </section>
   );
