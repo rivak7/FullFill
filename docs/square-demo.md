@@ -179,8 +179,8 @@ are limited to one per second per API process, with no total cap. The expandable
 check-activity section counts attempts over recent time windows. Square reservations
 prevent simultaneous paid checks. Failed attempts are not automatically retried;
 an amber result gets one recheck five seconds later, and red or green results stand until the scene changes. A crashed inference expires as failed after 90 seconds. A successful
-inference remains pending until the capturing screen confirms its view stayed
-unchanged; this confirmation expires after 15 seconds. A separate two-minute
+inference remains pending until the capturing screen confirms it; movement after the
+photo never revokes a result. This confirmation expires after 15 seconds. A separate two-minute
 worker reservation keeps other kitchen screens off the same unfinished ticket.
 Full compact observations, including every unexpected item, are shared through
 station snapshots. See the README for motion-check limitations.

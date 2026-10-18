@@ -130,7 +130,7 @@ export function CameraCheckPanel(props: Props) {
       const frame = sample(video.current);
       photo = cameraPhoto(video.current);
       trigger.current.submitted(frame); setHandoff(null);
-      guard.current = new SceneGuard(frame, Date.now());
+      guard.current = new SceneGuard();
     } catch { updateCvLog(attemptId, "Could not capture a camera frame; no request sent.", "Capture failed", true); setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
     inFlight.current = true;
     interruptedByTab.current = false;
@@ -149,19 +149,13 @@ export function CameraCheckPanel(props: Props) {
         if (!mounted.current) guard.current?.invalidate("page_closed");
         else if (document.hidden) guard.current?.invalidate("tab_hidden");
         else if (!video.current || !stream.current?.active) guard.current?.invalidate("camera_unavailable");
-        else { try { guard.current?.sample(sample(video.current), Date.now()); } catch { guard.current?.invalidate("capture_error"); } }
-        return guard.current?.unchanged(Date.now()) ?? false;
+        return guard.current?.unchanged() ?? false;
       };
       if (mounted.current && state.current_check?.execution_status === "awaiting_confirmation") {
         const confirm = (unchanged: boolean) => orderApi.confirmCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, check_id: state.current_check!.check_id, expected_revision: state.order.revision, scene_unchanged: unchanged });
         const unchanged = validateScene();
-        updateCvLog(attemptId, unchanged ? "View unchanged; confirming result." : `Result invalidated by browser: ${sceneDiagnostic(guard.current?.reason)}.`, "Confirming");
+        updateCvLog(attemptId, unchanged ? "Confirming result." : `Result invalidated by browser: ${sceneDiagnostic(guard.current?.reason)}.`, "Confirming");
         state = await confirm(unchanged);
-        // Movement during the final network write also revokes this same result.
-        if (unchanged && !validateScene() && state.current_check?.execution_status === "completed") {
-          updateCvLog(attemptId, `View invalidated during confirmation: ${sceneDiagnostic(guard.current?.reason)}. Revoking result.`);
-          state = await confirm(false);
-        }
       }
       recheck = source !== "recheck after amber" && state.current_check?.execution_status === "completed" && state.current_check.verdict === "unsure";
       updateCvLog(attemptId, checkResultDetails(state), state.current_check?.execution_status === "completed" ? state.current_check.verdict === "pass" ? "Fulfilled" : state.current_check.verdict === "fail" ? "Unfulfilled" : "Needs review" : state.current_check?.execution_status ?? "No result", true);
@@ -196,11 +190,8 @@ export function CameraCheckPanel(props: Props) {
     if (!open || !ready) return;
     const timer = window.setInterval(() => {
       if (inFlight.current) {
-        try {
-          if (document.hidden) guard.current?.invalidate("tab_hidden");
-          else if (!video.current || !stream.current?.active) guard.current?.invalidate("camera_unavailable");
-          else guard.current?.sample(sample(video.current), Date.now());
-        } catch { guard.current?.invalidate("capture_error"); }
+        if (document.hidden) guard.current?.invalidate("tab_hidden");
+        else if (!video.current || !stream.current?.active) guard.current?.invalidate("camera_unavailable");
         return;
       }
       if (!video.current || document.hidden || !stream.current?.active) return;

@@ -339,26 +339,12 @@ it("keeps uncertain items visible alongside definite shortages", () => {
   expect(screen.problems).toHaveLength(2);
 });
 
-it("invalidates a photo if food moves away and returns, or sampling stops", () => {
-  const frame = new Uint8Array(1024).fill(80);
-  const guard = new SceneGuard(frame, 0);
-  guard.sample(frame, 250); expect(guard.unchanged(250)).toBe(true);
-  guard.sample(new Uint8Array(1024), 500);
-  guard.sample(frame, 750); expect(guard.unchanged(750)).toBe(false);
-  const stalled = new SceneGuard(frame, 0);
-  stalled.sample(frame, 1500); expect(stalled.unchanged(1500)).toBe(false);
-});
-
-it("ignores auto-exposure and small noise during a check, but not a moved item", () => {
-  const frame = new Uint8Array(1024).fill(80);
-  const guard = new SceneGuard(frame, 0);
-  guard.sample(new Uint8Array(1024).fill(110), 250); // whole frame brightened
-  guard.sample(frame.map((value, i) => value + (i % 7) - 3), 500); // sensor noise
-  expect(guard.unchanged(500)).toBe(true);
-  const moved = frame.slice();
-  for (let row = 0; row < 8; row++) moved.fill(200, row * 32, row * 32 + 8); // one corner changed
-  guard.sample(moved, 750);
-  expect(guard.unchanged(750)).toBe(false);
+it("keeps the first reason a result was invalidated", () => {
+  const guard = new SceneGuard();
+  expect(guard.unchanged()).toBe(true);
+  guard.invalidate("ticket_changed"); guard.invalidate("tab_hidden");
+  expect(guard.unchanged()).toBe(false);
+  expect(guard.reason).toBe("ticket_changed");
 });
 
 it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene safely: %s", async kind => {
@@ -382,11 +368,13 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
   } else if (kind === "closed") await click("Close camera");
   const pending = checked(); pending.current_check!.execution_status = "awaiting_confirmation"; pending.current_check!.verdict = null;
   await act(async () => resolve(pending));
-  expect(orderApi.confirmCamera).toHaveBeenCalledWith(expect.objectContaining({ scene_unchanged: kind === "still" }));
-  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe(kind === "still" ? "green" : "amber");
+  // Movement after the photo (bagging, a hand) never revokes the result.
+  const kept = kind === "still" || kind === "motion";
+  expect(orderApi.confirmCamera).toHaveBeenCalledWith(expect.objectContaining({ scene_unchanged: kept }));
+  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe(kept ? "green" : "amber");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   const events = readCvLogs()[0].events.map(event => event.message).join(" ");
-  if (kind === "motion") expect(events).toContain("scene_changed");
+  if (kind === "motion") expect(events).not.toContain("invalidated");
   if (kind === "hidden") expect(events).toContain("tab_hidden");
   if (kind === "closed") expect(events).toContain("camera_stopped");
   if (kind === "hidden") {
@@ -402,20 +390,17 @@ it.each(["still", "motion", "hidden", "closed"])("confirms the captured scene sa
   }
 });
 
-it("revokes a result if the scene changes during confirmation without spending again", async () => {
+it("never revokes a green result after it is confirmed", async () => {
   const pending = checked(); pending.current_check!.execution_status = "awaiting_confirmation";
   vi.mocked(orderApi.checkCamera).mockResolvedValue(pending);
   let resolve!: (state: OrderState) => void;
-  vi.mocked(orderApi.confirmCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; })).mockImplementationOnce(async () => {
-    const rejected = checked(); rejected.current_check!.execution_status = "superseded"; rejected.disposition = "needs_review";
-    return rejected;
-  });
+  vi.mocked(orderApi.confirmCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await click("Check order");
   await click("Close camera");
   const accepted = checked(); accepted.current_check!.verdict = "pass";
   await act(async () => resolve(accepted));
-  expect(vi.mocked(orderApi.confirmCamera).mock.calls.map(call => call[0].scene_unchanged)).toEqual([true, false]);
-  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("amber");
+  expect(vi.mocked(orderApi.confirmCamera).mock.calls.map(call => call[0].scene_unchanged)).toEqual([true]);
+  expect(toScreenState(onResult.mock.calls[0][0]).tone).toBe("green");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
 });
 
