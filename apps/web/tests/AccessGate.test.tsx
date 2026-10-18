@@ -19,6 +19,7 @@ it.each(["order", "kitchen"] as const)("uses the same access prompt on the %s sc
   vi.mocked(orderApi.session).mockResolvedValue({ required: true, authenticated: false, role: null });
   await act(async () => root.render(<AccessGate scope={scope}><p>Screen content</p></AccessGate>));
   expect(container.textContent).toContain("FullFill access");
+  expect(container.textContent).toContain("Password: abc");
   expect(container.textContent).not.toContain("Screen content");
   expect(container.textContent).not.toContain("Kitchen access");
 });

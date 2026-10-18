@@ -11,8 +11,9 @@ Production URLs in the `iceberg-projects` Vercel account:
 - Kitchen: https://fullfill-kitchen.vercel.app
 - API: https://fullfill-api.vercel.app
 
-The ignored root `.env` stores the shared `FULLFILL_ACCESS_KEY`. Use that same
-code on both sites. It is also a server-side secret on the API project.
+The ignored root `.env` stores the shared `FULLFILL_ACCESS_KEY`. The public demo
+uses `abc` on both sites and displays it on both lock screens. Set that same value
+in the API project's Vercel environment.
 
 | Project | Root directory | Framework | Build command | Output |
 | --- | --- | --- | --- | --- |
@@ -31,18 +32,18 @@ Set these only on the API project, as server-side secrets:
 
 - `SQUARE_ENVIRONMENT=sandbox`
 - `SQUARE_ACCESS_TOKEN` and `SQUARE_LOCATION_ID` from the Sandbox account
-- `FULLFILL_ACCESS_KEY`: the shared access code for both sites, at least 32 characters
+- `FULLFILL_ACCESS_KEY=abc`: the shared public demo access code for both sites
 - `FULLFILL_WEB_ORIGINS`: the exact order and kitchen HTTPS origins, separated
   by a comma, without trailing slashes
 
 On both frontend projects, set `VITE_API_BASE_URL` to the API's production HTTPS
-origin, without a path. This URL is public. Never put an access code or Square
-credential in a `VITE_` variable: Vite includes those values in browser code.
+origin, without a path. This URL is public. Never put Square or Perceptron
+credentials in a `VITE_` variable: Vite includes those values in browser code.
 
 Both sites ask for the same access code, sent in an Authorization header and
 remembered per tab in session storage. The shared code authorizes ordering and
-all kitchen operations. Hosted deployments fail closed if it is missing or too
-short. Local development without a code remains available. The retired
+all kitchen operations. Hosted deployments fail closed if it is missing.
+Local development without a code remains available. The retired
 `FULLFILL_KITCHEN_KEY` setting is ignored; only `FULLFILL_ACCESS_KEY` is accepted.
 
 The kitchen **Menu** tab opens directly using the shared session.

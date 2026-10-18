@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from fullfill.adapters.orders.square import SquareOrders
 from fullfill.main import create_app
 
-ACCESS_CODE = "test-only-demo-access-code-with-entropy"
+ACCESS_CODE = "abc"
 KITCHEN_CODE = "test-only-kitchen-code-with-different-entropy"
 ORDER_SITE = "https://orders.example.com"
 KITCHEN_SITE = "https://kitchen.example.com"
@@ -30,10 +30,9 @@ def test_local_demo_still_works_without_a_code():
         assert client.get("/v1/menu").status_code == 200
 
 
-@pytest.mark.parametrize("key", ["", "too-short"])
-def test_hosted_api_fails_closed_when_access_is_not_configured(monkeypatch, key):
+def test_hosted_api_fails_closed_when_access_is_not_configured(monkeypatch):
     monkeypatch.setenv("VERCEL", "1")
-    monkeypatch.setenv("FULLFILL_ACCESS_KEY", key)
+    monkeypatch.setenv("FULLFILL_ACCESS_KEY", "")
     with TestClient(create_app()) as client:
         for path in ("/v1/session", "/v1/menu", "/v1/stations/main"):
             response = client.get(path, headers={"Origin": ORDER_SITE})
@@ -77,6 +76,7 @@ def test_unauthorized_requests_never_reach_square(monkeypatch, authorization):
 
 
 def test_both_sites_can_authenticate_and_invalid_origins_are_not_allowed(monkeypatch):
+    monkeypatch.setenv("VERCEL", "1")
     monkeypatch.setenv("FULLFILL_ACCESS_KEY", ACCESS_CODE)
     with TestClient(create_app()) as client:
         for origin in (ORDER_SITE, KITCHEN_SITE):

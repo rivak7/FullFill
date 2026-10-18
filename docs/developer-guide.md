@@ -249,7 +249,7 @@ development proxy forwards `/v1` requests to port 8000.
 | --- | --- |
 | `SQUARE_ENVIRONMENT` | Set to `sandbox`; the current adapter rejects production configuration. |
 | `SQUARE_ACCESS_TOKEN`, `SQUARE_LOCATION_ID` | Backend credentials/location for shared orders and catalog. |
-| `FULLFILL_ACCESS_KEY` | Shared ordering and kitchen access code; at least 32 characters. Required on Vercel and optional locally. |
+| `FULLFILL_ACCESS_KEY` | Shared ordering and kitchen access code. The public demo uses `abc`, shown on both lock screens. Required on Vercel and optional locally. |
 | `FULLFILL_WEB_ORIGINS` | Comma-separated exact frontend origins for API CORS when hosting sites separately. |
 | `VITE_API_BASE_URL` | Public API origin, configured before frontend builds. Separate-site builds require an HTTPS URL. Local development uses the proxy by default. |
 | `PERCEPTRON_API_KEY` | Required only for real vision/evaluation calls. |

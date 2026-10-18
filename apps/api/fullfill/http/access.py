@@ -11,7 +11,7 @@ def access_state(request: Request, scope="order") -> dict:
     # Both screens use the existing FULLFILL_ACCESS_KEY and have the same access.
     expected = os.getenv("FULLFILL_ACCESS_KEY", "")
     configured = bool(expected or os.getenv("VERCEL"))
-    if configured and len(expected) < 32:
+    if configured and not expected:
         raise HTTPException(503, "The shared access code is not configured.")
     if not configured:
         return {"required": False, "authenticated": True, "role": "kitchen"}
