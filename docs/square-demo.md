@@ -172,12 +172,13 @@ custom order store can implement the same interface without changing the screens
 New tickets return `disposition="pending"`. Manual review uses `needs_review`;
 manual fulfillment uses `overridden`, never a fabricated vision pass. Live tickets
 without a camera check return `current_check=null`. Tickets never turn green just by arriving from Square.
-The kitchen's **Enable camera** button opens a local browser preview; **Check order**
-submits a single full camera frame, downscaled to 1024 px. Automatic checks start enabled with the camera, wait for a changed
-scene to settle, and pause on failures or when the tab is hidden. Perceptron calls
+The kitchen's **Enable camera** button opens a local browser preview; **Check now**
+(in the override row) submits a single full camera frame, downscaled to 1024 px. Checks are always automatic while the camera is on: they wait for a changed
+scene to settle and pause while the tab is hidden. Perceptron calls
 are limited to one per second per API process, with no total cap. The expandable
 check-activity section counts attempts over recent time windows. Square reservations
-prevent simultaneous paid checks. Failed attempts are not automatically retried;
+prevent simultaneous paid checks. The server never retries a paid call; the browser retries a failed
+check once with a new photo (not a rejected request), and
 an amber result gets one recheck five seconds later, and red or green results stand until the scene changes. A crashed inference expires as failed after 90 seconds. A successful
 inference remains pending until the capturing screen confirms it; movement after the
 photo never revokes a result. This confirmation expires after 15 seconds. A separate two-minute

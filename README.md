@@ -48,16 +48,16 @@ can only assess visible items or readable labels, not hidden fillings or modifie
 such as “no onion.” A saved menu photo is a visual reference, not model training.
 
 Camera checks require `PERCEPTRON_API_KEY` on the backend. Keep it out of `VITE_`
-variables. Open the kitchen page and enable the camera once. **Automatic checks**
-start enabled and stay enabled as fulfilled tickets advance through the queue.
-Place the first order in view after the preview starts; a changed view that stays
-still for 750 ms triggers a check. Turning automatic checks on also takes one look
-after five seconds, and an amber result gets one recheck. **Check order** remains an optional manual
-capture with no separate handoff confirmation.
+variables. Open the kitchen page and enable the camera once. Checks are always
+automatic while the camera is on. Place the first order in view after the preview
+starts; a changed view that stays still for 0.5 s triggers a check. Turning the
+camera on also takes one look after five seconds, an amber result gets one recheck,
+and a failed check gets one retry with a new photo. **Check now** in the override
+row takes a photo right away.
 
 For subsequent tickets, the browser observes two transitions: the previous view
-changes and stays stable for at least 750 ms, then a replacement view changes
-again and settles for 750 ms. The intermediate view makes no model call, and
+changes and stays stable for at least 0.5 s, then a replacement view changes
+again and settles for 0.5 s. The intermediate view makes no model call, and
 automatic rechecks cannot bypass this handoff guard.
 Clear the packing area briefly between orders. This allows identical meals to be
 checked separately while suppressing untouched food and brief hand waves. It is

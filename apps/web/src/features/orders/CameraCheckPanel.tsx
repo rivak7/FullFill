@@ -15,6 +15,8 @@ interface Props {
   workerId: string;
   disabled: boolean;
   pauseToken?: number;
+  // Bumped by the kitchen's "Check now" button: take a photo of the mat right away.
+  checkToken?: number;
   // `bagging` is true when the camera will watch this passed order get cleared off the mat.
   onResult: (state: OrderState, bagging: boolean) => void;
   onMatCleared?: (orderId: string) => void;
@@ -100,7 +102,17 @@ export function CameraCheckPanel(props: Props) {
     if (ticketKey) lastTicket.current = ticketKey;
     setHandoff(trigger.current.handoff);
   }, [ticketKey]);
-  useEffect(() => { setAuto(false); }, [props.pauseToken]);
+  // A worker's override stands: drop any pending look or bagging watch. Auto-check
+  // stays on, and only a changed mat starts the next check.
+  useEffect(() => {
+    if (bagging.current) { const held = bagging.current; bagging.current = null; latest.current.onMatCleared?.(held); }
+    extraCheck.current = null; trigger.current.reset();
+  }, [props.pauseToken]);
+  useEffect(() => {
+    if (!props.checkToken) return;
+    if (!ready) setError("Turn on the camera to check this order.");
+    else void checkRef.current("manual");
+  }, [props.checkToken]);
 
   async function start(id = chosenDevice.current) {
     stop(); setError(""); setOpen(true); setAuto(true); trigger.current.learnEmptyMat();
@@ -186,7 +198,7 @@ export function CameraCheckPanel(props: Props) {
             && latest.current.order?.order.order_id === boundOrder.id;
           if (resume) { trigger.current.retryInterrupted(); setError(""); }
           else {
-            setAuto(false); setError(state.current_check?.error_code === "reference_changed" ? "Menu reference photos changed. Take a new photo." : state.current_check?.execution_status === "superseded" ? "The view changed during the check. Keep the order still and take a new photo." : "The check has not completed. Check manually before starting another.");
+            setError(state.current_check?.error_code === "reference_changed" ? "Menu reference photos changed. Press Check now." : state.current_check?.execution_status === "superseded" ? "The view changed during the check. Keep the order still and press Check now." : "The check has not completed. Press Check now to try again.");
           }
         }
       }
@@ -198,7 +210,8 @@ export function CameraCheckPanel(props: Props) {
       // couldn't read). A rejected request (4xx) would only fail the same way again.
       retry = automaticRef.current && source !== "retry after error" && !(cause instanceof ApiError && cause.status < 500);
       updateCvLog(attemptId, status + (cause instanceof Error ? cause.message : "Request failed") + (retry ? " Retrying once with a new photo." : ""), "Request failed", true);
-      if (mounted.current && !retry) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
+      // Auto-check stays on; the next change on the mat (or Check now) starts a new check.
+      if (mounted.current && !retry) setError(cause instanceof Error ? cause.message : "Check failed. Press Check now to try again.");
     } finally {
       if (recheck) extraCheck.current = { at: Date.now() + 5000, reason: "recheck after amber" };
       if (retry) extraCheck.current = { at: Date.now() + 1500, reason: "retry after error" };
@@ -235,9 +248,8 @@ export function CameraCheckPanel(props: Props) {
     return () => window.clearInterval(timer);
   }, [open, ready]);
 
-  const canCheck = ready && configured && !!props.order && !isFulfilled(props.order) && !props.disabled && !busy;
-  const status = busy ? "Checking… hold still" : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Bag it and clear the mat" : automatic && handoff === "place" ? "Place the next order" : automatic ? null : "Auto-check is off";
-  return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check">
+  const status = busy ? "Checking… hold still" : !ready ? "Opening camera…" : automatic && handoff === "remove" ? "Bag it and clear the mat" : automatic && handoff === "place" ? "Place the next order" : automatic ? null : "Paused · reopen the camera";
+  return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check" data-auto={automatic ? "on" : "off"}>
     <div className="dock-bar">
       <div className="cv-tabs" role="tablist" aria-label="Camera and diagnostics">
         <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
@@ -252,8 +264,6 @@ export function CameraCheckPanel(props: Props) {
         <span className={`camera-state${busy ? " camera-state-busy" : ""}`} role="status" hidden={!status}>{status}</span>
       </div>
       <div className="camera-check-controls">
-        <button className="primary-button" disabled={!canCheck} onClick={() => void check()}>{busy ? "Checking…" : "Check order"}</button>
-        <label className="camera-auto" title="Checks when the order settles. Amber gets one recheck; a failed check gets one retry."><input type="checkbox" checked={automatic} disabled={!ready || !configured} onChange={event => setAuto(event.target.checked)} />Auto-check</label>
         {devices.length > 1 && <select aria-label="Camera" value={deviceId} onChange={event => { chosenDevice.current = event.target.value; setDeviceId(event.target.value); void start(event.target.value); }}>{devices.map(device => <option key={device.deviceId} value={device.deviceId}>{device.label || "Camera"}</option>)}</select>}
         {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{orderNumber(lastPhoto.orderId)}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${orderNumber(lastPhoto.orderId)}`} /></details>}
       </div>

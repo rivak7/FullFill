@@ -25,6 +25,7 @@ export function FulfillmentScreen() {
   const [refresh, setRefresh] = useState(0);
   const [undo, setUndo] = useState<Undo | null>(null);
   const [cameraPause, setCameraPause] = useState(0);
+  const [checkNow, setCheckNow] = useState(0);
   // The order the camera just passed stays on screen while it is bagged.
   const bagging = useRef<string | null>(null);
   const epoch = useRef(0);
@@ -190,6 +191,7 @@ export function FulfillmentScreen() {
               <StationScreen state={current} />
               <div className="fulfillment-actions" aria-label="Manual override">
                 <span>Override</span>
+                {currentTone !== "green" && <button className="text-button" disabled={locked} onClick={() => setCheckNow(value => value + 1)}>Check now</button>}
                 {currentTone !== "red" && <button className="text-button" disabled={locked} onClick={() => updateStatus("unfulfilled")}>Reopen</button>}
                 {currentTone !== "amber" && <button className="text-button" disabled={locked} onClick={() => updateStatus("unsure")}>Needs review</button>}
                 {currentTone !== "green" && <button className="text-button" disabled={locked} onClick={() => updateStatus("fulfilled")}>{busy ? "Saving…" : "Fulfill order"}</button>}
@@ -197,7 +199,7 @@ export function FulfillmentScreen() {
             </>
             : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1><p>{waiting ? "Pick an order above." : "New orders show up here on their own."}</p></div>}
         </div>
-          <CameraCheckPanel workerId={workerId} order={current} disabled={locked || !current || !ownedBy(current, workerId)} pauseToken={cameraPause} onBusyChange={value => {
+          <CameraCheckPanel workerId={workerId} order={current} disabled={locked || !current || !ownedBy(current, workerId)} pauseToken={cameraPause} checkToken={checkNow} onBusyChange={value => {
             saving.current = value; setBusy(value);
             if (value) epoch.current++;
             else setRefresh(count => count + 1);
