@@ -1,0 +1,16 @@
+.env
+.env.*
+**/.env
+**/.env.*
+.venv
+**/node_modules
+**/dist
+**/__pycache__
+**/.pytest_cache
+**/.ruff_cache
+logs
+data
+*.jpg
+.DS_Store
+.codex
+.agents

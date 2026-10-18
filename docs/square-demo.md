@@ -28,16 +28,16 @@ open the fulfillment queue on the other. Each uses its own localhost URL; the
 shared orders travel through Square, so no direct LAN connection is needed.
 Credentials belong in each backend's ignored `.env`, never in browser code.
 
-For the planned hosted version, both pages can use the same hosted API. The
+For separate hosted sites, follow [the Vercel setup](vercel.md). Both pages use the same hosted API. The
 frontend defaults to `/v1` on its own origin. If the API is hosted separately,
 set `VITE_API_BASE_URL` to its HTTPS origin before building the frontend and set
 `FULLFILL_WEB_ORIGINS` on the backend to the exact frontend origin (comma-separated
 for multiple origins). The local Vite proxy is development-only. The deployment
 must route `/v1` to the backend and `/order` and `/fulfill` to the frontend.
 
-This change does not deploy to Vercel or expose the local servers publicly.
-Before enabling remote/public access, add the station authentication and
-transport protections described in `system-design.md`; CORS is not authentication.
+The hosted demo protects API reads and writes with `FULLFILL_ACCESS_KEY` and HTTPS.
+Each browser asks for that shared demo code. CORS restricts browser origins but
+is not authentication. The local servers do not need to be exposed publicly.
 
 ## API and integration boundary
 

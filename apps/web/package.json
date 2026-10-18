@@ -5,7 +5,11 @@
   "type": "module",
   "scripts": {
     "dev": "vite --host 127.0.0.1",
+    "dev:order": "vite --host 127.0.0.1 --mode order --port 5174 --strictPort",
+    "dev:fulfill": "vite --host 127.0.0.1 --mode fulfill --port 5175 --strictPort",
     "build": "tsc --noEmit && vite build",
+    "build:order": "tsc --noEmit && vite build --mode order",
+    "build:fulfill": "tsc --noEmit && vite build --mode fulfill",
     "typecheck": "tsc --noEmit",
     "generate:contracts": "node scripts/generate-contracts.mjs"
   },
