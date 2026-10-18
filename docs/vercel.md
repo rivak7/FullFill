@@ -12,7 +12,7 @@ Production URLs in the `iceberg-projects` Vercel account:
 - API: https://fullfill-api.vercel.app
 
 The ignored root `.env` stores the shared `FULLFILL_ACCESS_KEY`. The public demo
-uses `abc` on both sites and displays it on both lock screens. Set that same value
+uses `fullfill` on both sites and displays it on both lock screens. Set that same value
 in the API project's Vercel environment.
 
 | Project | Root directory | Framework | Build command | Output |
@@ -32,7 +32,7 @@ Set these only on the API project, as server-side secrets:
 
 - `SQUARE_ENVIRONMENT=sandbox`
 - `SQUARE_ACCESS_TOKEN` and `SQUARE_LOCATION_ID` from the Sandbox account
-- `FULLFILL_ACCESS_KEY=abc`: the shared public demo access code for both sites
+- `FULLFILL_ACCESS_KEY=fullfill`: the shared public demo access code for both sites
 - `FULLFILL_WEB_ORIGINS`: the exact order and kitchen HTTPS origins, separated
   by a comma, without trailing slashes
 

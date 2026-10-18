@@ -6,7 +6,7 @@ from fastapi.testclient import TestClient
 from fullfill.adapters.orders.square import SquareOrders
 from fullfill.main import create_app
 
-ACCESS_CODE = "abc"
+ACCESS_CODE = "fullfill"
 KITCHEN_CODE = "test-only-kitchen-code-with-different-entropy"
 ORDER_SITE = "https://orders.example.com"
 KITCHEN_SITE = "https://kitchen.example.com"
