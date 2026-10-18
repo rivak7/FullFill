@@ -13,9 +13,9 @@ export function SettingsMenu() {
       <label><input type="checkbox" checked={settings.photos} onChange={event => changeSetting("photos", event.target.checked)} />
         <span>Model input in CV logs<small>The exact photo and menu references Perceptron got.</small></span></label>
       <label><select value={settings.reasoning} onChange={event => changeSetting("reasoning", event.target.value as Reasoning)}>
-        <option value="none">None</option><option value="low">Low</option><option value="high">High</option>
+        <option value="auto">Auto</option><option value="none">None</option><option value="low">Low</option><option value="high">High</option>
       </select>
-        <span>Model reasoning<small>Perceptron thinks before counting. May help big orders.</small></span></label>
+        <span>Model reasoning<small>Auto thinks harder for orders of 4+ items. The others force one mode.</small></span></label>
     </div>
   </details>;
 }

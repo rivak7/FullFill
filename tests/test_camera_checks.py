@@ -1040,3 +1040,22 @@ def test_unknown_reasoning_effort_is_rejected():
         )
     assert result.status_code == 422
     assert not vision.calls
+
+
+@pytest.mark.parametrize(
+    ("quantities", "requested", "chosen"),
+    [
+        ([1, 2], "auto", "none"),
+        ([1, 1, 1, 1], "auto", "low"),
+        ([4], "auto", "low"),
+        ([1, 1, 1, 1, 1], "none", "none"),
+        ([1], "high", "high"),
+    ],
+)
+def test_auto_reasoning_thinks_harder_from_four_items(quantities, requested, chosen):
+    from types import SimpleNamespace
+
+    from fullfill.http.checks import reasoning_for
+
+    targets = [SimpleNamespace(expected_quantity=quantity) for quantity in quantities]
+    assert reasoning_for(requested, targets) == chosen
