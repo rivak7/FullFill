@@ -55,8 +55,9 @@ export function toScreenState(state: OrderState): ScreenState {
     return { tone: "checking", headline: "Checking…", detail: null, lines, problems: [], confirmedByStaff: false };
   }
 
-  const definite = discrepancies.filter((d) => d.kind !== "unsure");
-  const unsure = discrepancies.filter((d) => d.kind === "unsure");
+  const isUnsure = (d: Discrepancy) => d.kind === "unsure" || (d.kind === "unexpected" && d.expected_quantity == null);
+  const definite = discrepancies.filter((d) => !isUnsure(d));
+  const unsure = discrepancies.filter(isUnsure);
 
   if (check.verdict === "fail" || definite.length > 0) {
     return { tone: "red", headline: "Unfulfilled", detail: null, lines, problems: definite, confirmedByStaff: false };

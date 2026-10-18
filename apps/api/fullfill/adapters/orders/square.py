@@ -25,6 +25,7 @@ from fullfill.application.order_source import (
     OrderStatusEdit,
 )
 
+from .camera_checks import CHECK_KEY, SquareCameraChecks, check_result, read_record
 from .menu import SquareMenu, menu_snapshot
 
 
@@ -33,7 +34,7 @@ def demo_menu() -> list[MenuEntry]:
     return [MenuEntry.model_validate(item) for item in data]
 
 
-class SquareOrders:
+class SquareOrders(SquareCameraChecks):
     base_url = "https://connect.squareupsandbox.com"
     queue_limit = 10
 
@@ -215,14 +216,17 @@ class SquareOrders:
         snapshot = self._snapshot(order)
         metadata = order.get("metadata") or {}
         status = metadata.get("fullfill_queue_status")
-        if metadata.get("fullfill_status_fingerprint") != self._ticket_fingerprint(order):
+        matches = metadata.get("fullfill_status_fingerprint") == self._ticket_fingerprint(order)
+        check = check_result(snapshot, metadata) if matches else None
+        if not matches:
             status = "unfulfilled"
         return OrderState(
             order=snapshot,
-            disposition={"fulfilled": "overridden", "unsure": "needs_review"}.get(
-                status, "pending"
-            ),
+            disposition=check.disposition
+            if check
+            else {"fulfilled": "overridden", "unsure": "needs_review"}.get(status, "pending"),
             disposition_revision=snapshot.revision,
+            current_check=check,
         )
 
     async def _queue_records(self) -> list[dict]:
@@ -270,7 +274,7 @@ class SquareOrders:
         excess = max(0, len(orders) - self.queue_limit) if cleanup else 0
         retained = []
         for order in orders:
-            if excess and self._order_state(order).disposition == "overridden":
+            if excess and self._order_state(order).disposition in ("overridden", "verified"):
                 order = await self._archive_from_queue(order)
                 if order is None:
                     excess -= 1
@@ -287,7 +291,7 @@ class SquareOrders:
             ):
                 return None
             # A different screen may have reopened this order since the search.
-            if state.disposition != "overridden":
+            if state.disposition not in ("overridden", "verified"):
                 return order
             path = f"/v2/orders/{quote(order['id'], safe='')}"
             key = hashlib.sha256(
@@ -340,6 +344,10 @@ class SquareOrders:
             raise OrderSourceError(
                 "This order changed on another screen. Refresh and try again.", 409
             )
+        if CHECK_KEY in metadata:
+            record = read_record(metadata)
+            record["s"] = "cancelled"
+            metadata = {**metadata, CHECK_KEY: json.dumps(record, separators=(",", ":"))}
         try:
             result = await self._request(
                 "PUT",

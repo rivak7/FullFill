@@ -3,6 +3,7 @@ import { ApiError, orderApi, type OrderStatusEdit } from "../../api/client";
 import { StationScreen } from "../station/StationScreen";
 import { toScreenState } from "../station/screenState";
 import { isFulfilled, reconcileQueue, type QueueState } from "./queueState";
+import { CameraCheckPanel } from "./CameraCheckPanel";
 
 type StatusAttempt = { id: string; body: OrderStatusEdit; key: string };
 
@@ -126,6 +127,14 @@ export function FulfillmentScreen() {
               </div>
             </>
             : <div className="empty-state"><h1>{waiting ? "No newer orders" : orders.length ? "All caught up" : "Waiting for orders"}</h1>{!!waiting && <p>Select another ticket to continue.</p>}</div>}
+          <CameraCheckPanel order={current} disabled={locked} onBusyChange={value => {
+            saving.current = value; setBusy(value);
+            if (value) epoch.current++;
+            else setRefresh(count => count + 1);
+          }} onResult={updated => {
+            setQueue(previous => reconcileQueue(previous, previous.orders.map(state => state.order.order_id === updated.order.order_id ? updated : state)));
+            setNotice(`#${updated.order.order_id.slice(-8).toUpperCase()} · ${toScreenState(updated).headline}`);
+          }} />
         </div>
       </div>
     </div>

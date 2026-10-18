@@ -1,0 +1,336 @@
+"""Camera integration with fake Square and fake vision; never consumes API credit."""
+
+import asyncio
+import base64
+import copy
+import json
+from io import BytesIO
+
+import httpx
+import pytest
+from fastapi.testclient import TestClient
+from fullfill.adapters.orders.camera_checks import CHECK_KEY
+from fullfill.adapters.orders.square import SquareOrders
+from fullfill.adapters.vision.perceptron import VisionProviderError
+from fullfill.main import create_app
+from fullfill_contracts.vision import Observations, TargetObservation, UnexpectedItem
+from PIL import Image
+
+
+def photo(color="white"):
+    output = BytesIO()
+    Image.new("RGB", (64, 64), color).save(output, format="JPEG")
+    return {"data_base64": base64.b64encode(output.getvalue()).decode()}
+
+
+class Square:
+    def __init__(self):
+        self.order = {
+            "id": "ticket",
+            "location_id": "location",
+            "version": 3,
+            "state": "OPEN",
+            "line_items": [
+                {
+                    "uid": "line",
+                    "name": "Fries",
+                    "quantity": "2",
+                    "metadata": {
+                        "fullfill_item_id": "fries",
+                        "fullfill_verification_mode": "visible_item",
+                    },
+                }
+            ],
+        }
+        self.lose_finish_response = False
+
+    def request(self, request):
+        if request.method == "PUT":
+            body = json.loads(request.content)
+            if body["order"]["version"] != self.order["version"]:
+                return httpx.Response(409, json={"errors": [{"code": "VERSION_MISMATCH"}]})
+            self.order.update(body["order"])
+            self.order["version"] += 1
+            metadata = self.order["metadata"]
+            assert len(metadata) <= 10
+            assert all(len(value) <= 255 for value in metadata.values())
+            if self.lose_finish_response and body["idempotency_key"].startswith("camera-finish-"):
+                self.lose_finish_response = False
+                raise httpx.ReadTimeout("Lost response")
+        if request.url.path.endswith("/search"):
+            return httpx.Response(200, json={"orders": [copy.deepcopy(self.order)]})
+        return httpx.Response(200, json={"order": copy.deepcopy(self.order)})
+
+    def app(self, provider=None):
+        app = create_app(
+            SquareOrders("token", "location", transport=httpx.MockTransport(self.request))
+        )
+        if provider is not None:
+            app.state.vision_provider = provider
+        return app
+
+
+class Vision:
+    def __init__(self, count=2, status="present", unexpected=False):
+        self.calls = []
+        self.count = count
+        self.status = status
+        self.unexpected = unexpected
+        self.before_result = None
+
+    async def inspect(self, request):
+        self.calls.append(request)
+        if self.before_result:
+            self.before_result()
+        return Observations(
+            capture_id=request.capture_id,
+            targets=[
+                TargetObservation(
+                    target_id=target.target_id, status=self.status, observed_quantity=self.count
+                )
+                for target in request.targets
+            ],
+            unexpected_items=[UnexpectedItem(name="Drink")] if self.unexpected else [],
+        )
+
+
+def send(client, key="attempt", revision=3, image=None):
+    return client.post(
+        "/v1/checks/camera",
+        headers={"Idempotency-Key": key},
+        json={"order_id": "ticket", "expected_revision": revision, "photo": image or photo()},
+    )
+
+
+@pytest.mark.parametrize(
+    "count,status,unexpected,verdict",
+    [
+        (2, "present", False, "pass"),
+        (1, "present", False, "fail"),
+        (None, "unsure", False, "unsure"),
+        (2, "present", True, "unsure"),
+    ],
+)
+def test_check_is_shared_across_instances_and_retry_never_pays_twice(
+    count, status, unexpected, verdict
+):
+    square, vision = Square(), Vision(count, status, unexpected)
+    with TestClient(square.app(vision)) as client:
+        assert client.get("/v1/checks/camera/config").json()["configured"] is True
+        result = send(client)
+        assert result.status_code == 200, result.text
+        assert result.json()["current_check"]["verdict"] == verdict
+        assert len(vision.calls) == 1
+        assert send(client).json() == result.json()
+        assert len(vision.calls) == 1
+    with TestClient(square.app()) as other:
+        state = other.get("/v1/stations/main").json()["orders"][0]
+    assert state == result.json()
+    assert "data_base64" not in json.dumps(square.order)
+
+
+def test_revision_change_before_capture_never_calls_vision():
+    square, vision = Square(), Vision()
+    square.order["version"] += 1
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 409
+    assert not vision.calls
+
+
+def test_manual_decision_during_inference_wins():
+    square, vision = Square(), Vision()
+
+    def reopen():
+        with TestClient(square.app()) as other:
+            result = other.post(
+                "/v1/orders/ticket/status",
+                headers={"Idempotency-Key": "manual"},
+                json={"status": "unsure", "expected_revision": square.order["version"]},
+            )
+            assert result.status_code == 200
+
+    vision.before_result = reopen
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 409
+        state = client.get("/v1/stations/main").json()["orders"][0]
+    assert state["disposition"] == "needs_review"
+    assert state["current_check"] is None
+    assert len(vision.calls) == 1
+
+
+def test_lost_response_is_recovered_without_another_paid_call():
+    square, vision = Square(), Vision()
+    square.lose_finish_response = True
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 503
+        assert send(client).json()["disposition"] == "verified"
+    assert len(vision.calls) == 1
+
+
+def test_failed_provider_never_goes_green_and_does_not_leak_error_or_retry():
+    class FailedVision(Vision):
+        async def inspect(self, request):
+            self.calls.append(request)
+            raise VisionProviderError("secret-key and raw response")
+
+    square, vision = Square(), FailedVision()
+    with TestClient(square.app(vision)) as client:
+        result = send(client)
+        assert result.status_code == 502
+        assert "secret-key" not in result.text
+        state = send(client).json()
+        assert state["current_check"]["execution_status"] == "failed"
+        assert state["disposition"] == "pending"
+    assert len(vision.calls) == 1
+
+
+def test_duplicate_keys_reject_different_images_and_cooldown_applies():
+    square, vision = Square(), Vision(count=1)
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 200
+        assert send(client, image=photo("black")).status_code == 409
+        assert send(client, key="new", revision=square.order["version"]).status_code == 429
+    assert len(vision.calls) == 1
+
+
+def test_per_order_limit_survives_new_api_instances(monkeypatch):
+    square, vision = Square(), Vision(count=1)
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 200
+    record = json.loads(square.order["metadata"][CHECK_KEY])
+    record["n"] = 20
+    square.order["metadata"][CHECK_KEY] = json.dumps(record)
+    monkeypatch.setattr(
+        "fullfill.adapters.orders.camera_checks.time.time", lambda: record["t"] + 100
+    )
+    with TestClient(square.app(vision)) as other:
+        assert send(other, key="new", revision=square.order["version"]).status_code == 429
+    assert len(vision.calls) == 1
+
+
+def test_camera_bytes_and_bad_photos_never_leak_into_validation_response():
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        result = send(client, image={"data_base64": "not-a-photo-private-marker"})
+    assert result.status_code == 422
+    assert "private-marker" not in result.text
+    assert not vision.calls
+
+
+def test_unconfigured_camera_preview_does_not_call_a_provider(monkeypatch):
+    monkeypatch.delenv("PERCEPTRON_API_KEY", raising=False)
+    with TestClient(Square().app()) as client:
+        assert client.get("/v1/checks/camera/config").json()["configured"] is False
+        assert send(client).status_code == 503
+
+
+def test_concurrent_screens_only_reserve_one_paid_call():
+    square = Square()
+
+    async def scenario():
+        entered, release = asyncio.Event(), asyncio.Event()
+
+        class SlowVision(Vision):
+            async def inspect(self, request):
+                entered.set()
+                await release.wait()
+                return await super().inspect(request)
+
+        vision = SlowVision()
+        async with (
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=square.app(vision)), base_url="http://test"
+            ) as first,
+            httpx.AsyncClient(
+                transport=httpx.ASGITransport(app=square.app(vision)), base_url="http://test"
+            ) as second,
+        ):
+            body = {"order_id": "ticket", "expected_revision": 3, "photo": photo()}
+            pending = asyncio.create_task(
+                first.post("/v1/checks/camera", headers={"Idempotency-Key": "one"}, json=body)
+            )
+            await entered.wait()
+            duplicate = await second.post(
+                "/v1/checks/camera", headers={"Idempotency-Key": "one"}, json=body
+            )
+            assert duplicate.status_code == 200
+            assert duplicate.json()["current_check"]["execution_status"] == "running"
+            body["expected_revision"] = square.order["version"]
+            other = await second.post(
+                "/v1/checks/camera", headers={"Idempotency-Key": "two"}, json=body
+            )
+            assert other.status_code == 409
+            release.set()
+            assert (await pending).status_code == 200
+            assert len(vision.calls) == 1
+
+    asyncio.run(scenario())
+
+
+def test_ticket_edit_invalidates_a_completed_check():
+    square = Square()
+    with TestClient(square.app(Vision())) as client:
+        assert send(client).json()["disposition"] == "verified"
+        square.order["line_items"][0]["quantity"] = "3"
+        square.order["version"] += 1
+        state = client.get("/v1/stations/main").json()["orders"][0]
+    assert state["current_check"] is None
+    assert state["disposition"] == "pending"
+
+
+def test_uses_only_saved_references_for_ticket_items(monkeypatch):
+    from fullfill.application.order_source import MenuEntry, MenuSnapshot
+    from fullfill_contracts.vision import ImageInput
+
+    seen = []
+
+    async def menu(_self):
+        return MenuSnapshot(
+            revision="menu",
+            items=[
+                MenuEntry(
+                    item_id="fries",
+                    name="Fries",
+                    description="",
+                    price_cents=400,
+                    photo_url="https://items-images-production.s3.us-west-2.amazonaws.com/fries.jpg",
+                ),
+                MenuEntry(
+                    item_id="drink",
+                    name="Drink",
+                    description="",
+                    price_cents=300,
+                    photo_url="https://items-images-production.s3.us-west-2.amazonaws.com/drink.jpg",
+                ),
+            ],
+        )
+
+    async def reference(url):
+        seen.append(url)
+        return ImageInput(b"reference", "image/jpeg")
+
+    monkeypatch.setattr(SquareOrders, "menu", menu)
+    monkeypatch.setattr("fullfill.http.checks.reference_image", reference)
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        assert send(client).status_code == 200
+    assert len(seen) == 1 and seen[0].endswith("fries.jpg")
+    assert vision.calls[0].references[0].item_id == "fries"
+
+
+def test_twenty_large_counts_fit_square_metadata_limits():
+    square, vision = Square(), Vision(count=100000)
+    square.order["line_items"] = [
+        {
+            "uid": f"line-{index}",
+            "name": f"Item {index}",
+            "quantity": "1",
+            "metadata": {"fullfill_item_id": f"item-{index}"},
+        }
+        for index in range(20)
+    ]
+    with TestClient(square.app(vision)) as client:
+        result = send(client)
+    assert result.status_code == 200, result.text
+    assert result.json()["current_check"]["verdict"] == "fail"
+    assert len(result.json()["current_check"]["discrepancies"]) == 20

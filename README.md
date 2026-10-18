@@ -6,8 +6,8 @@ flag missing, extra, or uncertain items using Perceptron and reference photos of
 the restaurant's menu.
 
 **Today, the app supports Square Sandbox ordering, a shared menu editor, and a
-live kitchen queue.** Vision inference and comparison rules are implemented
-separately; the camera-to-kitchen checking loop is still being integrated.
+live kitchen queue with browser camera checks.** The browser captures selected
+frames, the backend calls Perceptron, and compact results persist in Square.
 
 ## What works
 
@@ -18,14 +18,14 @@ separately; the camera-to-kitchen checking loop is still being integrated.
 | Menu management | Add items with a required photo, replace photos, edit names/prices, mark items sold out, and delete items. Photos persist in Square Catalog. Ordering screens refresh every five seconds and when returning to the tab. |
 | Shared state | Orders and menu edits persist in Square across browsers and API instances using the same Sandbox account and location. Conflicting menu edits require a refresh. |
 | Vision adapter | Send an order photo and optional labeled reference photos to Perceptron Mk1.5; validate structured observations, with a cooldown and call cap. Expected quantities are kept out of the model prompt. |
+| Browser camera | Enable a local video preview, then check the selected ticket manually or opt into checks after movement settles. No Python camera installation is needed. Preview makes no Perceptron calls. |
 | Comparison rules | Aggregate repeated item lines and compare observed counts with the ticket. Exact counts pass; definite shortages/excesses fail; uncertainty or items outside the ticket require review. A definite failure takes precedence over uncertainty. |
 | Station preview | Explore hardcoded checking, pass, fail, unsure, and error states at `/demo` in the combined frontend. |
 | Evaluation | Run photo-based latency, order-accuracy, and lookalike/label checks, including names-only versus reference-photo comparisons and JSONL logging. |
 
 New orders start `pending`; manual review sets `needs_review` and manual fulfillment
-sets `overridden`. Live tickets still have `current_check=null`; manual confirmation
-does not fabricate a vision pass. The app does not charge payments or run camera
-checks from the ordering and kitchen pages. Manual status persists in Square
+sets `overridden`. Camera passes set `verified`; failed/uncertain checks never
+fabricate a pass. The app does not charge payments. Manual and camera status persist in Square
 metadata and is invalidated when ticket items change; saves reject stale revisions.
 
 The queue has a soft limit of 10 tickets. Refresh removes the oldest fulfilled
@@ -33,14 +33,24 @@ tickets above that limit, while retaining all unresolved tickets. Cleanup and
 manual statuses leave Square's payment and native fulfillment state unchanged.
 Deleted menu items are archived in Square and hidden from the menu, with no
 restore option in the UI. Existing starter items can be edited without photos;
-new items require one. Menu photos are not yet consumed by the vision checker.
+new items require one. Camera checks use saved photos for items on the ticket as references.
 
 The capture package still contains interfaces and TODOs for camera/replay sources,
-stillness triggering, QR decoding, cropping, and uploading. Capture/check HTTP
-routes, workflow orchestration, WebSocket updates, check-result storage, overrides,
-reference enrollment, and Photon notifications remain unfinished. Vision checks
+stillness triggering, QR decoding, cropping, and uploading. The browser uses its
+own lightweight frame-difference trigger; it does not execute the Python camera scripts.
+The planned asynchronous capture/check API, WebSocket updates, richer reference
+enrollment, and Photon notifications remain unfinished. Vision checks
 can only assess visible items or readable labels, not hidden fillings or modifiers
-such as “no onion.” Adding a menu item does not enroll vision references.
+such as “no onion.” A saved menu photo is a visual reference, not model training.
+
+Camera checks require `PERCEPTRON_API_KEY` on the backend. Keep it out of `VITE_`
+variables. Open the kitchen page, select an unresolved ticket, enable the camera,
+and choose **Check order**. **Auto check after movement** is off by default.
+There is a 10-check limit per browser session, a shared 20-attempt lifetime limit
+per order, a 10-second cooldown, and no automatic retry after failure. Restarting
+Vercel does not reset the per-order limit. These are demo guards, not a global
+account spending budget. Camera images stay in memory; only compact observations
+and hashes persist. Keep the page visible and the computer awake.
 
 ## Run locally
 
@@ -154,7 +164,8 @@ site, then kitchen site when deployment credentials are configured.
 The current request flow is **browser → FastAPI → Square Orders/Catalog**. The
 browser consumes FullFill models rather than raw Square responses. Evaluation
 calls the Perceptron adapter and comparison rules directly; it does not pass
-through a completed capture/check API workflow.
+through the browser camera route. Browser checks use `POST /v1/checks/camera`;
+their version-checked reservations and results are shared through Square metadata.
 
 ### Implemented API routes
 
@@ -171,8 +182,10 @@ state without requiring authentication.
 | `POST /orders` | Create the prepared order using the same checkout and idempotency key. |
 | `GET /orders`, `GET /orders/{id}` | List eligible queue tickets or retrieve an order snapshot. |
 | `POST /orders/{id}/status` | Save `unfulfilled`, `unsure`, or `fulfilled` using `expected_revision` and an `Idempotency-Key`. |
-| `GET /stations/{id}` | Read the queue as a station snapshot, including manual status and no vision results yet. |
+| `GET /stations/{id}` | Read the queue as a station snapshot, including manual status and camera results. |
 | `POST /stations/{id}/refresh` | Remove fulfilled overflow above the soft limit and return the latest snapshot. |
+| `GET /checks/camera/config` | Report whether a server key is configured and the check limits; does not call Perceptron or reveal the key. |
+| `POST /checks/camera` | Accept `{order_id, expected_revision, photo: {data_base64}}` with `Idempotency-Key`; reserve one check, call Perceptron once, and return the saved `OrderState`. |
 
 There is also a legacy `GET /v1/menu` endpoint, which can return the starter menu
 when Square credentials are absent. It does not make live ordering available.
