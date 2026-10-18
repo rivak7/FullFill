@@ -5,8 +5,8 @@ What the worker sees next to the mat: the ticket on the left, one big color on t
 | Color | When | Worker does |
 | --- | --- | --- |
 | Green "Order fulfilled" | Every ticket item was seen | Bag it |
-| Red "Order unfulfilled" | Something is missing or extra | Fix what the list says, the camera rechecks |
-| Amber "Needs a quick look" | The camera isn't sure (e.g. a burrito with no C/S label) | Look and use their judgment; clearing the mat ends the order |
+| Red "Order unfulfilled" | Something is missing or extra, or a menu item that isn't on the ticket | Fix what the list says, the camera rechecks |
+| Amber "Needs a quick look" | The camera isn't sure (e.g. a burrito with no C/S label, an object it can't identify, or a poor view) | Look and use their judgment; clearing the mat ends the order |
 | Grey "Checking…" / "Lay out the order" | Check running, or no check yet | Wait |
 | Dark "Couldn't check this order" | The check failed | Check by hand; never counts as green |
 

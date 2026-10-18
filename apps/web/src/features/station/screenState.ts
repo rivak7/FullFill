@@ -59,20 +59,17 @@ export function toScreenState(state: OrderState): ScreenState {
     return { tone: "checking", headline: "Checking…", detail: null, lines, problems: [], confirmedByStaff: false };
   }
 
-  const isUnsure = (d: Discrepancy) => d.kind === "unsure" || d.kind === "unidentified" || (d.kind === "unexpected" && d.expected_quantity == null);
-  const definite = discrepancies.filter((d) => !isUnsure(d));
-  const unsure = discrepancies.filter(isUnsure);
-
-  if (check.verdict === "fail" || definite.length > 0) {
+  // The backend's verdict is the only rule (apps/api/fullfill/domain/compare_order.py).
+  if (check.verdict === "fail") {
     return { tone: "red", headline: "Unfulfilled", detail: "Camera found a mismatch", lines, problems: discrepancies, confirmedByStaff: false };
   }
-  if (check.verdict !== "pass" || unsure.length > 0) {
+  if (check.verdict !== "pass") {
     return {
       tone: "amber",
       headline: "Needs review",
-      detail: unsure.length ? null : "No reliable result. Check manually or take a new photo.",
+      detail: discrepancies.length ? null : "No reliable result. Check manually or take a new photo.",
       lines,
-      problems: unsure,
+      problems: discrepancies,
       confirmedByStaff: false,
     };
   }

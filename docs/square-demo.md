@@ -174,11 +174,11 @@ manual fulfillment uses `overridden`, never a fabricated vision pass. Live ticke
 without a camera check return `current_check=null`. Tickets never turn green just by arriving from Square.
 The kitchen's **Enable camera** button opens a local browser preview; **Check order**
 submits a single cropped frame. Automatic checks start enabled with the camera, wait for a changed
-scene to settle, and pause on failures or when the tab is hidden. There are no
-application spending caps or forced cooldowns. The expandable check-activity
-section counts attempts over recent time windows. Square reservations prevent
-simultaneous paid checks; failed or uncertain attempts are not automatically
-retried. A crashed inference expires as failed after 90 seconds. A successful
+scene to settle, and pause on failures or when the tab is hidden. Perceptron calls
+are limited to one per second per API process, with no total cap. The expandable
+check-activity section counts attempts over recent time windows. Square reservations
+prevent simultaneous paid checks. Failed attempts are not automatically retried;
+red and amber results keep the periodic five-second recheck while the ticket is selected. A crashed inference expires as failed after 90 seconds. A successful
 inference remains pending until the capturing screen confirms its view stayed
 unchanged; this confirmation expires after 15 seconds. A separate two-minute
 worker reservation keeps other kitchen screens off the same unfinished ticket.

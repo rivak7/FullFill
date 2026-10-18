@@ -175,10 +175,7 @@ class SquareCameraChecks:
                 entry = by_id[target.target_id]
                 if entry.observed_quantity is not None and entry.observed_quantity > 100000:
                     raise ValueError("Invalid observed quantity")
-                value = [
-                    "u" if observations.scene_uncertainty else entry.status[0],
-                    entry.observed_quantity,
-                ]
+                value = [entry.status[0], entry.observed_quantity]
                 if entry.status == "unsure":
                     value.append(
                         next(
