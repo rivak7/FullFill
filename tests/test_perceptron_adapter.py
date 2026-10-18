@@ -466,7 +466,7 @@ def test_boxes_are_left_out_unless_asked_for():
     assert "boxes" not in schema["items"]["items"]["properties"]
     assert "boxes" not in schema["unknown_items"]["items"]["properties"]
     assert "boxes" not in sent["messages"][0]["content"][-1]["text"]
-    assert observed.provider.prompt_version == "order-check-v8-inventory"
+    assert observed.provider.prompt_version == "order-check-v9-full-frame"
 
 
 @pytest.mark.parametrize("effort", ["low", "high"])
@@ -476,4 +476,4 @@ def test_reasoning_setting_is_sent_and_recorded(effort):
     )
     observed = run(vision(client, reasoning=effort).inspect(REQUEST))
     assert client.requests[0]["reasoning_effort"] == effort
-    assert observed.provider.prompt_version == f"order-check-v8-inventory-reasoning-{effort}"
+    assert observed.provider.prompt_version == f"order-check-v9-full-frame-reasoning-{effort}"

@@ -207,7 +207,10 @@ def test_revision_change_before_capture_never_calls_vision():
     assert not vision.calls
 
 
-def test_manual_decision_during_inference_wins():
+@pytest.mark.parametrize(
+    "status,disposition", [("fulfilled", "overridden"), ("unsure", "needs_review")]
+)
+def test_manual_decision_during_inference_wins(status, disposition):
     square, vision = Square(), Vision()
 
     def reopen():
@@ -217,8 +220,9 @@ def test_manual_decision_during_inference_wins():
                 headers={"Idempotency-Key": "manual"},
                 json={
                     "worker_id": "worker",
-                    "status": "unsure",
-                    "expected_revision": square.order["version"],
+                    "status": status,
+                    # The screen still has the version from before scan reservation.
+                    "expected_revision": 3,
                 },
             )
             assert result.status_code == 200
@@ -227,9 +231,77 @@ def test_manual_decision_during_inference_wins():
     with TestClient(square.app(vision)) as client:
         assert send(client).status_code == 409
         state = client.get("/v1/stations/main").json()["orders"][0]
-    assert state["disposition"] == "needs_review"
+    assert state["disposition"] == disposition
     assert state["current_check"] is None
     assert len(vision.calls) == 1
+
+
+def test_manual_fulfillment_retries_a_camera_write_race_and_recovers_duplicate_request():
+    class RacingSquare(Square):
+        raced = False
+
+        def request(self, request):
+            if request.method == "PUT":
+                patch = json.loads(request.content)["order"]
+                if (
+                    patch.get("metadata", {}).get("fullfill_queue_status") == "fulfilled"
+                    and not self.raced
+                ):
+                    self.raced = True
+                    # A concurrent camera confirmation wins the first versioned write.
+                    record = json.loads(self.order["metadata"][CHECK_KEY])
+                    record["s"] = "completed"
+                    self.order["metadata"][CHECK_KEY] = json.dumps(record, separators=(",", ":"))
+                    self.order["version"] += 1
+            return super().request(request)
+
+    square, vision = RacingSquare(), Vision()
+    with TestClient(square.app(vision)) as client:
+        assert send(client, confirm=False).status_code == 200
+        body = {"worker_id": "worker", "status": "fulfilled", "expected_revision": 3}
+        result = client.post(
+            "/v1/orders/ticket/status", headers={"Idempotency-Key": "manual"}, json=body
+        )
+        assert result.status_code == 200, result.text
+        assert result.json()["disposition"] == "overridden"
+        version = square.order["version"]
+        duplicate = client.post(
+            "/v1/orders/ticket/status", headers={"Idempotency-Key": "manual"}, json=body
+        )
+        assert duplicate.json() == result.json()
+        assert square.order["version"] == version
+        assert square.raced
+
+
+@pytest.mark.parametrize("change", ["ticket", "worker", "manual"])
+def test_stale_manual_fulfillment_does_not_overwrite_unrelated_changes(change):
+    square, vision = Square(), Vision()
+    with TestClient(square.app(vision)) as client:
+        assert send(client, confirm=False).status_code == 200
+        if change == "ticket":
+            square.order["line_items"][0]["quantity"] = "3"
+        elif change == "worker":
+            square.order["metadata"][CLAIM_KEY] = claim_value("another-worker")
+        else:
+            updated = client.post(
+                "/v1/orders/ticket/status",
+                headers={"Idempotency-Key": "newer-manual"},
+                json={
+                    "worker_id": "worker",
+                    "status": "unsure",
+                    "expected_revision": square.order["version"],
+                },
+            )
+            assert updated.status_code == 200
+        square.order["version"] += 1
+        before = copy.deepcopy(square.order)
+        result = client.post(
+            "/v1/orders/ticket/status",
+            headers={"Idempotency-Key": "stale-manual"},
+            json={"worker_id": "worker", "status": "fulfilled", "expected_revision": 3},
+        )
+        assert result.status_code == 409
+        assert square.order == before
 
 
 def test_lost_response_is_recovered_without_another_paid_call():
