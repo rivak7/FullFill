@@ -806,3 +806,105 @@ def test_wrong_and_unknown_item_details_survive_square_storage():
         assert issues[1]["target_id"] == "fries" and issues[1]["observed_quantity"] == 1
     with TestClient(square.app()) as other:
         assert other.get("/v1/stations/main").json()["orders"][0] == result.json()
+
+
+@pytest.mark.parametrize("fails", [False, True])
+def test_visual_diagnostics_return_exact_inputs_without_persisting_photos(fails):
+    class DiagnosticVision(Vision):
+        async def inspect(self, request):
+            result = await super().inspect(request)
+            if fails:
+                raise VisionProviderError("invalid output")
+            return result
+
+    square, vision = Square(), DiagnosticVision(status="unsure", unexpected=True)
+    with TestClient(square.app(vision)) as client:
+        result = client.post(
+            "/v1/checks/camera",
+            headers={"Idempotency-Key": "visual"},
+            json={
+                "worker_id": "worker",
+                "order_id": "ticket",
+                "expected_revision": 3,
+                "photo": photo(),
+                "diagnostics": True,
+            },
+        )
+        assert result.status_code == (502 if fails else 200), result.text
+        diagnostic = result.json()["diagnostics"]
+        supplied = vision.calls[0]
+        assert base64.b64decode(diagnostic["image"].split(",")[1]) == supplied.image.data
+        assert (
+            base64.b64decode(diagnostic["references"][0]["image"].split(",")[1])
+            == supplied.references[0].image.data
+        )
+        assert diagnostic["references"][0]["role"] == "expected"
+        assert diagnostic["targets"][0]["expected_quantity"] == 2
+        if fails:
+            assert diagnostic["observations"] is None
+        else:
+            assert diagnostic["observations"]["targets"][0]["status"] == "unsure"
+            assert diagnostic["observations"]["unexpected_items"][0]["name"] == "Drink"
+        assert "data:image" not in json.dumps(square.order)
+        assert "diagnostics" not in client.get("/v1/stations/main").text
+        duplicate = client.post(
+            "/v1/checks/camera",
+            headers={"Idempotency-Key": "visual"},
+            json={
+                "worker_id": "worker",
+                "order_id": "ticket",
+                "expected_revision": 3,
+                "photo": photo(),
+                "diagnostics": True,
+            },
+        )
+        assert duplicate.status_code == 200
+        assert duplicate.json().get("diagnostics") is None
+        assert len(vision.calls) == 1
+
+
+def test_visual_diagnostic_images_are_bounded_without_altering_model_inputs():
+    from fullfill.http.camera_diagnostics import input_diagnostics
+    from fullfill_contracts.vision import ReferenceImage, VisionInput
+
+    image = ImageInput(b"x" * 1_500_000, "image/jpeg")
+    request = VisionInput(
+        capture_id="capture",
+        image=image,
+        targets=(),
+        references=(ReferenceImage(item_id="other", revision=2, image=image, name="Other"),),
+    )
+    result = input_diagnostics(request)
+    assert result["image"] is not None
+    assert result["references"][0]["image"] is None
+    assert result["references"][0]["role"] == "alternative"
+    assert len(json.dumps(result)) < 3_100_000
+    assert request.references[0].image.data == image.data
+
+
+def test_diagnostics_keep_model_observations_when_saving_fails(monkeypatch):
+    original = SquareOrders.finish_camera_check
+
+    async def fail_save(source, reserved, observations=None, reference_version=None):
+        if observations is not None:
+            raise ValueError("cannot store this result")
+        return await original(source, reserved)
+
+    monkeypatch.setattr(SquareOrders, "finish_camera_check", fail_save)
+    vision = Vision()
+    with TestClient(Square().app(vision)) as client:
+        result = client.post(
+            "/v1/checks/camera",
+            headers={"Idempotency-Key": "visual-save"},
+            json={
+                "worker_id": "worker",
+                "order_id": "ticket",
+                "expected_revision": 3,
+                "photo": photo(),
+                "diagnostics": True,
+            },
+        )
+    assert result.status_code == 502
+    assert "saving_result.invalid_data" in result.json()["detail"]
+    assert result.json()["diagnostics"]["observations"]["targets"][0]["status"] == "present"
+    assert len(vision.calls) == 1

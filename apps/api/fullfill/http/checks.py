@@ -12,6 +12,7 @@ from urllib.parse import urlsplit
 
 import httpx
 from fastapi import APIRouter, Depends, Header, HTTPException, Request
+from fastapi.responses import JSONResponse
 from fullfill_contracts.common import Contract, Identifier
 from fullfill_contracts.events import OrderState
 from fullfill_contracts.vision import ImageInput, ReferenceImage, VisionInput
@@ -28,6 +29,7 @@ from fullfill.application.order_source import OrderSource, OrderSourceError
 from fullfill.domain.compare_order import targets_for
 from fullfill.domain.reference_selection import choose_alternatives, reference_fingerprint
 
+from .camera_diagnostics import CameraResponse, input_diagnostics
 from .order_source import get_order_source
 
 router = APIRouter(prefix="/checks", tags=["checks"])
@@ -38,6 +40,7 @@ class CameraCheck(Contract):
     expected_revision: int = Field(gt=0, strict=True)
     worker_id: str = Field(min_length=1, max_length=64, pattern=r"^[A-Za-z0-9_-]+$")
     photo: MenuPhoto
+    diagnostics: bool = False
 
 
 def normalized_image(data, edge=1024):
@@ -104,7 +107,7 @@ async def camera_config(request: Request):
     }
 
 
-@router.post("/camera", response_model=OrderState)
+@router.post("/camera", response_model=CameraResponse)
 async def check_camera(
     request: Request,
     source: Annotated[OrderSource, Depends(get_order_source)],
@@ -141,6 +144,7 @@ async def check_camera(
     if reserved is None:
         return state
 
+    diagnostics = None
     phase = "reference_photos"
     try:
         targets = targets_for(state.order)
@@ -186,6 +190,9 @@ async def check_camera(
             targets=targets,
             references=references,
         )
+        if body.diagnostics:
+            diagnostics = input_diagnostics(vision_input)
+            diagnostics["provider_called"] = True
         phase = "vision_provider"
         if provider is not None:
             observations = await provider.inspect(vision_input)
@@ -200,8 +207,13 @@ async def check_camera(
                     client=client,
                     max_output_tokens=min(4000, 400 + 140 * (len(targets) + len(alternatives))),
                 ).inspect(vision_input)
+        if diagnostics is not None:
+            diagnostics["observations"] = observations.model_dump(mode="json")
         phase = "saving_result"
-        return await source.finish_camera_check(reserved, observations, reference_fingerprint(menu))
+        result = await source.finish_camera_check(
+            reserved, observations, reference_fingerprint(menu)
+        )
+        return CameraResponse(**result.model_dump(), diagnostics=diagnostics)
     except OrderSourceError as error:
         # A revision conflict preserves the worker's newer decision.
         if error.status_code != 409:
@@ -209,6 +221,11 @@ async def check_camera(
                 await source.finish_camera_check(reserved)
             except OrderSourceError:
                 pass  # An uncertain/failed save expires visibly, never green.
+        if diagnostics is not None:
+            return JSONResponse(
+                status_code=error.status_code,
+                content={"detail": str(error), "diagnostics": diagnostics},
+            )
         raise
     except (
         VisionProviderError,
@@ -242,11 +259,11 @@ async def check_camera(
             "camera_check_failed phase=%s category=%s attempt=%s", phase, category, idempotency_key
         )
         await source.finish_camera_check(reserved)
-        raise HTTPException(
-            502,
+        detail = (
             f"Camera check failed during {phase.replace('_', ' ')} ({phase}.{category}). "
-            "No automatic retry was sent. Check manually or try again.",
-        ) from None
+            "No automatic retry was sent. Check manually or try again."
+        )
+        return JSONResponse(status_code=502, content={"detail": detail, "diagnostics": diagnostics})
 
 
 class CameraConfirmation(Contract):

@@ -11,7 +11,7 @@ import { toScreenState } from "../src/features/station/screenState";
 import { readCheckActivity, recordCheckAttempt } from "../src/features/orders/CheckActivity";
 import { readCvLogs } from "../src/features/orders/CvLogs";
 
-vi.mock("../src/api/client", () => ({ orderApi: { cameraConfig: vi.fn(), checkCamera: vi.fn(), confirmCamera: vi.fn() } }));
+vi.mock("../src/api/client", async importOriginal => ({ ...await importOriginal<typeof import("../src/api/client")>(), orderApi: { cameraConfig: vi.fn(), checkCamera: vi.fn(), confirmCamera: vi.fn() } }));
 
 function ticket(id = "first"): OrderState {
   return { order: { schema_version: 1, order_id: id, revision: 3, lines: [{ line_id: "line", item_id: "fries", name: "Fries", quantity: 1, verification_mode: "visible_item" }] }, disposition: "pending", disposition_revision: 3, current_check: null };
@@ -93,7 +93,7 @@ it("binds one snapshot to the captured ticket and never relabels a late result",
   vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise(done => { resolve = done; }));
   await render(); await camera(); await click("Check order");
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
-  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" } });
+  expect(vi.mocked(orderApi.checkCamera).mock.calls[0][0]).toEqual({ worker_id: "worker", order_id: "first", expected_revision: 3, photo: { data_base64: "cGhvdG8=" }, diagnostics: true });
   await render(ticket("second"), true);
   await act(async () => vi.advanceTimersByTimeAsync(20000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
@@ -485,4 +485,30 @@ it("automatically checks the first ticket arriving after the camera starts with 
   await observe(0);
   await render(ticket()); await observe(80);
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+});
+
+it("shows exact input photos and model reports in a separate tab without stopping the camera", async () => {
+  const diagnostic = {
+    provider_called: true, image: "data:image/jpeg;base64,bW9kZWw=",
+    references: [{ item_id: "fries", name: "Fries", revision: 7, role: "expected" as const, image: "data:image/jpeg;base64,cmVm" }],
+    targets: [{ target_id: "fries", line_ids: ["line"], item_id: "fries", name: "Fries", expected_quantity: 1 }],
+    observations: { schema_version: 1 as const, capture_id: "capture", targets: [{ target_id: "fries", status: "unsure" as const, observed_quantity: null, reason: "Covered" }], unexpected_items: [{ name: "Drink", quantity: 1 }], scene_uncertainty: "Hands in frame" },
+  };
+  vi.mocked(orderApi.checkCamera).mockResolvedValue({ ...checked(), diagnostics: diagnostic });
+  await render(); await camera(); await click("CV logs");
+  expect(container.querySelector('#camera-panel')!.hasAttribute("hidden")).toBe(true);
+  expect(container.querySelector('#logs-panel')!.hasAttribute("hidden")).toBe(false);
+  expect(stopTrack).not.toHaveBeenCalled();
+  await observe(0, 5000);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  const logs = container.querySelector('#logs-panel')!;
+  expect(logs.querySelector('img[alt="Captured order for this check"]')?.getAttribute("src")).toBe(diagnostic.image);
+  expect(logs.querySelector('img[alt="Reference: Fries"]')?.getAttribute("src")).toBe(diagnostic.references[0].image);
+  expect(logs.textContent).toContain("Covered");
+  expect(logs.textContent).toContain("1 × Drink");
+  expect(logs.textContent).toContain("Hands in frame");
+  expect(JSON.stringify(readCvLogs())).not.toContain("data:image");
+  expect(readCvLogs()[0].diagnostics?.observations?.targets[0].status).toBe("unsure");
+  await click("Clear logs");
+  expect(logs.querySelector("img")).toBeNull();
 });

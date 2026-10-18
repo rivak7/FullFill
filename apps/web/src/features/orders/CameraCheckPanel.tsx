@@ -1,11 +1,11 @@
 import { useEffect, useRef, useState } from "react";
-import { orderApi, type MenuPhoto } from "../../api/client";
+import { orderApi, ApiError, type MenuPhoto } from "../../api/client";
 import type { OrderState } from "../../api/generated/contracts";
 import { SceneGuard, SceneTrigger } from "./sceneTrigger";
 import { isFulfilled } from "./queueState";
 import { CheckActivity, recordCheckAttempt } from "./CheckActivity";
 import { cameraConstraints, cameraPhoto, cropCamera } from "./cameraFraming";
-import { CvLogs, startCvLog, updateCvLog, checkResultDetails, sceneDiagnostic, type CheckTrigger } from "./CvLogs";
+import { CvLogs, attachCvVisuals, startCvLog, updateCvLog, checkResultDetails, sceneDiagnostic, type CheckTrigger } from "./CvLogs";
 
 interface Props {
   order?: OrderState;
@@ -29,6 +29,7 @@ export function CameraCheckPanel(props: Props) {
   const ticketKey = props.order ? JSON.stringify([props.order.order.order_id, props.order.order.lines]) : "";
   const lastTicket = useRef("");
   const [handoff, setHandoff] = useState<"remove" | "place" | null>(null);
+  const [tab, setTab] = useState<"camera" | "logs">("camera");
   const [open, setOpen] = useState(false);
   const [ready, setReady] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -126,13 +127,16 @@ export function CameraCheckPanel(props: Props) {
     } catch { updateCvLog(attemptId, "Could not capture a camera frame; no request sent.", "Capture failed", true); setAuto(false); setError("Could not capture the image. Try reopening the camera."); return; }
     inFlight.current = true;
     interruptedByTab.current = false;
+    attachCvVisuals(attemptId, { capture: `data:image/jpeg;base64,${photo.data_base64}` });
     setLastPhoto({ orderId: boundOrder.id, url: `data:image/jpeg;base64,${photo.data_base64}` });
     setBusy(true); setError("");
     latest.current.onBusyChange(true);
     recordCheckAttempt(attemptId);
     updateCvLog(attemptId, `Snapshot sent. Expected: ${order.order.lines.map(line => `${line.quantity}× ${line.name}`).join(", ")}.`, "Analyzing");
     try {
-      let state = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo }, attemptId);
+      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, diagnostics: true }, attemptId);
+      if (response.diagnostics) attachCvVisuals(attemptId, { diagnostics: response.diagnostics });
+      let state: OrderState = response;
       updateCvLog(attemptId, `Server response: ${checkResultDetails(state)}. Check ID: ${state.current_check?.check_id ?? "none"}.`);
       const validateScene = () => {
         if (!mounted.current) guard.current?.invalidate("page_closed");
@@ -167,6 +171,7 @@ export function CameraCheckPanel(props: Props) {
         }
       }
     } catch (cause) {
+      if (cause instanceof ApiError && cause.diagnostics) attachCvVisuals(attemptId, { diagnostics: cause.diagnostics });
       const status = cause && typeof cause === "object" && "status" in cause && typeof cause.status === "number" ? `HTTP ${cause.status}: ` : "";
       updateCvLog(attemptId, status + (cause instanceof Error ? cause.message : "Request failed"), "Request failed", true);
       if (mounted.current) { setAuto(false); setError(cause instanceof Error ? cause.message : "Check failed. Try again manually."); }
@@ -205,6 +210,11 @@ export function CameraCheckPanel(props: Props) {
 
   const canCheck = ready && configured && !!props.order && !isFulfilled(props.order) && !props.disabled && !busy;
   return <section className={`camera-check ${open ? "camera-check-open" : ""}`} aria-label="Camera check">
+    <div className="cv-tabs" role="tablist" aria-label="Camera and diagnostics">
+      <button type="button" role="tab" id="camera-tab" aria-controls="camera-panel" aria-selected={tab === "camera"} onClick={() => setTab("camera")}>Camera</button>
+      <button type="button" role="tab" id="logs-tab" aria-controls="logs-panel" aria-selected={tab === "logs"} onClick={() => setTab("logs")}>CV logs</button>
+    </div>
+    <div role="tabpanel" id="camera-panel" aria-labelledby="camera-tab" hidden={tab !== "camera"}>
     <div className="camera-check-heading"><strong>Camera check</strong>{open ? <button className="secondary-button" onClick={stop}>Close camera</button> : <button className="secondary-button" onClick={() => void start()}>Enable camera</button>}</div>
     {open && <div className="camera-check-body">
       <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
@@ -219,7 +229,8 @@ export function CameraCheckPanel(props: Props) {
       {lastPhoto && <details className="camera-last-photo"><summary>Last photo · #{lastPhoto.orderId.slice(-8).toUpperCase()}</summary><img src={lastPhoto.url} alt={`Last submitted camera photo for order ${lastPhoto.orderId.slice(-8).toUpperCase()}`} /><small>Snapshot used for the check. Kept only in this page.</small></details>}
     </div>}
     <CheckActivity />
-    <CvLogs order={props.order} />
+    </div>
+    <div role="tabpanel" id="logs-panel" aria-labelledby="logs-tab" hidden={tab !== "logs"}><CvLogs order={props.order} /></div>
     {configured === false && <p className="camera-hint">AI checks unavailable. Camera preview still works.</p>}
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;
