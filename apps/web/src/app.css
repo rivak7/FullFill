@@ -214,6 +214,9 @@ a { color: inherit; }
 .camera-state[hidden] { display: none; }
 .camera-state-busy::before { background: var(--attention); animation: pulse .7s infinite; }
 @keyframes pulse { 50% { opacity: .25; } }
+.camera-panel-mini .camera-frame { width: 168px; margin: 0 0 12px auto; border-radius: 14px; }
+.camera-panel-mini .camera-state { display: none; }
+.camera-panel-mini .camera-check-controls { display: none; }
 .camera-check-controls { display: flex; flex-wrap: wrap; align-items: center; gap: 14px; padding: 14px 4px 2px; }
 .camera-check-controls .primary-button { width: auto; padding: 11px 24px; }
 .camera-check-controls select { padding: 8px 12px; border-radius: 999px; border: 1.5px solid var(--field-line); background: var(--field); color: var(--text); max-width: 220px; }

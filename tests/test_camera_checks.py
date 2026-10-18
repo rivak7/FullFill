@@ -558,7 +558,7 @@ def test_short_result_replaces_both_chunks_after_a_long_result(monkeypatch):
 
 
 def test_scene_uncertainty_and_reason_survive_square_storage():
-    square, vision = Square(), Vision()
+    square, vision = Square(), Vision(status="unsure")
     vision.scene_uncertainty = "Keep the entire order inside the camera preview."
     with TestClient(square.app(vision)) as client:
         result = send(client)

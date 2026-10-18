@@ -9,7 +9,9 @@ Matches the comparison rules in docs/system-design.md:
   unsure or the view is poor.
 - unsure (amber): anything else the worker should look at: an item the model couldn't see,
   count or tell apart, an unlabeled lookalike, an object it can't identify, a line that
-  needs manual review, or a poor view of the scene. The worker decides.
+  needs manual review. The worker decides. A poor view of the scene is shown alongside
+  those, but on its own it doesn't block green: when every ticket item was counted
+  exactly and nothing else was seen, the order is complete whatever the scene note says.
 - pass (green): every count matches and nothing above applies.
 """
 
@@ -81,14 +83,6 @@ def compare_order(
 
     discrepancies: list[Discrepancy] = []
     definite = False
-    if observations.scene_uncertainty:
-        discrepancies.append(
-            Discrepancy(
-                kind="unsure",
-                line_ids=[line.line_id for line in order.lines],
-                message=observations.scene_uncertainty,
-            )
-        )
     for target in targets:
         obs = seen[target.target_id]
         expected, observed = target.expected_quantity, obs.observed_quantity
@@ -183,6 +177,15 @@ def compare_order(
                 )
             )
 
+    if observations.scene_uncertainty and discrepancies:
+        discrepancies.insert(
+            0,
+            Discrepancy(
+                kind="unsure",
+                line_ids=[line.line_id for line in order.lines],
+                message=observations.scene_uncertainty,
+            ),
+        )
     if definite:
         verdict = "fail"
     elif discrepancies:

@@ -237,6 +237,8 @@ export function CameraCheckPanel(props: Props) {
         return;
       }
       if (!video.current || document.hidden || !stream.current?.active) return;
+      // Browsers can pause a muted preview that left the screen; a paused frame never shows the mat clearing.
+      if (video.current.paused) void video.current.play()?.catch(() => {});
       const { order, disabled } = latest.current;
       try {
         // Keep observing handoffs while a claim is loading or the queue is empty.
@@ -263,7 +265,8 @@ export function CameraCheckPanel(props: Props) {
       </div>
       {open && <button className="text-button" onClick={stop}>Turn off camera</button>}
     </div>
-    <div role="tabpanel" id="camera-panel" aria-labelledby="camera-tab" hidden={tab !== "camera"}>
+    {/* While logs are open the live camera shrinks to a thumbnail instead of hiding, so it keeps watching the mat. */}
+    <div role="tabpanel" id="camera-panel" aria-labelledby="camera-tab" hidden={tab !== "camera" && !open} className={tab === "camera" ? undefined : "camera-panel-mini"}>
     {open ? <div className="camera-check-body">
       <div className={`camera-frame${busy ? " camera-frame-busy" : ""}`}>
         <video className="camera-preview" ref={video} autoPlay playsInline muted aria-label="Packing area camera preview" onLoadedData={() => setReady(true)} />
