@@ -7,7 +7,9 @@ export const isFulfilled = (state: OrderState) => toScreenState(state).tone === 
 export const heldByOther = (state: OrderState, workerId?: string) => !!workerId && !!state.claim && state.claim.expires_at * 1000 > Date.now() && state.claim.worker_id !== workerId;
 export const ownedBy = (state: OrderState, workerId: string) => !!state.claim && state.claim.worker_id === workerId && state.claim.expires_at * 1000 > Date.now();
 
-export function reconcileQueue(previous: QueueState, incoming: OrderState[], workerId?: string): QueueState {
+// `hold` is a ticket the camera just passed: it stays on screen, green, while it is
+// bagged, until the camera sees the mat cleared (see advancePastHeld).
+export function reconcileQueue(previous: QueueState, incoming: OrderState[], workerId?: string, hold?: string | null): QueueState {
   // Both arrays are displayed newest first, with the oldest ticket at the bottom.
   // A slow read must not overwrite a newer acknowledged status change.
   const orders = incoming.map(state => {
@@ -20,7 +22,7 @@ export function reconcileQueue(previous: QueueState, incoming: OrderState[], wor
   const current = orders[currentIndex];
   const justFulfilled = before && !isFulfilled(before) && current && isFulfilled(current);
   // New arrivals never steal focus, and intentionally selected history stays put.
-  if (current && !justFulfilled && !heldByOther(current, workerId)) return { orders, selected: previous.selected };
+  if (current && (!justFulfilled || current.order.order_id === hold) && !heldByOther(current, workerId)) return { orders, selected: previous.selected };
 
   let candidates = orders;
   if (before) {
@@ -42,4 +44,11 @@ export function reconcileQueue(previous: QueueState, incoming: OrderState[], wor
   // Work upward one unresolved ticket at a time, including orange tickets.
   // On the first load this starts at the oldest unresolved ticket at the bottom.
   return { orders, selected: [...candidates].reverse().find(state => !isFulfilled(state) && !heldByOther(state, workerId))?.order.order_id ?? null };
+}
+
+// The mat was cleared after a pass: move on as if the ticket had just been fulfilled.
+export function advancePastHeld(queue: QueueState, workerId?: string): QueueState {
+  const index = queue.orders.findIndex(state => state.order.order_id === queue.selected);
+  const candidates = index < 0 ? queue.orders : queue.orders.slice(0, index);
+  return { ...queue, selected: [...candidates].reverse().find(state => !isFulfilled(state) && !heldByOther(state, workerId))?.order.order_id ?? null };
 }

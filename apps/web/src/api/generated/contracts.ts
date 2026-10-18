@@ -94,6 +94,7 @@ export type ItemId1 = string | null;
 export type Name1 = string;
 export type Quantity = number | null;
 export type UnexpectedItems = UnexpectedItem[];
+export type DisplayNumber = string | null;
 /**
  * @minItems 1
  */
@@ -295,6 +296,7 @@ export interface UnexpectedItem {
   quantity?: Quantity;
 }
 export interface OrderSnapshot {
+  display_number?: DisplayNumber;
   lines: Lines;
   order_id: OrderId3;
   revision: Revision;
