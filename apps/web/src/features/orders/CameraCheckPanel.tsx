@@ -164,7 +164,7 @@ export function CameraCheckPanel(props: Props) {
     try {
       const { boxes, photos } = readSettings();
       const sentAt = performance.now();
-      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos }, attemptId);
+      const response = await orderApi.checkCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, expected_revision: boundOrder.revision, photo, boxes, photos, confirmed: true }, attemptId);
       const roundTrip = performance.now() - sentAt;
       if (response.diagnostics) attachCvVisuals(attemptId, { diagnostics: response.diagnostics });
       const steps = response.diagnostics?.timings_ms;
@@ -178,9 +178,14 @@ export function CameraCheckPanel(props: Props) {
         else if (!video.current || !stream.current?.active) guard.current?.invalidate("camera_unavailable");
         return guard.current?.unchanged() ?? false;
       };
-      if (mounted.current && state.current_check?.execution_status === "awaiting_confirmation") {
+      // The server completes the check straight away (one round trip); the browser
+      // only calls confirm to withdraw it when the photo no longer belongs to this
+      // screen, or for a server that still waits for confirmation.
+      const awaiting = state.current_check?.execution_status === "awaiting_confirmation";
+      const withdraw = state.current_check?.execution_status === "completed" && !validateScene();
+      if (mounted.current && (awaiting || withdraw)) {
         const confirm = (unchanged: boolean) => orderApi.confirmCamera({ worker_id: latest.current.workerId, order_id: boundOrder.id, check_id: state.current_check!.check_id, expected_revision: state.order.revision, scene_unchanged: unchanged });
-        const unchanged = validateScene();
+        const unchanged = !withdraw && validateScene();
         updateCvLog(attemptId, unchanged ? "Confirming result." : `Result invalidated by browser: ${sceneDiagnostic(guard.current?.reason)}.`, "Confirming");
         const confirmAt = performance.now();
         state = await confirm(unchanged);

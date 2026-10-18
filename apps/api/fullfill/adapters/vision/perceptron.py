@@ -26,7 +26,7 @@ from fullfill_contracts.vision import (
 from fullfill.domain.vision_uncertainty import REASONS, SCENES
 
 DEFAULT_MODEL = "perceptron-mk1.5"
-PROMPT_VERSION = "order-check-v7-inventory"
+PROMPT_VERSION = "order-check-v8-inventory"
 STATUSES = ("present", "missing", "unsure")
 
 PROMPT = """\
@@ -41,9 +41,11 @@ similar-looking items apart (size, lid or can color, toppings, flavor printed on
 top, packaging shape, printed or handwritten labels).
 
 Rules:
-- "scene_status": "clear" only when one entire order is visible and countable; otherwise \
-"obscured", "blurry", "out_of_frame", or "mixed_orders". Empty, well-lit packing areas \
-can be clear. A closed bag hiding the order is obscured, not empty.
+- "scene_status": "clear" when every object in the packing area is visible and countable, \
+even if items from the list are absent; otherwise "obscured", "blurry", "out_of_frame" \
+(an object is cut off at the image edge), or "mixed_orders". Absent items are not a \
+scene problem: report them as missing. Empty, well-lit packing areas are clear. A closed \
+bag hiding the order is obscured, not empty.
 - Report every listed menu item exactly once, using its id.
 - status "present": you can identify at least one; "count" is a positive number.
 - status "missing": you are confident none are there; "count" is 0.
@@ -329,7 +331,9 @@ def parse_answer(
             # Possibly there: unidentified (amber). LABEL REQUIRED needs its label.
             reference = alternatives[target_id]
             name = reference.name or target_id
-            if status == "missing" or count == 0:
+            # Only an object actually counted on the mat matters. "Unsure, no count" about
+            # a lookalike says nothing about this order, so it isn't shown to the worker.
+            if status == "missing" or not count:
                 continue
             label_ok = bool(label) and bool(
                 re.search(r"(?<!\w)" + re.escape(name) + r"(?!\w)", label, re.I)

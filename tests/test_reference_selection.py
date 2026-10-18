@@ -2,6 +2,7 @@ from io import BytesIO
 
 from fullfill.application.order_source import MenuEntry, MenuSnapshot
 from fullfill.domain.reference_selection import (
+    MAX_ALTERNATIVES,
     MAX_REFERENCES,
     choose_alternatives,
     reference_fingerprint,
@@ -47,7 +48,7 @@ def test_larger_menu_uses_visual_neighbors_and_covers_each_ordered_item():
     menu = MenuSnapshot(revision="1", items=[item(name) for name in colors])
     images = {name: image(color) for name, color in colors.items()}
     selected = [entry.item_id for entry in choose_alternatives(menu, {"white", "black"}, images)]
-    assert len(selected) == len(set(selected)) == 6
+    assert len(selected) == len(set(selected)) == MAX_ALTERNATIVES
     assert selected[:2] == ["near-black", "near-white"]
     assert not {"white", "black"} & set(selected)
 
@@ -74,7 +75,7 @@ def test_total_references_stay_under_the_cap():
     for ordered in (1, 6, 9, 12, 15):
         wanted = set(names[:ordered])
         alternatives = choose_alternatives(menu, wanted, images)
-        assert len(alternatives) == min(6, max(0, MAX_REFERENCES - ordered))
+        assert len(alternatives) == min(MAX_ALTERNATIVES, max(0, MAX_REFERENCES - ordered))
         assert not wanted & {entry.item_id for entry in alternatives}
 
 

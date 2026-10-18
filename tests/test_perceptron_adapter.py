@@ -307,7 +307,7 @@ def test_prompt_lists_ordered_items_and_lookalikes_alike():
     "chips,mode,identified",
     [
         (entry("chips"), "visible_item", True),
-        (entry("chips", "unsure", None), "visible_item", False),
+        (entry("chips", "unsure", 1), "visible_item", False),
         (entry("chips"), "label", False),
         (entry("chips", label="Chips"), "label", True),
     ],
@@ -317,6 +317,16 @@ def test_a_lookalike_is_named_only_when_seen_clearly(chips, mode, identified):
     _, extras = parse_answer(json.dumps(answer), alternative_request(mode))
     assert extras[0].name == "Chips"
     assert (extras[0].item_id == "chips") is identified
+
+
+def test_a_lookalike_the_model_is_unsure_about_without_a_count_is_not_shown():
+    answer = {
+        "items": [entry("fries"), entry("chips", "unsure", None)],
+        "unknown_items": [],
+        "scene_status": "clear",
+    }
+    _, extras = parse_answer(json.dumps(answer), alternative_request())
+    assert extras == []
 
 
 def test_a_missing_lookalike_is_not_reported():
@@ -456,4 +466,4 @@ def test_boxes_are_left_out_unless_asked_for():
     assert "boxes" not in schema["items"]["items"]["properties"]
     assert "boxes" not in schema["unknown_items"]["items"]["properties"]
     assert "boxes" not in sent["messages"][0]["content"][-1]["text"]
-    assert observed.provider.prompt_version == "order-check-v7-inventory"
+    assert observed.provider.prompt_version == "order-check-v8-inventory"

@@ -9,9 +9,10 @@ from io import BytesIO
 from PIL import Image, ImageOps
 
 # Ordered items always get their photo; lookalikes fill the rest, up to a total that
-# keeps a check well inside Perceptron's context.
+# keeps a check well inside Perceptron's context. Every listed item adds an image and an
+# answer row, so a few close lookalikes beat the whole menu (seconds per check).
 MAX_REFERENCES = 12
-MAX_ALTERNATIVES = 6
+MAX_ALTERNATIVES = 3
 
 
 def reference_fingerprint(menu):

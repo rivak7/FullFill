@@ -905,7 +905,7 @@ def test_visual_diagnostic_images_are_bounded_without_altering_model_inputs():
 def test_diagnostics_keep_model_observations_when_saving_fails(monkeypatch):
     original = SquareOrders.finish_camera_check
 
-    async def fail_save(source, reserved, observations=None, reference_version=None):
+    async def fail_save(source, reserved, observations=None, reference_version=None, **_):
         if observations is not None:
             raise ValueError("cannot store this result")
         return await original(source, reserved)
@@ -928,3 +928,25 @@ def test_diagnostics_keep_model_observations_when_saving_fails(monkeypatch):
     assert "saving_result.invalid_data" in result.json()["detail"]
     assert result.json()["diagnostics"]["observations"]["targets"][0]["status"] == "present"
     assert len(vision.calls) == 1
+
+
+@pytest.mark.parametrize("count", [2, 1])
+def test_kitchen_can_skip_the_confirm_round_trip(count):
+    square, vision = Square(), Vision(count=count)
+    with TestClient(square.app(vision)) as client:
+        result = client.post(
+            "/v1/checks/camera",
+            headers={"Idempotency-Key": "one-trip"},
+            json={
+                "worker_id": "worker",
+                "order_id": "ticket",
+                "expected_revision": 3,
+                "photo": photo(),
+                "confirmed": True,
+            },
+        ).json()
+        assert result["current_check"]["execution_status"] == "completed"
+        assert result["disposition"] == ("verified" if count == 2 else "pending")
+        # The kitchen can still withdraw it, e.g. when the tab was hidden mid-check.
+        withdrawn = confirmation(client, result, unchanged=False).json()
+        assert withdrawn["current_check"]["execution_status"] == "superseded"

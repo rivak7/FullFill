@@ -27,6 +27,9 @@ export function frameDifference(a: Uint8Array, b: Uint8Array): number {
 // How long the mat must stay still before a photo is taken, and how often it is sampled.
 export const SETTLE_MS = 500;
 export const SAMPLE_MS = 125;
+// A changed mat that stays still this long counts as cleared even if it doesn't match
+// the learned bare mat (a swapped mat, new lighting, a crumb).
+export const CLEARED_FALLBACK_MS = 4000;
 
 // Pixels of `frame` that differ from `before` once a whole-frame exposure shift is
 // removed. Colour counts, not just brightness: a mustard packet and brown cardboard are
@@ -66,8 +69,11 @@ export function isEmptyMat(frame: Uint8Array, empty: Uint8Array): boolean {
 
 // A real change to what is on the mat: a big average change, or a small object
 // (one packet) that the averages in frameDifference wash out.
+// Both directions: the neighbour tolerance in changedPixels hides a small object that
+// was taken away (its old neighbours look like the bare mat), so check the old frame
+// against the new one as well.
 export function sceneChanged(frame: Uint8Array, before: Uint8Array): boolean {
-  return frameDifference(frame, before) > 12 || changedPixels(frame, before, 2) >= 2;
+  return frameDifference(frame, before) > 12 || changedPixels(frame, before, 2) >= 2 || changedPixels(before, frame, 2) >= 2;
 }
 
 export class SceneTrigger {
@@ -161,8 +167,13 @@ export class SceneTrigger {
         // Observe a settled scene before accepting a second transition. With a learned
         // bare mat that scene must be the empty mat (small packets alone barely move the
         // averages, so this compares pixels); without one any settled change counts.
-        if (settledFor >= SETTLE_MS && (this.empty ? isEmptyMat(frame, this.empty) : sceneChanged(frame, this.handoffFrom))) {
-          if (this.empty) this.empty = frame.slice(); // follow slow lighting drift
+        const matches = this.empty ? isEmptyMat(frame, this.empty) : false;
+        if (settledFor >= SETTLE_MS && sceneChanged(frame, this.handoffFrom)
+          && (matches || !this.empty || settledFor >= CLEARED_FALLBACK_MS)) {
+          // Follow slow lighting drift, and learn a whole new mat (most of the view
+          // changed, e.g. cardboard swapped in for paper). A few leftover packets
+          // don't replace the learned bare mat.
+          if (matches || (this.empty && changedPixels(frame, this.empty) > frame.length / 4 / layout(frame.length).channels)) this.empty = frame.slice();
           this.betweenOrders = frame.slice();
           this.reset(frame);
         }
