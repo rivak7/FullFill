@@ -26,7 +26,7 @@ from fullfill_contracts.vision import (
 from fullfill.domain.vision_uncertainty import REASONS, SCENES
 
 DEFAULT_MODEL = "perceptron-mk1.5"
-PROMPT_VERSION = "order-check-v8-inventory"
+PROMPT_VERSION = "order-check-v9-full-frame"
 STATUSES = ("present", "missing", "unsure")
 
 PROMPT = """\
@@ -41,15 +41,18 @@ similar-looking items apart (size, lid or can color, toppings, flavor printed on
 top, packaging shape, printed or handwritten labels).
 
 Rules:
-- "scene_status": "clear" when every object in the packing area is visible and countable, \
+- Inspect the entire LAST image. Count food and drink anywhere in the camera frame, \
+including outside a paper/cardboard mat, near its edges, or on the surrounding counter. \
+The mat is background, never a boundary that excludes an item.
+- "scene_status": "clear" when every food or drink object in the frame is visible and countable, \
 even if items from the list are absent; otherwise "obscured", "blurry", "out_of_frame" \
 (an object is cut off at the image edge), or "mixed_orders". Absent items are not a \
 scene problem: report them as missing. Empty, well-lit packing areas are clear. A closed \
-bag hiding the order is obscured, not empty. "mixed_orders" only when food or drink \
-items from more than one order are on the mat.
-- The packing area is a mat (cardboard or paper, maybe stained) with floor, cables or \
-straps around it. The mat, its stains and edges, and anything off the mat are never \
-items, unknown items, or a scene problem.
+bag hiding the order is obscured, not empty. Do not infer "mixed_orders" from the number \
+of items, duplicate containers, different food types, spacing, or mat boundaries. A \
+large collection can be one order; order membership cannot be determined from appearance alone.
+- Ignore non-food background such as the mat, stains, floor, cables and straps. Food \
+and drink outside the mat must still be counted or reported as unknown.
 - Report every listed menu item exactly once, using its id.
 - status "present": you can identify at least one; "count" is a positive number.
 - status "missing": you are confident none are there; "count" is 0.

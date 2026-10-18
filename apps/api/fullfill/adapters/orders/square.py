@@ -356,58 +356,70 @@ class SquareOrders(SquareCameraChecks, SquareClaims, SquareQueue):
             f"queue-status:{self.location_id}:{order_id}:{idempotency_key}:"
             f"{edit.expected_revision}:{edit.status}".encode()
         ).hexdigest()
-        result = await self._request("GET", path)
-        order = result.get("order", {})
-        state = self._order_state(order)
-        metadata = order.get("metadata") or {}
-        if metadata.get("fullfill_status_request") == key:
-            return state  # Recover a successful write whose response was lost.
-        if (
-            state.order.revision != edit.expected_revision
-            or order.get("state") != "OPEN"
-            or metadata.get("fullfill_queue_archived") == "true"
-        ):
-            raise OrderSourceError(
-                "This order changed on another screen. Refresh and try again.", 409
-            )
-        require_worker(order, edit.worker_id)
-        if CHECK_KEY in metadata:
-            record = read_record(metadata)
-            record["s"] = "cancelled"
-            metadata = {**metadata, CHECK_KEY: json.dumps(record, separators=(",", ":"))}
-        try:
-            result = await self._request(
-                "PUT",
-                path,
-                {
-                    "idempotency_key": key,
-                    "order": {
-                        "location_id": self.location_id,
-                        "version": edit.expected_revision,
-                        "metadata": {
-                            **metadata,
-                            "fullfill_queue_status": edit.status,
-                            CLAIM_KEY: claim_value(edit.worker_id),
-                            COMPLETED_AT_KEY: str(
-                                int(time.time()) if edit.status == "fulfilled" else 0
-                            ),
-                            "fullfill_status_fingerprint": self._ticket_fingerprint(order),
-                            "fullfill_status_request": key,
-                        },
-                    },
-                },
-            )
-        except OrderSourceError as error:
-            if error.status_code != 409:
-                raise
+        # A scan reserves and saves with newer Square versions while the browser still
+        # displays its starting version. Staff may supersede that scan, but never a
+        # changed ticket, another worker's claim, or a newer manual decision.
+        for _ in range(3):
             result = await self._request("GET", path)
-            if (result.get("order", {}).get("metadata") or {}).get(
-                "fullfill_status_request"
-            ) != key:
+            order = result.get("order", {})
+            state = self._order_state(order)
+            metadata = order.get("metadata") or {}
+            if metadata.get("fullfill_status_request") == key:
+                return state  # Recover a successful write whose response was lost.
+            record = read_record(metadata)
+            base = record.get("b")
+            same_scan = (
+                type(base) is int
+                and base <= edit.expected_revision < state.order.revision
+                and record.get("s") in ("running", "awaiting_confirmation", "completed", "failed")
+                and metadata.get("fullfill_status_request") == record.get("k")
+                and metadata.get("fullfill_status_fingerprint") == self._ticket_fingerprint(order)
+            )
+            if (
+                (state.order.revision != edit.expected_revision and not same_scan)
+                or order.get("state") != "OPEN"
+                or metadata.get("fullfill_queue_archived") == "true"
+            ):
                 raise OrderSourceError(
                     "This order changed on another screen. Refresh and try again.", 409
-                ) from None
-        return self._order_state(result.get("order", {}))
+                )
+            require_worker(order, edit.worker_id)
+            if CHECK_KEY in metadata:
+                record["s"] = "cancelled"
+                metadata = {**metadata, CHECK_KEY: json.dumps(record, separators=(",", ":"))}
+            try:
+                result = await self._request(
+                    "PUT",
+                    path,
+                    {
+                        "idempotency_key": hashlib.sha256(
+                            f"{key}:{state.order.revision}".encode()
+                        ).hexdigest(),
+                        "order": {
+                            "location_id": self.location_id,
+                            "version": state.order.revision,
+                            "metadata": {
+                                **metadata,
+                                "fullfill_queue_status": edit.status,
+                                CLAIM_KEY: claim_value(edit.worker_id),
+                                COMPLETED_AT_KEY: str(
+                                    int(time.time()) if edit.status == "fulfilled" else 0
+                                ),
+                                "fullfill_status_fingerprint": self._ticket_fingerprint(order),
+                                "fullfill_status_request": key,
+                            },
+                        },
+                    },
+                )
+                return self._order_state(result.get("order", {}))
+            except OrderSourceError as error:
+                if error.status_code != 409:
+                    raise
+                # A scan may have finished between GET and PUT. Revalidate everything.
+        result = await self._request("GET", path)
+        if (result.get("order", {}).get("metadata") or {}).get("fullfill_status_request") == key:
+            return self._order_state(result.get("order", {}))
+        raise OrderSourceError("This order changed. Refresh and try again.", 409)
 
     async def get_order(self, order_id: str) -> OrderSnapshot:
         result = await self._request("GET", f"/v2/orders/{quote(order_id, safe='')}")

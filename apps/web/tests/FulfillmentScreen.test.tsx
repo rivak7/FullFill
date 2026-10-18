@@ -41,7 +41,7 @@ beforeEach(() => {
   });
 });
 afterEach(async () => {
-  await act(async () => root.unmount()); container.remove(); vi.resetAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
+  await act(async () => root.unmount()); container.remove(); vi.restoreAllMocks(); vi.resetAllMocks(); vi.useRealTimers(); vi.unstubAllGlobals();
 });
 async function render() { await act(async () => root.render(<FulfillmentScreen />)); }
 async function click(text: string) {
@@ -50,6 +50,59 @@ async function click(text: string) {
 }
 const selected = () => container.querySelector('.queue-ticket[aria-pressed="true"]')?.textContent;
 async function poll() { await act(async () => vi.advanceTimersByTimeAsync(1000)); }
+
+async function startCameraCheck() {
+  vi.spyOn(document, "hidden", "get").mockReturnValue(false);
+  vi.spyOn(HTMLMediaElement.prototype, "play").mockResolvedValue();
+  vi.spyOn(HTMLVideoElement.prototype, "videoWidth", "get").mockReturnValue(640);
+  vi.spyOn(HTMLVideoElement.prototype, "videoHeight", "get").mockReturnValue(480);
+  vi.spyOn(HTMLCanvasElement.prototype, "getContext").mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({ data: new Uint8ClampedArray(4096) }) } as unknown as CanvasRenderingContext2D);
+  vi.spyOn(HTMLCanvasElement.prototype, "toDataURL").mockReturnValue("data:image/jpeg;base64,cGhvdG8=");
+  const track = { stop: vi.fn(), addEventListener: vi.fn(), getSettings: () => ({ deviceId: "camera" }) };
+  vi.stubGlobal("navigator", { mediaDevices: { getUserMedia: vi.fn().mockResolvedValue({ active: true, getTracks: () => [track], getVideoTracks: () => [track] }), enumerateDevices: vi.fn().mockResolvedValue([]) } });
+  await click("Enable camera");
+  await act(async () => container.querySelector("video")!.dispatchEvent(new Event("loadeddata")));
+  await click("Check now");
+}
+
+it.each(["result", "conflict"])("fulfills during scanning and ignores a late camera %s", async outcome => {
+  let resolve!: (state: OrderState) => void;
+  let reject!: (cause: Error) => void;
+  vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise((done, fail) => { resolve = done; reject = fail; }));
+  await render(); await startCameraCheck();
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  const fulfill = [...container.querySelectorAll("button")].find(b => b.textContent === "Fulfill order")!;
+  expect(fulfill.disabled).toBe(false);
+  await click("Fulfill order");
+  expect(orderApi.setStatus).toHaveBeenCalledWith("first", expect.objectContaining({ status: "fulfilled", expected_revision: 1 }), expect.any(String));
+  expect(selected()).toContain(`#${orderNumber("second")}`);
+  const announcement = container.querySelector(".queue-announcement")!.textContent;
+  await act(async () => {
+    if (outcome === "conflict") reject(new ApiError("This order changed.", 409));
+    else resolve(ticket("first", "needs_review", 3));
+  });
+  expect(container.querySelector(".queue-announcement")!.textContent).toBe(announcement);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+  expect(container.querySelector(".order-queue")?.textContent).not.toContain(`#${orderNumber("first")}`);
+  await poll();
+  expect(selected()).toContain(`#${orderNumber("second")}`);
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+});
+
+it("keeps a manual save locked when an older scan finishes first", async () => {
+  let rejectCheck!: (cause: Error) => void;
+  let finishSave!: () => void;
+  const save = vi.mocked(orderApi.setStatus).getMockImplementation()!;
+  vi.mocked(orderApi.checkCamera).mockImplementationOnce(() => new Promise((_, fail) => { rejectCheck = fail; }));
+  vi.mocked(orderApi.setStatus).mockImplementationOnce((...args) => new Promise(done => { finishSave = () => { void save(...args).then(done); }; }));
+  await render(); await startCameraCheck(); await click("Fulfill order");
+  await act(async () => rejectCheck(new ApiError("This order changed.", 409)));
+  expect([...container.querySelectorAll("button")].find(b => b.textContent === "Saving…")!.disabled).toBe(true);
+  expect(orderApi.setStatus).toHaveBeenCalledTimes(1);
+  await act(async () => finishSave());
+  expect(selected()).toContain(`#${orderNumber("second")}`);
+  expect(container.querySelector('[role="alert"]')).toBeNull();
+});
 
 it("shows another screen's changes on the next one-second refresh", async () => {
   await render();
