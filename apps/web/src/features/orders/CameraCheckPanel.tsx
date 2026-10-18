@@ -68,6 +68,9 @@ export function CameraCheckPanel(props: Props) {
   // One unprompted look when automatic checks start, and one recheck after an amber
   // result. Green and red stand until the scene changes.
   const extraCheck = useRef<{ at: number; reason: CheckTrigger } | null>(null);
+  // A green order moves on after GREEN_ADVANCE_MS whatever the mat shows; the next
+  // order is still only checked once the mat clears and something new is placed.
+  const greenAdvance = useRef<number | undefined>(undefined);
 
   function setAuto(value: boolean) {
     if (!value && bagging.current) { const held = bagging.current; bagging.current = null; latest.current.onMatCleared?.(held); }
@@ -97,7 +100,7 @@ export function CameraCheckPanel(props: Props) {
     document.addEventListener("visibilitychange", hidden);
     return () => {
       guard.current?.invalidate("page_closed");
-      mounted.current = false; generation.current++; controller.abort();
+      mounted.current = false; generation.current++; controller.abort(); window.clearTimeout(greenAdvance.current);
       stream.current?.getTracks().forEach(track => track.stop());
       document.removeEventListener("visibilitychange", hidden);
     };
@@ -215,6 +218,13 @@ export function CameraCheckPanel(props: Props) {
           bagging.current = boundOrder.id; trigger.current.nextOrder(); setHandoff(trigger.current.handoff);
           clearLog.current = { id: attemptId, at: 0, text: "", lines: 0 };
           updateCvLog(attemptId, trigger.current.handoff === "place" ? "Mat already clear: moving to the next order." : "Watching for the mat to clear.");
+          window.clearTimeout(greenAdvance.current);
+          greenAdvance.current = window.setTimeout(() => {
+            if (!mounted.current || bagging.current !== boundOrder.id) return;
+            bagging.current = null; clearLog.current = null;
+            updateCvLog(attemptId, "Green for 2 s: moving to the next order.");
+            latest.current.onMatCleared?.(boundOrder.id);
+          }, GREEN_ADVANCE_MS);
         }
         latest.current.onResult(state, watching);
         if (state.current_check?.execution_status !== "completed") {
@@ -334,6 +344,8 @@ export function CameraCheckPanel(props: Props) {
     {error && <p role="alert" className="error-banner">{error}</p>}
   </section>;
 }
+
+export const GREEN_ADVANCE_MS = 2000;
 
 // Every problem is an ordered item with none seen: the photo had nothing of this order.
 function sawNoneOfOrder(order: OrderState) {

@@ -783,7 +783,7 @@ it("advances a passed order as soon as the mat is bare, and logs each clear chec
   await act(async () => vi.advanceTimersByTimeAsync(1000));
   expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
   expect(onResult.mock.calls[0][1]).toBe(true);
-  await act(async () => vi.advanceTimersByTimeAsync(1500));
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
   expect(onMatCleared).not.toHaveBeenCalled();
   show(false);
   await act(async () => vi.advanceTimersByTimeAsync(500));
@@ -792,6 +792,28 @@ it("advances a passed order as soon as the mat is bare, and logs each clear chec
   expect(events).toContain("Watching for the mat to clear.");
   expect(events).toContain("Clear check: 144 of 144 order pixels still differ from the bare mat.");
   expect(events).toContain("Mat clear (empty mat): moving to the next order.");
+});
+
+it("moves on from a green order after 2 s even while it is still on the mat", async () => {
+  const passed = checked(); passed.current_check!.verdict = "pass"; passed.disposition = "fulfilled";
+  vi.mocked(orderApi.checkCamera).mockResolvedValue(passed);
+  const onMatCleared = vi.fn();
+  const show = (meal: boolean) => vi.mocked(HTMLCanvasElement.prototype.getContext).mockReturnValue({ drawImage: vi.fn(), getImageData: () => ({
+    data: Uint8ClampedArray.from({ length: 4096 }, (_, i) => { const p = i >> 2, row = p >> 5, col = p & 31; return i % 4 === 3 ? 255 : meal && row >= 8 && row < 20 && col >= 8 && col < 20 ? 70 : 210; }),
+  }) } as unknown as CanvasRenderingContext2D);
+  show(false);
+  await act(async () => root.render(<CameraCheckPanel workerId="worker" order={ticket()} pauseToken={0} checkToken={0} onResult={onResult} onBusyChange={onBusyChange} onMatCleared={onMatCleared} />));
+  await camera();
+  await act(async () => vi.advanceTimersByTimeAsync(1000)); // learns the bare mat
+  show(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1000));
+  expect(orderApi.checkCamera).toHaveBeenCalledTimes(1);
+  expect(onResult.mock.calls[0][1]).toBe(true);
+  await act(async () => vi.advanceTimersByTimeAsync(1500));
+  expect(onMatCleared).not.toHaveBeenCalled();
+  await act(async () => vi.advanceTimersByTimeAsync(750));
+  expect(onMatCleared).toHaveBeenCalledWith("first");
+  expect(readCvLogs()[0].events.map(event => event.message)).toContain("Green for 2 s: moving to the next order.");
 });
 
 it("sees an order with a warning bagged anyway once its spots show the bare mat, without checking the bare mat", () => {
